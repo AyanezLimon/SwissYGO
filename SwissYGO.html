@@ -1,0 +1,2402 @@
+<!DOCTYPE html>
+<!-- app-version: 2.6.0 -->
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#211f35" />
+<title>Gestor de Torneos — Yu-Gi-Oh!</title>
+<style>
+  /* =========================================================
+     TEMA — "Ledger de arena" : slate profundo + acento ámbar
+     ========================================================= */
+  :root{
+    --bg:        #14131f;
+    --bg-grid:   rgba(255,255,255,.022);
+    --panel:     #211f35;
+    --panel-2:   #2b2942;
+    --border:    #34324a;
+    --border-2:  #443f5d;
+    --ink:       #eef1f7;
+    --ink-soft:  #a7adc2;
+    --ink-faint: #767089;
+    --gold:      #82d8eb;
+    --gold-soft: #56b9d0;
+    --accent-ink:#16142a;
+    --crimson:   #e5534b;
+    --crimson-bg:#3a1b1a;
+    --green:     #57ab5a;
+    --blue:      #82d8eb;
+    --field-bg:  #1a1829;
+    --tab-active2:#1c1a2c;
+    --bg-radial: #2d2a47;
+    --footer-haze:#221f37;
+    --footer-haze-soft:rgba(34,31,55,0.45);
+    /* ----- Tamaño del halo del footer (ajústalo a gusto) ----- */
+    --footer-halo-w: 430px;   /* ancho máximo del halo */
+    --footer-halo-h: 128px;   /* alto del halo */
+    --footer-halo-core: 16%;  /* hasta dónde el centro queda opaco (disuelve el grid) */
+    --footer-halo-mid:  46%;  /* punto del tono suave intermedio */
+    --footer-halo-edge: 72%;  /* dónde llega a transparente (extensión total) */
+    --radius:    10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* ===== TEMA CLARO (Material-ish): activado con data-theme="light" ===== */
+  [data-theme="light"]{
+    --bg:        #eef2f6;
+    --bg-grid:   rgba(0,0,0,.035);
+    --panel:     #ffffff;
+    --panel-2:   #f1f5f9;
+    --border:    #dbe2ec;
+    --border-2:  #c4cedb;
+    --ink:       #211f35;
+    --ink-soft:  #4c4c66;
+    --ink-faint: #818aa0;
+    --gold:      #0e7490;
+    --gold-soft: #0b5e74;
+    --accent-ink:#ffffff;
+    --crimson:   #cf342b;
+    --crimson-bg:#fbe7e6;
+    --green:     #1f8a3b;
+    --blue:      #0e7490;
+    --field-bg:  #ffffff;
+    --tab-active2:#eef3f8;
+    --bg-radial: #ffffff;
+    --footer-haze:#dde5ef;
+    --footer-haze-soft:rgba(221,229,239,0.45);
+  }
+  /* Ajustes puntuales donde había colores oscuros fijos */
+  [data-theme="light"] nav.tabs button.active{ background:transparent; }
+  [data-theme="light"] .banner{ color:var(--crimson); }
+  [data-theme="light"] .toast{ background:#ffffff; color:var(--ink); }
+  [data-theme="light"] .toast.err{ color:var(--crimson); }
+  [data-theme="light"] .btn-danger:hover{ color:var(--crimson); }
+  [data-theme="light"] .pill-drop{ color:var(--crimson); border-color:rgba(207,52,43,.35); }
+  [data-theme="light"] .rank-2{ color:#5b6678; }
+  [data-theme="light"] .rank-3{ color:#9a6a1f; }
+  [data-theme="light"] .modal-overlay{ background:rgba(20,28,40,.45); }
+  [data-theme="light"] .pill-pend{ background:rgba(14,116,144,.10); color:var(--gold); border-color:rgba(14,116,144,.30); }
+  [data-theme="light"] input[type=text]:focus,
+  [data-theme="light"] input[type=number]:focus{ box-shadow:0 0 0 3px rgba(14,116,144,.16); }
+
+  /* ===== Switch de tema (claro/oscuro) en el header ===== */
+  .theme-switch{
+    margin-left:auto; display:inline-flex; align-items:center; gap:8px;
+    background:none; border:0; cursor:pointer; padding:6px; flex:none;
+  }
+  .theme-switch .track{
+    width:48px; height:26px; border-radius:999px; position:relative;
+    background:var(--panel-2); border:1px solid var(--border-2); transition:.2s;
+  }
+  .theme-switch .knob{
+    position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+    background:linear-gradient(145deg,var(--gold),var(--gold-soft));
+    display:grid; place-items:center; font-size:11px; line-height:1; transition:transform .2s;
+  }
+  [data-theme="light"] .theme-switch .knob{ transform:translateX(22px); }
+  .theme-switch .knob::after{ content:"☾"; color:var(--accent-ink); }   /* luna en oscuro */
+  [data-theme="light"] .theme-switch .knob::after{ content:"☀"; }      /* sol en claro */
+
+  *{ box-sizing:border-box; }
+  html{ overflow-x:clip; }
+  html,body{ margin:0; padding:0; }
+  body{
+    overflow-x:clip; /* el sangrado lateral del carrusel se sale del ancho; clip evita scroll horizontal (no rompe el sticky) */
+    touch-action:manipulation; /* sin zoom por doble-tap: los botones responden al instante y no escalan la página */
+    background:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px) 0 0 / 28px 28px,
+      radial-gradient(1200px 600px at 50% -10%, var(--bg-radial) 0%, var(--bg) 60%);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.45;
+    min-height:100vh;
+  }
+  .wrap{ max-width:1040px; margin:0 auto; padding:24px 20px 8px; }
+
+  /* ---- Header ---- */
+  header.app{
+    display:flex; align-items:center; gap:14px; margin-bottom:4px;
+  }
+  .crest{
+    width:42px; height:42px; flex:none; border-radius:9px;
+    background:linear-gradient(145deg,var(--gold),var(--gold-soft));
+    display:grid; place-items:center; color:var(--accent-ink); font-weight:800;
+    box-shadow:0 4px 18px rgba(130,216,235,.30), inset 0 1px 0 rgba(255,255,255,.4);
+    font-size:20px;
+  }
+  header.app h1{
+    font-size:21px; margin:0; letter-spacing:.3px; font-weight:700;
+  }
+  header.app .sub{ color:var(--ink-faint); font-size:12.5px; margin-top:1px; }
+
+  /* ---- Tabs ---- */
+  nav.tabs{
+    position:relative;
+    display:flex; gap:4px; margin:22px 0 18px; padding:4px;
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+  }
+  .tab-indicator{
+    position:absolute; top:4px; bottom:4px; left:0; width:0; border-radius:8px; z-index:0;
+    background:linear-gradient(180deg,var(--panel-2),var(--tab-active2));
+    border:1px solid var(--border-2);
+    box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 2px 8px rgba(0,0,0,.25);
+    transition:transform .45s cubic-bezier(.33,0,.2,1), width .45s cubic-bezier(.33,0,.2,1);
+  }
+  [data-theme="light"] .tab-indicator{ background:#ffffff; box-shadow:0 1px 3px rgba(20,28,40,.12); }
+  nav.tabs button{
+    position:relative; z-index:1;
+    flex:1; padding:10px 8px; border:0; cursor:pointer; border-radius:8px;
+    background:transparent; color:var(--ink-soft); font-family:var(--sans);
+    font-size:14px; font-weight:600; letter-spacing:.2px; transition:color .2s;
+  }
+  nav.tabs button:hover{ color:var(--ink); }
+  nav.tabs button.active{ color:var(--gold); }
+
+  /* ---- Transición lateral de paneles ----
+     Dos modos, elegibles con la constante JS TAB_FX:
+       'carousel' → los paneles coexisten y se deslizan ±100% (sin fundido): la página "ya existía al lado".
+       'fade'     → el modo anterior: desplazamiento corto (7%) + fundido.        */
+  .tab-stack{ position:relative; overflow-x:clip; }
+  /* ===== Sangrado lateral: SOLO en modo carousel =====
+     El stack se extiende --cz-fade px fuera de la sección a cada lado (margen
+     negativo) y reinserta el contenido con padding: los paneles quedan alineados
+     con la sección pero pueden deslizarse hacia esa zona de overflow y difuminarse
+     AHÍ, fuera del área principal.
+     --cz-fade: ancho de la franja de difuminado (y del sangrado).
+     --cz-gap:  separación extra entre el panel saliente y el entrante, para que
+                ninguno asome dentro de la máscara en el frame inicial/final. */
+  .tab-stack.fx-carousel{
+    --cz-fade: 48px;
+    --cz-gap: 40px;
+    margin-inline: calc(-1 * var(--cz-fade));
+    padding-inline: var(--cz-fade);
+  }
+  /* Durante el deslizamiento, los bordes (la zona de sangrado) se difuminan a
+     transparente: el contenido se "disuelve" al abandonar el área principal. */
+  .tab-stack.fx-carousel.sliding{
+    -webkit-mask-image:linear-gradient(to right, transparent 0, #000 var(--cz-fade), #000 calc(100% - var(--cz-fade)), transparent 100%);
+            mask-image:linear-gradient(to right, transparent 0, #000 var(--cz-fade), #000 calc(100% - var(--cz-fade)), transparent 100%);
+  }
+  .tab-stack.h-anim{ transition:height .45s cubic-bezier(.33,0,.2,1); overflow:clip; }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+  .tab-panel.exit-left, .tab-panel.exit-right{
+    display:block; position:absolute; top:0; left:0; right:0; pointer-events:none;
+  }
+  /* En carousel, el panel saliente (absoluto) debe respetar el padding del sangrado */
+  .fx-carousel .tab-panel.exit-left, .fx-carousel .tab-panel.exit-right{
+    left:var(--cz-fade); right:var(--cz-fade);
+  }
+  /* Modo 'fade' (anterior) — intacto: sin sangrado, sin máscara, recorrido corto */
+  @keyframes slideInRight{ from{opacity:0; transform:translateX(7%);} to{opacity:1; transform:none;} }
+  @keyframes slideInLeft{  from{opacity:0; transform:translateX(-7%);} to{opacity:1; transform:none;} }
+  @keyframes slideOutLeft{ from{opacity:1; transform:none;} to{opacity:0; transform:translateX(-7%);} }
+  @keyframes slideOutRight{from{opacity:1; transform:none;} to{opacity:0; transform:translateX(7%);} }
+  .fx-fade .tab-panel.enter-right{ animation:slideInRight .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-fade .tab-panel.enter-left{  animation:slideInLeft  .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-fade .tab-panel.exit-left{   animation:slideOutLeft .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-fade .tab-panel.exit-right{  animation:slideOutRight .45s cubic-bezier(.33,0,.2,1) both; }
+  /* Modo 'carousel': sin opacidad, ambos paneles en pantalla a la vez.
+     Recorrido = 100% del panel + sangrado + gap: así el panel entrante PARTE
+     totalmente fuera de la máscara (nada "aparece de la nada" en el frame 1) y el
+     saliente TERMINA totalmente fuera (nada "desaparece de golpe" al final). */
+  @keyframes carInRight{ from{transform:translateX(calc(100% + var(--cz-fade) + var(--cz-gap)));}  to{transform:none;} }
+  @keyframes carInLeft{  from{transform:translateX(calc(-100% - var(--cz-fade) - var(--cz-gap)));} to{transform:none;} }
+  @keyframes carOutLeft{ from{transform:none;} to{transform:translateX(calc(-100% - var(--cz-fade) - var(--cz-gap)));} }
+  @keyframes carOutRight{from{transform:none;} to{transform:translateX(calc(100% + var(--cz-fade) + var(--cz-gap)));} }
+  .fx-carousel .tab-panel.enter-right{ animation:carInRight .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-carousel .tab-panel.enter-left{  animation:carInLeft  .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-carousel .tab-panel.exit-left{   animation:carOutLeft .45s cubic-bezier(.33,0,.2,1) both; }
+  .fx-carousel .tab-panel.exit-right{  animation:carOutRight .45s cubic-bezier(.33,0,.2,1) both; }
+  @media (prefers-reduced-motion: reduce){
+    .tab-indicator{ transition:none; }
+    .tab-stack.h-anim{ transition:none; }
+    .tab-panel.enter-right, .tab-panel.enter-left,
+    .tab-panel.exit-left, .tab-panel.exit-right{ animation:none !important; }
+    .tab-panel.exit-left, .tab-panel.exit-right{ display:none; }
+  }
+
+  /* ---- Cards / panels ---- */
+  .card{
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:var(--radius); padding:18px;
+  }
+  .card + .card{ margin-top:16px; }
+  .card h2{ margin:0 0 14px; font-size:15px; font-weight:700; color:var(--ink); }
+  .card h2 .count{ color:var(--ink-faint); font-weight:500; font-size:13px; }
+  /* Cabecera de card con acción contextual: título a la izquierda, botón a la
+     derecha, en una sola línea (la acción no merece una fila propia). */
+  .card-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 14px; }
+  .card-head h2{ margin:0; }
+  .head-actions{ display:flex; gap:8px; }
+
+  /* ---- Inputs & buttons ---- */
+  input[type=text], input[type=number]{
+    background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink);
+    border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px;
+    outline:none; transition:.15s;
+  }
+  input[type=text]:focus, input[type=number]:focus{ border-color:var(--gold); box-shadow:0 0 0 3px rgba(130,216,235,.18); }
+  input[type=number]{ width:52px; text-align:center; font-variant-numeric:tabular-nums; padding:8px 4px; -moz-appearance:textfield; }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+
+  .btn{
+    border:1px solid var(--border-2); background:var(--panel-2); color:var(--ink);
+    border-radius:8px; padding:10px 16px; font-family:var(--sans); font-size:14px;
+    font-weight:600; cursor:pointer; transition:.15s; white-space:nowrap;
+  }
+  .btn:hover{ border-color:var(--gold); color:var(--gold); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn:disabled:hover{ border-color:var(--border-2); color:var(--ink); }
+  .btn-gold{ background:linear-gradient(180deg,var(--gold),var(--gold-soft)); color:var(--accent-ink); border-color:var(--gold-soft); }
+  .btn-gold:hover{ filter:brightness(1.08); color:var(--accent-ink); border-color:var(--gold); }
+  .btn-danger{ color:var(--crimson); border-color:#5a2a28; background:transparent; }
+  .btn-danger:hover{ background:var(--crimson-bg); color:#ff7b73; border-color:var(--crimson); }
+  .btn-sm{ padding:7px 11px; font-size:13px; }
+  .btn-ghost{ background:transparent; }
+
+  .row{ display:flex; gap:10px; align-items:center; }
+  .row.wrap{ flex-wrap:wrap; }
+  .grow{ flex:1; min-width:0; }
+
+  /* ---- Tables ---- */
+  table{ width:100%; border-collapse:collapse; font-size:15px; }
+  th,td{ text-align:left; padding:12px 12px; border-bottom:1px solid var(--border); }
+  th{ color:var(--ink-faint); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.6px; }
+  tbody tr:nth-child(even) td{ background:var(--panel-2); }
+  tbody tr:hover td{ background:rgba(130,216,235,.08); }
+  tr:last-child td{ border-bottom:0; }
+  td.num, th.num{ text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono); }
+  .pos{ font-variant-numeric:tabular-nums; font-family:var(--mono); color:var(--ink-faint); width:36px; }
+  .rank-1{ color:var(--gold); font-weight:800; }
+  .rank-2{ color:#cdd6e0; font-weight:700; }
+  .rank-3{ color:#cd9b61; font-weight:700; }
+  tr.dropped td{ color:var(--ink-faint); text-decoration:line-through; opacity:.65; }
+  tr.dropped td.keep{ text-decoration:none; }
+
+  .pill{ display:inline-flex; align-items:center; justify-content:center; vertical-align:middle; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:.4px; line-height:1; }
+  .pill-bye{ background:rgba(130,216,235,.15); color:var(--blue); border:1px solid rgba(130,216,235,.32); }
+  .pill-drop{ background:var(--crimson-bg); color:#ff7b73; border:1px solid #5a2a28; }
+  .pill-ok{ background:rgba(87,171,90,.14); color:var(--green); border:1px solid rgba(87,171,90,.3); }
+  .pill-pend{ background:rgba(130,216,235,.12); color:var(--gold); border:1px solid rgba(130,216,235,.30); }
+
+  /* ---- Match tables (Rondas) ---- */
+  .match{
+    display:flex; align-items:center; gap:12px; padding:14px 16px;
+    background:var(--panel-2); border:1px solid var(--border); border-left:3px solid var(--border-2);
+    border-radius:9px; margin-bottom:10px; flex-wrap:wrap;
+  }
+  .match.reported{ border-left-color:var(--green); }
+  .match.dl{ border-left-color:var(--crimson); }
+  .match.bye{ border-left-color:var(--blue); }
+  .match .mesa{ font-family:var(--mono); font-size:12px; color:var(--ink-faint); width:62px; flex:none; }
+  .match .players{ flex:1; min-width:220px; display:flex; align-items:center; gap:10px; }
+  .match .pname{ font-weight:600; }
+  .match .pname.winner{ color:var(--green); }
+  .match .vs{ color:var(--ink-faint); font-size:12px; font-weight:700; }
+  .match .score{ display:flex; align-items:center; gap:6px; }
+  .match .score .dash{ color:var(--ink-faint); font-weight:700; }
+  .match .winner-pick{ display:flex; align-items:center; gap:10px; flex:1; min-width:220px; }
+  .pick{ flex:1; padding:12px 14px; border-radius:9px; cursor:pointer; font-weight:600;
+    font-size:15px; color:var(--ink); background:var(--field-bg);
+    border:1px solid var(--border-2); transition:border-color .15s, background .15s, opacity .15s; }
+  .pick:hover{ border-color:var(--green); }
+  .pick.won{ background:linear-gradient(180deg,#2ea043,#1a7f37); color:#ffffff; border-color:#1a7f37;
+    box-shadow:0 2px 10px rgba(46,160,67,.28); }
+  .pick.lost{ opacity:.45; text-decoration:line-through; }
+  .match .match-foot{ display:flex; align-items:center; gap:10px; }
+  .round-head{
+    display:grid; gap:10px 16px; margin-bottom:14px; align-items:center;
+    /* Desktop: una sola fila — [título]  [timer-bar]  [selector] */
+    grid-template-columns:auto 1fr auto;
+    grid-template-areas:"title timer selector";
+  }
+  .round-head h2{ margin:0; grid-area:title; }
+  .round-head .roundsel{ grid-area:selector; }
+  .timer-bar{ grid-area:timer; justify-self:center; display:inline-flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; justify-content:center;
+    background:var(--field-bg); border:1px solid var(--border-2); border-radius:10px; padding:6px 10px; }
+  .timer-display{ font-family:var(--mono); font-size:22px; font-weight:700; letter-spacing:1px; color:var(--ink); line-height:1; min-width:74px; text-align:center; }
+  .timer-display.over{ color:var(--crimson); }
+  .timer-controls{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .timer-controls input{ width:50px; }
+  .timer-min-wrap{ display:inline-flex; align-items:center; gap:4px; }
+  .timer-min-wrap .min-suffix{ font-size:12px; color:var(--ink-faint); }
+  .match .actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+  .empty{ color:var(--ink-faint); text-align:center; padding:18px 10px; font-size:14px; }
+  /* Desplegables compactos (pegar lista / comentario), con apertura animada */
+  .disclosure{ margin-top:12px; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); }
+  .disc-summary{ width:100%; text-align:left; background:transparent; border:0; cursor:pointer; padding:9px 12px; font-size:13px; font-weight:600; color:var(--ink-soft); font-family:var(--sans); display:flex; align-items:center; gap:8px; user-select:none; }
+  .disc-summary::before{ content:'›'; display:inline-block; font-size:16px; line-height:1; color:var(--gold); transition:transform .26s cubic-bezier(.4,0,.2,1); }
+  .disc-summary[aria-expanded="true"]::before{ transform:rotate(90deg); }
+  .disc-summary:hover{ color:var(--ink); }
+  .disc-collapse{ display:grid; grid-template-rows:minmax(0,0fr); opacity:0;
+    transition:grid-template-rows .34s cubic-bezier(.4,0,.2,1), opacity .3s ease; }
+  .disc-collapse > .disc-inner{ overflow:hidden; min-height:0; }
+  .disc-collapse.open{ grid-template-rows:minmax(0,1fr); opacity:1; }
+  .disclosure .disclosure-body{ padding:0 12px 12px; }
+  .disclosure .opt{ color:var(--ink-faint); font-weight:500; }
+  #note-badge{ color:var(--gold); font-weight:800; }
+  /* Divisor entre jugadores y configuración (tarjeta única) */
+  .setup-sep{ height:1px; background:var(--border); margin:16px 0; }
+  /* Rondas + Iniciar en una sola fila; el botón se va a la derecha */
+  .setup-row{ gap:12px; align-items:center; }
+  .setup-row #start-tournament{ margin-left:auto; }
+  /* Footer de crédito: halo MUY sutil solo detrás del contenido (texto+logo).
+     El radial es opaco en el centro -> disuelve las líneas del grid justo ahí,
+     y se desvanece a transparente, dejando reaparecer el grid suavemente.
+     El tono es una variante leve del mismo azul del fondo (como el radial superior). */
+  .app-footer{
+    position:relative; margin:42px auto 20px; padding:16px 0;
+    display:flex; align-items:center; justify-content:center; gap:9px;
+    color:var(--ink-soft); font-size:13px;
+  }
+  .app-footer::before{
+    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(var(--footer-halo-w), 92%); height:var(--footer-halo-h); pointer-events:none;
+    background:radial-gradient(ellipse at center,
+      var(--footer-haze) 0%, var(--footer-haze) var(--footer-halo-core),
+      var(--footer-haze-soft) var(--footer-halo-mid), transparent var(--footer-halo-edge));
+  }
+  .app-footer > *{ position:relative; }
+  .app-footer .footer-logo{ width:30px; height:30px; border-radius:7px; display:block; }
+  @media (prefers-reduced-motion: reduce){ .disc-summary::before, .disc-collapse{ transition:none; } }
+  .hint{ color:var(--ink-faint); font-size:12.5px; margin-top:10px; line-height:1.5; }
+  .hint code{ font-family:var(--mono); background:var(--field-bg); padding:1px 5px; border-radius:4px; color:var(--ink-soft); }
+
+  .toolbar{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    margin-top:22px; padding-top:18px; border-top:1px solid var(--border);
+  }
+  .toolbar .spacer{ flex:1; }
+  .roundsel{ background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink); border-radius:8px; padding:8px 10px; font-family:var(--sans); font-size:13px; }
+
+  .banner{
+    background:var(--crimson-bg); border:1px solid #5a2a28; color:#ffb3ae;
+    padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:14px;
+  }
+  .toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
+    background:var(--panel-2); border:1px solid var(--border-2); color:var(--ink);
+    padding:11px 18px; border-radius:9px; font-size:14px; box-shadow:0 8px 30px rgba(0,0,0,.5);
+    opacity:0; pointer-events:none; transition:.25s; z-index:50;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.err{ border-color:#5a2a28; color:#ffb3ae; }
+
+  /* ---- Botón de acento sólido (para confirmaciones destructivas) ---- */
+  .btn-crimson{ background:linear-gradient(180deg,var(--crimson),#b5392f); color:#fff; border-color:#b5392f; }
+  .btn-crimson:hover{ filter:brightness(1.08); color:#fff; border-color:var(--crimson); }
+
+  /* ---- Modal de confirmación (reemplaza confirm() nativo) ---- */
+  .modal-overlay{
+    position:fixed; inset:0; z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    background:rgba(5,8,12,.72);
+    backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+    overflow-y:auto;
+    opacity:0; pointer-events:none; transition:opacity .2s ease;
+  }
+  .modal-overlay.open{ opacity:1; pointer-events:auto; }
+  .modal{
+    width:100%; max-width:min(420px, 100%); max-height:90vh; overflow:auto;
+    background:var(--panel); border:1px solid var(--border-2); border-radius:14px;
+    padding:22px 22px 18px; box-shadow:0 24px 70px rgba(0,0,0,.6);
+    transform:translateY(14px) scale(.98); transition:transform .2s ease;
+  }
+  .modal-overlay.open .modal{ transform:none; }
+  .modal-title{ margin:0 0 8px; font-size:17px; font-weight:700; color:var(--ink); }
+  .modal-msg{ margin:0 0 20px; color:var(--ink-soft); font-size:14px; line-height:1.55; }
+  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; }
+  .modal-actions .btn{ min-width:110px; padding:11px 16px; }
+
+  /* ---- Contenedor con scroll horizontal exclusivo (tabla de Standings) ---- */
+  .table-scroll{ }
+  thead th{ position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--border); }
+  .pos .rank-wrap{ display:inline-flex; align-items:center; gap:5px; }
+  .pos .rank-wrap svg{ flex:none; }
+  .tieseg{ color:var(--ink-faint); padding:0 1px; }
+  .pick .won-mark{ margin-right:7px; font-weight:800; }
+  /* Botón de ayuda del desempate + desglose plegable animado */
+  .tb-info-btn{ background:transparent; border:0; color:var(--gold); cursor:pointer; padding:0 0 0 5px; font-size:14px; line-height:1; vertical-align:-1px; }
+  .tb-legend{ display:grid; grid-template-rows:0fr; opacity:0; margin-top:0;
+    transition:grid-template-rows .34s cubic-bezier(.4,0,.2,1), opacity .3s ease, margin-top .34s ease; }
+  .tb-legend > .tb-legend-inner{ overflow:hidden; min-height:0; }
+  .tb-legend.open{ grid-template-rows:1fr; opacity:1; margin-top:14px; }
+  .tb-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .tb-chip{ border:1px solid var(--border-2); border-radius:9px; padding:10px 12px; background:var(--field-bg); }
+  .tb-chip .seg{ font-family:var(--mono); font-size:18px; font-weight:700; color:var(--gold); }
+  .tb-chip .lbl{ font-size:12px; color:var(--ink-soft); margin-top:3px; line-height:1.35; }
+  /* Switch de exclusión de drops dentro del popover */
+  .tb-switch-row{ display:flex; align-items:center; gap:12px; margin-top:14px; padding:10px 12px; border:1px solid var(--border-2); border-radius:9px; background:var(--field-bg); cursor:pointer; }
+  .tb-switch-row .sw-text{ flex:1; font-size:13px; color:var(--ink); }
+  .tb-switch-row .sw-input{ position:absolute; opacity:0; pointer-events:none; }
+  .tb-switch-row .sw-ui{ flex:none; width:40px; height:22px; border-radius:999px; background:var(--border-2); position:relative; transition:background .25s ease; }
+  .tb-switch-row .sw-ui::after{ content:''; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--ink-soft); transition:transform .25s cubic-bezier(.4,0,.2,1), background .25s ease; }
+  .tb-switch-row .sw-input:checked ~ .sw-ui{ background:var(--gold); }
+  .tb-switch-row .sw-input:checked ~ .sw-ui::after{ transform:translateX(18px); background:var(--accent-ink); }
+  .tb-switch-row .sw-input:focus-visible ~ .sw-ui{ outline:2px solid var(--gold); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce){
+    .tb-legend{ transition:none; }
+  }
+
+  /* =========================================================
+     RESPONSIVE / MOBILE-FIRST
+     ========================================================= */
+  /* El reordenamiento del round-head ocurre ANTES (720px) que el resto de reglas
+     móviles: por debajo de ~700px el cluster del timer ya no cabe en una línea
+     junto a título+selector, así que baja completo al nivel 2 en vez de partirse
+     en dos líneas dentro del nivel 1. */
+  @media (max-width:720px){
+    .round-head{
+      /* Fila 1: dos celdas iguales — título y dropdown, cada uno centrado en la suya.
+         Fila 2: el timer a lo ancho. */
+      grid-template-columns:1fr 1fr;
+      grid-template-areas:
+        "title selector"
+        "timer timer";
+    }
+    .round-head h2{ justify-self:center; }
+    .round-head .roundsel{ justify-self:center; }
+    .round-head .timer-bar{ justify-self:stretch; width:auto; }
+  }
+  @media (max-width:640px){
+    .modal-overlay{ padding:14px; }
+    .wrap{ padding:16px 12px 56px; }
+    header.app h1{ font-size:18px; }
+    header.app .sub{ font-size:11.5px; }
+
+    /* Tabs: objetivo táctil cómodo, sin amontonarse */
+    nav.tabs{ gap:6px; padding:5px; }
+    nav.tabs button{ padding:14px 6px; font-size:14px; }
+
+    /* Botones e inputs fáciles de presionar con el pulgar */
+    .card{ padding:16px; }
+    .btn{ padding:13px 16px; }
+    .btn-sm{ padding:10px 12px; font-size:13px; }
+    input[type=text]{ font-size:16px; padding:12px 12px; }    /* 16px evita el zoom automático en iOS */
+    input[type=number]{ width:66px; font-size:16px; padding:13px 4px; }
+
+    /* Cartas de match: apiladas (nombres arriba; score y acciones centrados) */
+    .match{ flex-direction:column; align-items:stretch; gap:12px; padding:14px; }
+    .match .mesa{ width:auto; }
+    .match .players{ min-width:0; justify-content:center; text-align:center; flex-wrap:wrap; }
+    .match .score{ justify-content:center; }
+    .match .actions{ justify-content:center; }
+    .match .actions .btn{ flex:1; }
+
+    /* Setup: el botón Iniciar baja a su línea, a ancho completo */
+    .setup-row #start-tournament{ flex:1 1 100%; margin-left:0; }
+
+    /* Standings: scroll horizontal y ancho mínimo para que sea legible en móvil */
+    .table-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    #standings-list table{ min-width:520px; }
+
+    /* Barra de ronda: botones a ancho completo y apilados */
+    .toolbar{ gap:10px; }
+    .toolbar .spacer{ display:none; }
+    #advance-round, #correct-prev{ flex:1 1 100%; }
+
+    /* Modal a ancho cómodo */
+    .modal-actions{ gap:8px; }
+    .modal-actions .btn{ flex:1; min-width:0; padding:13px; }
+  }
+
+  /* Landscape de teléfono (alto reducido): compacta el encabezado */
+  @media (max-height:480px) and (orientation:landscape){
+    .wrap{ padding-top:12px; }
+    nav.tabs{ margin:14px 0 12px; }
+    .modal{ max-height:94vh; }
+  }
+
+  /* =================== IMPRESIÓN ===================
+     Los TO suelen imprimir/proyectar standings: se imprime SOLO el panel
+     activo, sin controles, y con paleta clara aunque la app esté en oscuro. */
+  @media print{
+    :root, [data-theme="light"]{
+      --bg:#ffffff; --bg-grid:transparent; --panel:#ffffff; --panel-2:#f4f6f9;
+      --border:#c9d2de; --border-2:#b3bfce; --ink:#16142a; --ink-soft:#46465e;
+      --ink-faint:#76768c; --gold:#0e7490; --gold-soft:#0b5e74; --accent-ink:#fff;
+      --crimson:#b3261e; --field-bg:#ffffff; --bg-radial:#ffffff;
+      --footer-haze:transparent; --footer-haze-soft:transparent;
+    }
+    body{ background:#fff !important; }
+    body::before, body::after{ display:none !important; }
+    .theme-switch, nav.tabs, .toolbar, .timer-bar, .roundsel, .tb-legend,
+    .tb-info-btn, .app-footer, .toast, .modal-overlay, .btn, .hint,
+    #standings-actions, .disclosure{ display:none !important; }
+    .wrap{ padding:10px 0 0 !important; max-width:none !important; }
+    .tab-stack{ height:auto !important; transform:none !important; overflow:visible !important; }
+    .tab-panel{ display:none !important; }
+    .tab-panel.active{ display:block !important; position:static !important; transform:none !important; opacity:1 !important; }
+    .card{ border:1px solid var(--border) !important; box-shadow:none !important; break-inside:avoid; }
+  }
+</style>
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABCGlDQ1BJQ0MgUHJvZmlsZQAAeJxjYGA8wQAELAYMDLl5JUVB7k4KEZFRCuwPGBiBEAwSk4sLGHADoKpv1yBqL+viUYcLcKakFicD6Q9ArFIEtBxopAiQLZIOYWuA2EkQtg2IXV5SUAJkB4DYRSFBzkB2CpCtkY7ETkJiJxcUgdT3ANk2uTmlyQh3M/Ck5oUGA2kOIJZhKGYIYnBncAL5H6IkfxEDg8VXBgbmCQixpJkMDNtbGRgkbiHEVBYwMPC3MDBsO48QQ4RJQWJRIliIBYiZ0tIYGD4tZ2DgjWRgEL7AwMAVDQsIHG5TALvNnSEfCNMZchhSgSKeDHkMyQx6QJYRgwGDIYMZAKbWPz9HbOBQAAAktklEQVR42sWbd3hVVdb/P3ufc25JbjpphN5L6CDYgNAVLKAUAcUKOjivIzM2RAF1dGxYR8UZUUZRCQqICtK7onRCDUgLIT0kuTe55ZT9+yMBCwLO+877/s7z5HnyJLkne6291net9V1rCf5zj+gzfbq28ZlnLMe2z/0wydeqTY9xY7olNG3SzRMf387wehoLqSUjpU8o5VZKgRBhlAooxy6xQpETwcoz+88cP7F99/zPtheU7T149l1S07h62ip9/cwsG1D/kUP/J94xMlvJz0ZLWykFIDtcPeqqzGuvuS42o34/zWW0VbbtDZ6poOr0afzFRQTLygj7A1hmBM1woek6RnQUUQkJ+FJSiU1Px5OYgJAyqGz7QGVBwZqDS5d/uXPtx5sAByEYOd/RFowSzv9UEf8jBYzMztY+GzPaVo4CSLv+oedvrd+5860ur69DoKiYU9u3kr9jB2U//uiEqqqUOyZGaLoudI8Hd0yMkLpOdUkJoFC2oxzHwQwGlR0OK3dsrEhu3VqmdehAg67diElNxTTDOQU5OR8ufvbBD4FCIQU3fzpfWzBqlP1/rIDpUqkZSgihgJQR0157oH6XzvdgqeQf163l0IoVqrq4yNZdbhmbkSEa9Ogh0jLb88M/36Pvo4+Q0r49mm5QvG8fSx9+GKnroBRC07jqwT8hpMbJLVs4vHKlMmtqlJDSia2frjW7uo9onpWFNPSSwr05/8h+8r7XgGKllBBihoCZzv+6AvpMn66vnznTAhh4xyOTW1877HFsO33X/E84umG95Vi2zOjaVYYqqzBrqhkzbx62bXFo6TJysrNx+WLo98TjuGNiWThxInY4jBACOxLBl5bG+IWfk799O76UVMqPHmXFtGlITSNUVUXI73c0l8tpPWiw3mnkSDSvp+DQqpV/Xf73GX//9dl+7yP/nT/OVkpbP3OmFU1C+ztmL17badSYNw8t+zp94R/utU5t26biGzTU3TExcuhLL9GsXxblx48TPHOGkoMHWTrjIcJ+P0V7cyg78iOayyDs99edQmJFIiQ2a4bucvHVlD+zdc4cmlx1FdLQEZrOoGee4Y4vl8jMG27QD69aqRb91x+tnM8Xpmdee92b98z5am10dGr79TNnWtlKaf8bChBKKTlKCPuKEZNuv+uLpVtUJNJ3wT13Wbvnz1earuvthw8Xoz78F45tU7BnNxldOmObEfK2bSOjezdu+efHNOjRA6UUViiEO9qHKzoa5TgIIVCOQ3Kb1iig0+hRdL/9dk5t20rV6QIu/+P9tL1uGCe2bKH/jOm0GTZMaLquH17+jVp4/31WuMrfd+KnX27pM/6B20cJYSul5O+1bvk7hUcI4Vz35+dfvmry/e/vX7zIt/SRh+2YtDS9xYCBAinZv2QJ4aoq+j78MEfWriW5dWu8cfHk79hOVGIiylEEiorRXC6CFRXoHje624VynHP+n9axE0V799Fq8GCkrrF86uMkt2pFh5uGs/39D/ju72+jGTrxDRpgBoNoLpeI+Kv1L6dMsXd9+omv5x33vD982qsvCyGcuogk/qcKOCu8PuqZ2Z+2vWbolOVPPmnt/Gie0lwurcu4sdzw+ivEZmQQqqjgm6nTaDP0WmJS03Asm3otW1G0dx9WMMzxTZs4unk9KEWoshLN5UL3elFK4dg2bp+P5Nat+HHtOk7t2EmgpITyo8foOHo0UpPsnDePyybeje52c3T9eoyoKK6a8iDjP/+Mbrfdqu1ZsEAte+wxq2XvflPGvfivT4UQ+u9RgryE8EIIod3y3JyFjbr1GP35vZPM/G3b9T6PPCwadO/BltnvYobCXPXgn9A9Hor25rD1n+/RZdw4pKaR2r4tlXl5VJw4Tpfx4xjy9LM079+fQFERhseLKyoaUNiRCAlNmpDULJ2SgwfQDR1vbBzxjRvR7obr2bdoCaGqKrqMH0fu8pWc3r2b/k8+Sddbb+XE5s1c8cB/0XH0aFG8f5++8P7JZlrbdqPHvzJvoRBCU0qJiynhQgoQ09eu1YQQzqiZb83L6Nx52MLJk81IIGAMenomLfsPwAzWcObYMda/+BJthw6i5aBBSE1jx4cfUpSzh3qtG5Ga2QE7EuH45m/R3S58KSk4kQjF+/eTPWECgYICNMOF0DQqTp7ki/sfpmjfPoIVlURqqolv3ISYlBR2z59Pm6FD8aXUY/Obb9Jp9Gi63TaC1U8/zfoXX8TweEhp1Qrd68Ws9huf3TvJTG3Zetj4F+bOE0I409cq7UJK+E3EnD59rT7zjixr6IPPzGrdf/Ddi/54v+kvOG00ueJyBj87nUPLVrB7fjYNe/Tg5HffUa9VGzJvGs7eRYuxwmEqT+XT6PIr8RcWceqHHyg5cIBd8z4mZ8ECKvPysCIRzuTlYdoOOA5GVBS+9PqY4TCxDRvhLyqm+GAu7rh4vEn1aNa7Dx1uuokjK1dTduw4N77xKge+XsmaZ/7KiNnvkNC0CeteeIFAYRG+1FTsSEQ7sHSp2WvSvR2TG7aKm3335cumr12rr58717lkHjAyO1tbMGqU3Wv4pNv63P/HuUunTTWr8k4ZiU2bUrB7N93vupO+jzzCsY2b0HWdrx56CG9cHGPnf8zJ77cSnZTEoeXLyV2+AmWaBMvLUFLDm16fpDZtSW7RnHoNMohJTCA+zkfIkeR8s4LifXsJlpYQqqzEsSyEEGiahmVZpHftRqPLr6AsvxBvTDTNLr+MRffeS6fRYxj09KN8/Zcn2PreHBr36sWQvz1H8f4DLH34Yeq1aWNe++yzxg9z3puw9qNX/nVWtgtbwPTp8sADDzhJia1aXzPtiS/3fL5A5i5dprW74QZx/euvcXLLFvZ/8QWG10uPu25m9/wlHFm1krDfj9AM2g4dwvZ/fciBJV8SLC4Gw6Bh1gCu/sO9DP/jJMbccgM3DbySwV1aM7xTc2JiYvj0jXc5+PVX1BQVYocjCCnRDYNwMERICOIbNMKqqiT/wGFC0ktak/ocWrGStPZtGfLsTHb8az5rn3uO7hMmMPDpp0hq0Zjc5as4+f33+E+flpFg0Ok85pYhJ7/b9fkP771RwpNPStavV79pASOV0hYIoW5945MNEu3KZY8+bMem19eqy8u55m9/o3nfPswbOYqyo0cZ8uwzdBg1kmWPTKXNkMHkbd3KvsVLCBQV4o6Npcm1Q+kzbjRZXdrQNkonwQ6j2RamZeONcvPtsWIm3fEgJftyiE5IgLpcQEpJwB+g/dVXMu6/JlKSWJ9V731AxdFjkJBOw2b1qSktod9jD5P7zTcse3QqWY8+TNPefUApfly/jtVPP0PXsWMJBwLszs62hz7/gmb4ojbPmTi8d7ZSYpQQ9nkWMDI7W1uQmWn3m/DQpFZ9su5b+tijli85Wb/pn/8gpXUbNrz8MvENG9Ljzjs4tHwFh1esJLlFK3r/5V6ObtzC9g/mEiorJblzFwY/NYM/3HcbI5ok0oIwLiuC5SjCCtwug/1ngtx5+4OU79+LLzERpy4XkJqk2h/gyuHXM3fOy1zZPI32MQYtr+xFpFEzQmXFHFu+jIqTJ9i7YAHHv/2WG15/jejkZH5ctw7d5eL4ps30ffRRet03AU9sIkfXrJUnf/je6jp2fJP4+IzC54b23ToyO1vbv2DBL2Lk2Xif+IdP1xzM/WZ54r7Fi4hOTpaNevWix9134UtOZucnn9CsTx8i/gCfT5xIVGISzbL6sH/RYuxwmOY3jmDM1D9zY+MEUiLVRJCYClAOAjBQRKJiGDvpcbYvXERsvUQsszZ1F0JgmxE8KeksXPoRbROjqQyGcekSF4pizcOSU1V8/PTzHP1yCbbj0HnMGNI7dyJn4SJuenc2lSfzqC4vo2H3HuRt/YGV02cQrqoiHAg4rQcNpv1NI8rfvHloG6WqyoUQALV58/Tpa/WsrKbO9Q+/OC0+vcHgDa/OsqPi4jXHNCnat5+9ixYRKCoic/gIolOSSWnXlviGjTi8YgVFe/chlKLDXXdz/1OPMiJJx2eFCaKB4xDtMfBGRWO43bjcHmbN+4rPXvs78QnxWNZPeKRpGtX+AH2HX8cdwwfgr/IjNYmjIIIgRll0jHORPnAw+REoy9lNyeEj5O/YwagP5lC0/wAHvl5Kw+7dOPHdd3wzdSpmIFDLNXg8omDfPrv1wMG+Jp17WKP7dl99NiqIn24/JukP85cczsleEHd03TrcsbFCOQ5CqxUkVFWF7vHQcuAgut1+GzVl5Sx96GHMgJ/2t9/BA48/SD+9GksJTAUeKTCio9l+vICNW3Zy4tgpiotL2LZ8FZa/ClFXAv9cAWfKK5gy669MvWMEllLoQgAOdjhCTdgEAW4J651oXn/+TXa+9RZxTRqT3KY1Zk2Yfo9P5cc1q9nw4ksY0dFITautNaQk7PerxpdfQZcJEyrn3j6qpd9/ukwIgT59+lpNCGENm/K324US8cc2brTcsbG6cmpDpqqjt7zx8Ti2zf4lX3B800Y0l4tQeSnNht/EpEf+i356NSYSSzn4XAYltuT5lz/giw/m4S8sQNg2UoA3Ovo84QEcR+H1uNm0djN/Ki7DipgkJCXQtFlDOrdvSWbDVLRImOpQmD5aNaE/T2ZWcSmHF8ynMu8UN737Lrvnf8oP7/6D6Hr1QCnOyeA4uGNixPHvvrU6jRkTP/jBqbcLIV6aPn2tfi7dnTh3ac7J775vvfvTT1RUYqL8Oa/3i9RR03AcB7umhtiWrbjvg9lMyIhG2DaWgmi3zuHKMJP/9BS7v/6K2JhoNJcLECg4B3i/mX4KQbgmSDgSqa0QhUAaLmLS0risfx8m33crlzdLpyZQjTR0PiqM8OYdk6jKPYQeHU24qupchXneuzWN4JkzTubwEaLFgP6H3h47oINSypZCCNWp76iebl9Mm6Mb1iu3z3dB4QEc265FTsOg75Q/cWOjBHTLwkLg0SUnayzumvgIe7/+isR6SQjdwLYdbNvGse0LCg+glMIdHUV8YgJxCfHEx8cRG+XGKStm9Zy5jBt+Bx9v2EmULxoiJjdk+BjwlykoTcOJRC4o/FlLdvt88timjUp3u9v0GjGppxBCSYB2Q4YMDxQVU3X6tFN7WxepnjSNiN9P4yHXcNOAK2rRXkikssEbxVMv/oNDa9YQn1wPy7ZR6t/jLJVTq6xzX44C3SCuXhKqpJCpkx9h0+FTuLweEkLVjOjbg+bDrsesrqYO2S/4aIZBoKjIqco/TausvsPPFkMyNj29f/6O7Qgh5KUO7FgWWkwsfcffQhe3TQSJUg7RXi9rd+Wy4uNsEpISam/cNM8pQEqJpmtomoaUv5OJOyuQUlimiTsmlvDpfN5+50Nsw42poKNhkjV+NHp8Ao51cTZMKYXUNJm/bRvR9VL6A1LWr9+xhTCMtoU5ORgez0UVIDQNs6aGjCuupF+X1kRbYWwEQimUbrB48XKcQBVmxMQfDOFKSMJwuZBCUF1dQ3npGcrLzxAMhtG0SzNXjmkihTh3s7ZlERXtZefG7zhaWIbhduGJhOnbsSUNe1+NWV2NvMh7lVIYHo8s2JsDirZNO17VQmZee10PLNtdkZ9fa/4XU4BSKCnJHDyAtlEaVt2fGppGQVU1OzZvIVxdQ1LrNrw453U+W7WAem3aUF5SSo/LujD5/tuZOGk8rVo1peJM5UVNVimFNymJmlC4FneEQCmFputUlZZx/FQhhmFgKkUbD3QcNAh0/eIupxSay0VVQYFjR8LuDoNv7KEnNW/aPXjmDGZ1tTISErggANYxt960dLp060i8HcGk9lAej5uS4koKCwvpM+ZmXnhhGi3rxfHuF2s4vnMX//zgVUbcfN25V4XDYd54/Z+8+MLb+HzR5x1aSEmoqorO1w2jW69uvPPYTFyODbK2rLfDEfyBaoSUWAji7AhdumSyMqMBkcICpMt1QUUIKbGCQRUsKye+YcPu0pWQ2N5fWIhyHHFxdxTYkTCJLVvSun4ymm3hINCl4EzYZPabc4nxJfLQQ3+gZVI0BYEgr896hxef+Qsjbr4O27axLAvLsnG53Pzlock88uhkKiurznMHpRSeqCh++HoZg/v2ZMpzT1BVHUQTAlAIKTEMo7ahgkDaFq3SE0hq3Ro7EgEpL4UFoqqgAHdMTHvpcrsbBUqKEVKKi/q/EDi2Q3KrVtSPcuEoVXtQl8GRvCK+/GgRp3fvZfu3W1Ho7Nx/hHpeg3ETxmBZNlJKdF1HCFDKwbJspvz5Pnr36YXfH0D+/NBKoRkGwYpKvlmyksnjr6dlj+6EamoAcHk91EuMRdk2QoCjIN1jkNKqFY7jXJQErANC4S8uQnfrjaTUZHLNmTO/PMAFY6AkuWED4jSFo0CTgmDEpG3jNCb9+R5uvGsM1wy6GiEUlVUBmjVtiEKg61qtBdl2XRT46X9NnDgeu87Hf/3oAk6cOo0bxZDrhxCybBzLJj45mYzUepimhRQCW0GsVKQ0zABNuyiOnXOxigpAJusI6TOrqxGXiE1KOaDpxCYl4kbx83RDU4rHH7gVkERCIRzLpGlGGjYSIaCkpIxbx02moKCY/v2v4r7JE2jevCkAXbt2JCUlierqIJqmnee7UkoUgsu6ZeKJjSNUVUHHtq1IT4jFrA4gpEShcOMQm5SA+B1AKKUUkeoaAJ9ECJdtmggpL645VRsGPV4PGs4vqBRHKar91VRX+bEsi1AoQmbLRliGm6LThZimRSgUJj09hUaNM0hOroeoe0FcfCwJCXFYvxHDHQTp9dMRQMP6qcQl1yMcMel5RQ+8UmArhahrD2tK4fV4EZp+SQtASmwzAgKX/p8aDjhr1gqQAgLhCMGaGqQUpKalsm7DovN88WeXch49qRwb3RtFpw6tQdnE+qLwRnkxYuPp27snjhlBCPkLevO/0+mVKCLSMFCO+inzutBj24RDIWzkBbvyjuPg8XpZ/X0OyV4XyWmp2HWhVSlV+/3PPuv3B6iq8qNp8hc+GgmGyGjVgh4dW2HWBEmM96F53PQanEWX5g0IhsJIWVtgCcAWEAyHULZ1aTkchaYboIhIUAFXdBSqrsl/MeBQtkVlWTlhxAUbClKBJSTLlq3hlhsGnosgP6/7EbXlL8CxYycpK6vAMH7yXSkEQdPiulHX0zDOh9I09u09TKAySLcuHXGLX2KQUBBGUllWgapjlC+WXjvKUUZ0FAgRkMq2SrzxF0mAfnm9lOblU+XUmvn5ilVEed1sO3QcjxWm74De1NTU1La/6pqgv3aBbzdvJRQK/RQZhMAKh4nLyGD40H5EaqoxPF7+MftjTu/M4auPF1FcUYWh/wSYmgC/IyjNOwW2fUkLULaNNz4elFMizVD4pC85BeU46lKpqZSS4sOHOV1Tm6P/FtY4jkO010PusVOMHT2Rjz5ccC70+f2Bnw6tSRzH4Ztv1uJ2u89ZhJSScChMy47taZ6RQti0cCyL64f1o0XXjlxz4xDioqOw7Lqusqq9jMKQSdHhw3VRg0vkM7aKSUnFipgnZchfsS8mLQ0hhbpE+oTmdlOem0vu6VJsTaujOH5m/kIQMi1apybw3POPU52QyrHj+ezetZfXXnuXzZu21LbH68x0y5Zt7Nyxl+joqFqipM6fLcehSbMmRGsShCAUCnFt/14sX/4+U6fc/gszFygcTSO36AylBw/Vki+Oc6kqU/nS0wlXV++TZ46d3OZNTMAVFS2ci3xQKYV0uQgVFLBrx14qNTc66jxtCyEIRSJc3rohb816gjXb9/N59hdcdVVPhlwz4Bdu8Pqr/6SWjzwv4uKL9Z0LcQhBMBjGIyASCuPUWZECNBRVmpudO/dTk5+HdLsumgcox8HwekR0vST8eXnb5J5lC7cKXQ/H1s+QdiRyUf8RQoBjsWfFKg4GFTq/HXI1KfFXVROnC9p0bMedd42lW7dO5+oBXdeZ+8GnrFq1kdjYGGz7fMWHQuFfdG6kFNi/AlSlQAdyw7B7xSowzV+Fxt8o6EyTmLR0qbnd4QNLv94qTx/bc0TZ1oH0zEzMYNC5GA44to0RFU3+pk2s3Z1LjeFGu4DHKQQ+l0Fmx/bkHDiCaZogBIZhsGzpKqZNfZ7Y2Bh+bXUK0ITgdN5pQrW9igs2MiWKsOFiXc5R8jbUzgxczIqFEJjBoJPWPhM0ceDgntVHJOAEiopXZ3TrjlLKuRStJHUdq6qCdR99yu6IhguHiwVQy7Zo1CAdwzCww2HeeHU299z9EFpdffBrc1XKwe12cXjfQU6f8ePStd8GW8CNQ47lYs3H2ZhlpUjDuDifUQuAToPuPQiWnVkNOBLg4OrVi3zpKcSmpUnbNC8eCW0bl8/H0a+/YuHarZS6onApB+e8vEFgmRGuvqwTcxav4qlnX2f4bQ/y0tvz0LXayvC3fFU5CsPtpujIUTZs3YvL4/lNKzEch3IjioUbt3NkyWKMmJhLhnLbNPElJ8u4BhkcWbtxUV0do8Sk8cNPd71uzCgQ9U7v2qmMqGhxUU1KiRMJk597mPh+g+kQa9SyReKndFQIgWXZNElLonHzJliGh3G3jULEJ/D98tV46sZjLkS92aEaSmpMrr9+ELoVQQl5DhSFUghNsrAkwsePTCNUkI/mcnOpM4f9VU7LgYNEYvNmhz6fed/jSiklZ8xYpwFWQU7Oe82z+gmpG86lignlOBhR0VTsy+Hjv73M6ogbQ/yEzD83uWAoTJv0JG4ZdAWZDZIJVvkvOduqHAdfXCy716zj0xXfEhUTi2PbtZ9TCheKdaaXec+/SvmuHRjRvgvS4b/SgtOi/wBRlnv4PcCasW6dpq1fP1cppcQ9gwbndh4zfmKo4oy37MgRdI9HXIrD171RlO7ayakIpF95Nc1EGEdxniWYtkM4FMYyXMz5cBGnDx7C8Hh+YQFCSjRZe8t2JEI4HMYMBPj2u+1079eHpskJWJaFR8AmfLz56rvsff89XLFxlxReSEkkEFANL7tMNuzVszL7L5PvCof9waymTZUOqBkz1ukBAqVFu/e81WnkmKnHNm60BOiXvCnbxhUTw57Z7/AqguBf7qO/K4zm2JhCnqsXBAKP2+BYWRW5Oftxnx2PA6Qma3P5YJBgOIL0eElMTyetUQZp9dMJhcLsOniU3q0yMAWssqN459XZ7Pj7m7h8Mb+r7yCEwLYsu/OYW/SyI4ffCgQKSmesW6cD1nnt8ckL1h/c/8XixENfL8WbkCAvWSPU0daRqiqaj7iZ8Y9NYViGj3qRGiJI7FrkJS42hne/XM+0ux8gLtqDQoBS1AQCmEKjUbs2XNW/N72v7klm6yakJsbjcRm4BMhIkGKl81VRkHnPv0pu9nzcsbEXbbP9HE9CFRVO8/4D6DL2lvL3hw9pU/Wz9vhZPkCNWrBAA8qOrFnzRNex498+tnGj5ViWvFRhcfa37vh4ji76jNdzD7H/oT8zok93OhkmHjOCI8BvOSycvwRD2QhNp6ayElMz6Nw/izHjb2Lg1T1oEOdDKJtIOIITCSLD1QR0N3sdN4s27WDFS7Mo37ULd1wc4UAAw+P5XYWP7vU6PSZM0I+sX/OEH39Znaz2eblFtlLaKCHUHbMXbrCqg1cuf/IJOyY1VbtQx0VIiRUOnws/httdy8rqOs2vu55+48fQu31zusbpLF6zlYcm/AGPFaEmHKHdVVcy8Y93cF3fnvgMiVldjWXatV0jw8Cvu8kNw7q9R1kzL5sjSxaDaSINA8s0adyrFwV79ly0GyR1HX9RkT1g2pOaLy1187u3X3PhERmABSDExo1OUc6RzT3Gjr/TMk29cM8e4fL5xK+BRkiJFQoRU78+w156mYzOnTm9c2ctOLoMirdvZ883K/khJ5cfvYksmf0+5fv3ktSxE7fNeJzn//ogvZo3wrRtApZDje6hzPCSa+msK6gke9125r01h3Wvvkbxtq24PB7McBjD66Hvo49ieL0c3bAB3eX6TRpc6jo15eWq5cCBqvU1Q0JfPTVjaGXpydJ2Son1FxqS+vmYXNb4B2+77M675379yMNmxYkThtvn+ynRqBtoUrbNLZ9+wpFVq5C6i5i0VL6eMgXd60X3eBCAY5mkdulO6YH9JLVsSVrHjrS4rBsuXUe4XWh15W9leQWleXkU5R6m9NAhak6dQtgWrhgfVsRE2TapmZlYoRA3vPEG615+mUB+PtUlJYSqqs5v4VVX40tLN6+f9YqxM/uTCStmP/ObY3K/6UDT167VZ2ZlWTdOfWVWy779H/z83kmmFQoausdTy8VLSaiykgEzppPWvj1zh4+g++23I6Rk3+LFZD32GNvmzKH4wAEa9+6Dchw0w6AyL4+qU3nYjkIaRu30iahNbJxIBOE4SE0idQOh65jBIGZNDWkdO9B53DiiEhIQmsbehYsZ+uIL7F+yhNVPP10bjXy+2qFrKbEjEYRumDfPnm2c3Pb9K9nT7p1yVqbfNSo7MyvLnr5W6YuffXBK/p6d2Te+9rohNN20QiGkrmPWBEnNzKTxFVfy2cRJ3PjGG/gLC/nhvfe49vm/0WbYUBzl0HLgQJr17oNZEyT/h++pyjtZW1ajcOkabkPDEAIVCmG43bVsre3UDkboOj3uvou+Ux8jsVlzmvfNYvkT03HHxFBx8gSbX3+DpJYtSGzenI4jR+JYFlLTsCMRHKXMG1973Sg5fDi7Vnilz8zKsn/3qCzA+rkzlVJK3nxl50Ute2V17T7+traHVq0yzeqApns8CE0nLbMdselpNLrsMrZ9MJee99yNNzGJ0tzD5Cz4jGGzXiZ85gw5n33GkL89R7CigsZXXkm95i2oLiutRXKvl6Z9ehMOVNOsd2+6jBtHSru2tBjQH91wEZOaijs2lpJDh7j83nuRUkNqGuteeJ42115LlzFjOPTNcvyFhdjhENJwmyPefNOoKiz86oPJN49SSpHV9MLLVRdrBykhhFJK2f96YOyI4h9z59/89ttGbIOGVthfpYJlpaycPoO4jAw2vvIKGV270eHmm6kpK8Wfn4+vXj1i0tLJ37WTy+6+iwY9uhPXoAHdbrsNT3ws7pgYbNOk76OP0nLQIAY//RQIQbM+fSjYuYtIdTWRYJCNr7xCs969ObB0KZ74BDa/9RatBg1kwOPTWP744yy+/35ObN5EJBBQ0Slp1s3vvGNUFpyeP+fe4SOUUnbdXpP67+4LqLqS1froT+PGHP9u06yhL7ygtxgwSNRUVNjhykqWT3uC/J27aDNkCF8+OIWMLl05tX07DXv2pGj/fmLq16dpnz4c/OprpKYRKC5ix4cfUZmXh2YYJDVrRt73P7D66WfIyc4m74cfiGvUkP1LvqT1kMEESkqoKS8nNjWV/V8spuvYW1h8/x8JFBdhRyL4CwqwImG7Wd++4rpZs/RTe3bOev++m8Yopayzyc5Fp0Z+T/Ng5syZtSszWT2Xu/WoE11vGT8gtV07T962rZYdDgvd4xEHv1mGv6CA+h068OPatbS/8QZKjxymed8sSnJzKdyzB29iIo16diUSCFJ6+DBCCE5s2ULWo48gNI2jGzaQ1iGTlLZt2TZnDt1uu43Kk3nobjdx9dPZ8s5sPDE+Tm3bTtHevTiWpaRh2L2n/EVvO3RoIGfxwklfPDflBaWU/D3C/9tbY3WJkp2Q0Lz96Df+/mZUfFLf7fM+Inf5ckvTNM0dGytwFO64GBpfcQUuXwzRyfXwxMax48N/0XPSJI5t3MzWf7xLUvPmmKEQaZmZVBUWcsMbb7Bx1svY4Qj9pz/J+9cOpfU1Q+hx552UHTnC1jnvU5mXRx1foRzHtptn9dN73DaBUHVg3ecPPXh/Ud7ufWfP+Htl+rdaY6OEsOtW0/a9M35I1rApz03ufMstj7e7dlj67vmfcnzLd5ayLWmbEbn380X4UlNwbJuWAwdSkXcKqWm0GjyQ0JlyTnz3HWZNDS0GDCCuUePabq2jKD92jJJDB/GlpnJ4xUryd+zErKnBCgZxLMtBSqdBjx56l9Fj9KikhIJjmzf9ddFzU86tzY0S4t9am/uPLE6OfWHuA8mtW90TCQSSj6xezbGNm1R1WYmtbEcaXq9AKWFERaF7PCQ0bowdiVB6+HDdzKGixYD+1JSWkr99O7rbjWWatfy+Y6uwP6CUUo4vNVVrcvnlosWAAXjjYktKjx37x4cPjP1pcXLGDMHM/4PFyfNWZ0ePPrsznDbymXduTW3T9laJ7FCZn0/+9u0U7N2Lv6jQMaurlWPbwrEsIXUdV1SUqJuWIFRVhZBS6R4PjmUpIYXSPR4Rk5ou0zIzadC9O7ENGyAFOSU/Hvnwk4fu+BAorN0h/v+yOvvLd2RnKzlqtKijbJCXj5h4VZt+A67zJqf0QzltrVDYW1NWir+ggEBJCcEzZ4gEqrGtSC2/5/ZgeKPwxMXiS0khJr0+0fWS0D3eIJp2IFhWuubIhvVfbvz4tbrlacier7RR/7+Xp89btJq+Vnv6mQG/WJ9v1eryNu1HjOwW27BRN3eMr51mGI2FEMlK4QPlrqstwgICClXimNaJsL96f2V+3vZ9Xyzcnrt3/S/W55+Ytkqf+R9cn/9/HBedHkpk9JEAAAAASUVORK5CYII=" />
+<script>
+  /* Aplica el tema guardado lo antes posible para evitar el parpadeo (FOUC). */
+  try{ if(localStorage.getItem('ygo_theme') === 'light') document.documentElement.setAttribute('data-theme','light'); }catch(e){}
+</script>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app">
+    <img class="crest" alt="Velvet Room Game Store" style="background:none;box-shadow:none;object-fit:contain;" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGlkPSJDYXBhXzEiIGRhdGEtbmFtZT0iQ2FwYSAxIiB2aWV3Qm94PSIwIDAgMjU2IDI1NiI+PGRlZnM+PHN0eWxlPi5jbHMtM3tmaWxsOiM4NmNmZTJ9LmNscy0xMHtmaWxsOiM4N2NmZTJ9LmNscy0yMXtmaWxsOiMyNjIzMzl9LmNscy0yMntmaWxsOiMyNjIyMzl9PC9zdHlsZT48L2RlZnM+PHBhdGggZD0iTTEzMi41IDBxLjAzLjEzLjI1LjEzbDEuOTkuMDMgMS40MS4wOGM2LjMxLjM3IDEyLjUxIDEuMTcgMTguNyAyLjUyczEyLjQ3IDMuMTkgMTguNTUgNS40N2ExMjkgMTI5IDAgMCAxIDQxLjY2IDI1LjgybDYuNjQgNi42NGExMjYgMTI2IDAgMCAxIDEyLjQxIDE1LjU5IDEyNiAxMjYgMCAwIDEgMTUuNjIgMzEuOTdsMi42NSA5LjI1YTE0MCAxNDAgMCAwIDEgMi44NyAxNi4xbC41NSA2Ljk5LjEuOXYxLjI1bC0uMDIuMjYuMDIuMjRxLjAyLjEzLjEyLjEzdjkuNXMtLjE0LjA1LS4xNC4xM2wtLjA2IDIuMjFjLS4zMiA2LjQ4LTEuMTYgMTIuOC0yLjUxIDE5LjE3bC0xLjkyIDcuOThhOTcgOTcgMCAwIDEtNC44NSAxNC4yOCAxMjcgMTI3IDAgMCAxLTI2LjUgNDAuNDZsLTIuNjUgMi42NC0yLjI0IDIuMTMtMS41MyAxLjM4YTEyNyAxMjcgMCAwIDEtMjMuMzMgMTYuNjYgMTI1LjQgMTI1LjQgMCAwIDEtNTQuNzUgMTUuODRsLTEuNDMuMDgtMi4zNy4wM2MtLjE3IDAtLjMyIDAtLjM3LjEzaC03cS0uMDMtLjEzLS4yNS0uMTNsLTIuMjMtLjA0LTEuNDMtLjA3YTEyNiAxMjYgMCAwIDEtNTEuOTktMTQuMzYgMTMwIDEzMCAwIDAgMS0yNy40LTE5LjMybC0yLjQ1LTIuMzMtMi43MS0yLjdjLTkuMDMtOS4wMy0xNy41NC0yMS41Mi0yMy4xNC0zMy4wNmExMjcgMTI3IDAgMCAxLTExLjAxLTM0LjYyQy45NCAxNDQuNzMuNDMgMTQwLjE4LjIxIDEzNS41Yy0uMDQtLjk1LS4xNy0xLjgtLjA3LTIuNzUgMC0uMDctLjExLS4xNS0uMTQtLjEzbC4wMi05LjI0Yy4xNy0uNzkuMTItMS42MS4xNi0yLjQ3YTEyNyAxMjcgMCAwIDEgNi4wNS0zMi40MyAxMjcgMTI3IDAgMCAxIDI3LjQ0LTQ3LjA0bDIuMDgtMi4yIDMuMzctMy4zNyAyLjItMi4wOWM0LjE2LTMuOTYgOC43My03LjQ0IDEzLjQ3LTEwLjc3YTEyOCAxMjggMCAwIDEgNTIuMzMtMjEuMzhBMTE5IDExOSAwIDAgMSAxMjEuMTcuMTdsMi44NS0uMTV6IiBjbGFzcz0iY2xzLTMiLz48Y2lyY2xlIGN4PSIxMjguMDIiIGN5PSIxMjguMDYiIHI9IjEyMy43IiBjbGFzcz0iY2xzLTIxIi8+PHBhdGggZD0ibTE5OS44NSA3Ny4xOCA3Ljc0LTYuNzEgNi40NC01LjUtOC4xOCA0LjM4LTguNDUgNC43Ny0yLjQ1LTIuNzggMy4xLTMuODEgOS4wMS0xMS4xNS0xNC44MiAxMS41OC0yLjgzLTMuMzEgMjIuMzktMTcuNjYgNC4wOCA0LjY2LTYuMjkgNy42OC01LjQxIDYuNjIgOS42NS01LjExIDYuNjUtMy40NyAzLjc0IDQuNjUtMTMuNTcgMTEuNjItOC4xNiA2LjkyeiIgc3R5bGU9ImZpbGw6Izg4Y2ZlMiIvPjxwYXRoIGQ9Ik0zMy43OSA1OS44MmMuMjMtLjEzLjY3LjEzLjg5LjI1bDcuMTggMy43MSA5LjQ3IDUuMDMtNS41My01Ljk3LTcuNzgtOC40NSAzLjE5LTQuMDMgOS40NiAxMC42MiA5Ljg2IDExLjE1LTMuNjcgNC43Ni04LjYxLTQuMzctMTcuNDUtOC44NyAzLTMuODFabTQ2LjQ4LTI0LjY2LTYuOTItMTAuMDQgNC42LTIuMDMgOS42OCAxNC4zN2MuNDMuNjQuNzEgMS4yNyAxLjI1IDEuOGwtNC44LTE4LjkgNC41OS0yLjA5IDUuMTUgMjEuNzQgMS41MiA2LjYtNS4zNSAyLjQzLTUuMDMtNy4xNC00LjctNi43NVpNNjQuOTMgNTcuNjNsMi4wMiAyLjEyIDUuMTUtNC4zNyAyLjUgMy4wNC0yLjQ4IDIuMjEtNi44MiA2LjExLTUuMTUtNS42Ni0xNC4xMi0xNS44MSA5LjM0LTguMjggMi42IDMuMTEtNC44NCA0LjQxIDUuMDUgNS41Yy43Ny0uNTUgMS4zNy0xLjEyIDEuOTgtMS43NGwxLjgzLTEuNTggMi43MiAzLjA1LTMuNzYgMy40NnoiIGNsYXNzPSJjbHMtMTAiLz48cGF0aCBkPSJtMTA0Ljg4IDMwLjIyIDIuMDIgOC42IDYuNjctMS40OC44OSAzLjkzLTEyLjMxIDIuODQtMi4xNS05LjEyLTQuNTEtMTguNzcgMTIuMTktMi43OS45MiAzLjk1LTYuNTEgMS41MiAxLjc3IDcuMyA1LjA3LTEuMTUuODYgMy45NHoiIHN0eWxlPSJmaWxsOiM4NmNlZTIiLz48cGF0aCBkPSJtMTI0Ljg0IDQwLjM4LTUuNzMuNDgtMS44Ni0yNC4yNi00LjM3LjI5LS4zNC00LjI3IDE0LjUxLTEuMDkuMzUgNC4yOS00LjQuMzd6IiBzdHlsZT0iZmlsbDojODdjZWUyIi8+PHBhdGggZD0iTTg2LjcgNTAuNTcgNzYuMzMgNTcuMiA2MC44IDMzLjA4bDQuNzYtMy4yMUw3OSA1MC43bDUuNjEtMy42eiIgY2xhc3M9ImNscy0xMCIvPjxwYXRoIGQ9Ik0xMDMuOCAyMjQuNjZjLjA1LS4xOS4xLS4yOS4wMi0uNDRsLTcuMDkgMTIuODMtMi41Mi0uNzYgMS4wNC0xNC43MS0yLjkyIDguNzYtMS42NiA0Ljg3LTMuMTItMS4wNCA2Ljc0LTIwLjggMy44NCAxLjIzYTIuNSAyLjUgMCAwIDEtLjYzLTMuNDlsNS4zOS03LjkzQTc5LjMgNzkuMyAwIDAgMSA2MiAxNzJhODAgODAgMCAwIDEtMTIuNTMtMzMuMzUgODEgODEgMCAwIDEgMS42Mi0yOS43OGM1LjM1LTIxLjU1IDE5LjY0LTM5LjY0IDM4LjkzLTUwLjQxbDUuNDMtMi43NGE4NSA4NSAwIDAgMSAxMS42Ni00LjIgODAgODAgMCAwIDEgMjcuNTMtMi40M2M4LjM2LTQuNDkgMTYuNjctNSAyNi0zLjE3LTEuNzktMS43Ny0xLjQ5LTUuNzQtLjUtNy44OWw1Ljc4LTEyLjU2YTguNCA4LjQgMCAwIDEgMy4xNC0zLjQ3YzMuMS0xLjk5IDcuNTUtLjUgMTAuMjUgMS42OCAzLjU5IDIuODkgMi42MSA3LjI1LjgzIDExLjE0bC00LjE2IDkuMDdhMTQgMTQgMCAwIDEtMi41OSAzLjkyYy0xLjE3IDEuMjItMi44OSAxLjQ3LTIuMzggMS44Mmw3LjI5LTMuMjdjLjU3LS4yNi41OS42IDEuMDMgMGw3LjA1LTkuNTRhMTEgMTEgMCAwIDEgMy0yLjc3IDYuNyA2LjcgMCAwIDEgNS44LS43MmMxLjc0LjU0IDMuMTIgMS41NyA0LjQ3IDIuNzcgMy42NiAzLjI1IDIuNTYgNy43OS0uMjQgMTEuNDlsLTYuMTMgOC4xYy0xLjcgMi4yNS0zLjc3IDQuNTEtNi43IDQuNzlhNyA3IDAgMCAxLTQuMDktLjg2Yy0uMzctLjItLjQyLS4yMS0uODItLjAybC03LjY2IDMuNTdjLS4xNS4wNy0uMjkuMTMtLjIzLjIyLjA5LjEyLjIxLjE3LjMyLjI1YTgwIDgwIDAgMCAxIDI0LjQgMjguMjQgNzggNzggMCAwIDEgOC41OSAzMS41MSA3OS4yIDc5LjIgMCAwIDEtMzQuMDggNjkuOTMgODEgODEgMCAwIDEtMjYuODUgMTJjLTEwLjgxIDIuNjEtMjIuMzggMi42Ny0zMy4yNy43bC0yLjI5IDEuNTEtLjE2LjEtOS4wMSA2LjU4Yy0uODIuNi0xLjg0IDEuMDgtMi42Ny42My0uMTItLjA3LS4yNC4wMy0uMTcuMmwtLjk4IDE0LjI4IDcuMjgtMTIuNzUgMy44NSAxLjA3cS4xNS4wMy4yMy4wNy4xMi4wNi4wNy4yOWwtNS42NyAyMC42NXEtLjA1LjItLjExLjI2LS4xLjA0LS4yNyAwbC0xLjc4LS41LS43LS4xOWMtLjExLS4wMy0uMjMtLjAzLS4zMy0uMDktLjA5LS4wNS0uMDItLjE1LjAyLS4yOGwzLjU2LTEzLjE3WiIgY2xhc3M9ImNscy0zIi8+PHBhdGggZD0iTTE2OS4xOSA0NC4xYy0uNzggMS4wNy0yLjAzIDEuMjUtMy4xMS42OS0xLjUtLjc3LTEuNTctMi4yNi0uODUtMy44M2w2LjE5LTEzLjUzYy4zNC0uNzUuOTMtMS40MSAxLjctMS42OSAxLjExLS40IDIuNTcuMjEgMy4wNSAxLjMuMzguODYuMTIgMS44Mi0uMjUgMi42NGwtNC45NiAxMS4wMWMtLjUzIDEuMTktMS4wMSAyLjM0LTEuNzggMy40WiIgY2xhc3M9ImNscy0yMSIvPjxwYXRoIGQ9Ik0xODYuMDEgNTUuMTJjLS4zOS4zMS0xLjQ2LjczLTEuNzMuMjZsLTEuNzgtM2MuMjUtLjY1LjQ4LTEuMTguOTEtMS43NWw4LjUyLTExLjQyYTQuMyA0LjMgMCAwIDEgMS44Ni0xLjQxYy42NS0uMTcgMS4yMy4wNSAxLjc5LjM3YTIuMiAyLjIgMCAwIDEgMS4xNSAyLjQ1IDYgNiAwIDAgMS0xLjE2IDIuMjJsLTguMTcgMTAuOGMtLjQzLjU3LS43OC45OC0xLjQgMS40OFoiIGNsYXNzPSJjbHMtMjIiLz48cGF0aCBkPSJNMTcyLjE0IDYyLjE4YTgxIDgxIDAgMCAwLTkuOTYtNS43MWMyLjIyLS43NSA0LjQtMS4wOSA2LjY1LTEuMzZ6IiBzdHlsZT0iZmlsbDojMjUyMjM4Ii8+PHBhdGggZD0iTTE2MS43MyAxMzEuNTVjMi42Ni04Ljg0IDIuNTctMTcuNTEtMS45My0yNS43IDEuMDMuMzMgMS44Ljg5IDIuNTggMS41M2EyMCAyMCAwIDAgMSA1LjMgNy4yYzEuNTYgMy40OSAyLjUgNy4xMSAzLjA5IDEwLjkxcy45IDcuNDguOSAxMS4yOGE2IDYgMCAwIDAtMy41IDUuNmMtLjAyIDIgLjc1IDMuNzcgMi4zNCA1YTYuMyA2LjMgMCAwIDAgOC45LS43MiA2IDYgMCAwIDAgMS42LTQuMjcgNiA2IDAgMCAwLTIuNDItNS4wNCA2NiA2NiAwIDAgMCAzLjc3LTkuMjYgNzEgNzEgMCAwIDAgMy43Ni0xOC44MiAzOSAzOSAwIDAgMC0xLjA0LTExLjQ2Yy00LjIxLTE3LTIyLjMxLTIyLjM2LTM4LjI3LTIwLjg3LjA5LTYuNTQgMS43Mi0xMS44OSA2LjkzLTE2LjA3bDQuMDUtMi42MSAyLjY5IDEuMzFhNzcgNzcgMCAwIDEgMTMuMTYgOC4wNyA3NS41IDc1LjUgMCAwIDEgMjkuMzEgNDkuMzEgNzUuNzUgNzUuNzUgMCAwIDEtMzguNzQgNzcuNjYgNzUgNzUgMCAwIDEtMzcuMzIgOS4yNmwtOC45My0uNjRjLS4wNy0uMDEtLjA5LS4yNC0uMDEtLjI5bDguOTUtNS4wMmMzLjk3LTIuMDMgNy45My0zLjggMTIuMTEtNS40IDcuNC0yLjgzIDE3LjM0LTUuMzUgMjUuMTctNC43OS44Ny4wNiAxLjc2LjA1IDIuNDItLjY1Ljg3LS45My45My0yLjUuMDItMy41OC02LjEyLTcuMjgtOS45Ny0xNS4wMS0xMS4yMy0yNC42LS41OS00LjUxLS4yNS04Ljg4Ljg2LTEzLjI1LjYzLTIuNDcgMS40MS00LjcxIDIuNTMtNi45OXMyLjItNC41NCAyLjk2LTcuMDhabS03MS45NSAzLjI5LTIuMjUgNS4xOC0uODIgMi41NWE2IDYgMCAwIDAtLjA4IDIuNDMgNi4xNSA2LjE1IDAgMCAwIDUuMzggNS40N2wyLjE0LjI1YTQuMiA0LjIgMCAwIDAgMS41OCA0LjA1Yy4wOC41My0uMDEgMS4wMy0uMDUgMS41M2E0LjkgNC45IDAgMCAwIDEuNDQgMy45NmMuNC40LjYzLjg4LjQ4IDEuNDctLjg1IDMuMzYtLjgxIDYuNjMgMS40OSA5LjNhNy42IDcuNiAwIDAgMCA0LjkxIDIuNjJjMy4wMS4zOSA1Ljk2IDAgOC45MS0uODkuNDQgNy40NC0xLjk1IDE0Ljg1LTUuMTQgMjEuNWwtMy4xMyA1LjhhNzYgNzYgMCAwIDEtMjkuMTItMTcuNDJMNzMgMTgwLjEyYTc1LjcgNzUuNyAwIDAgMS0yMC42Ny01My45MSA3NiA3NiAwIDAgMSA0LjU2LTI0LjIzIDc2LjUgNzYuNSAwIDAgMSAxNy4wNi0yNi45bDEuNzgtMS43N2E3NSA3NSAwIDAgMSA1My40OS0yMS4wOGMtMS42IDEuMTktMy4wOSAyLjI3LTQuNDUgMy42M2wtNC4xMyA0LjEzYTgwIDgwIDAgMCAwLTcuOTIgMTAuOCAzLjcgMy43IDAgMCAxLTIuODUgMS42NWwtNi4wMS42M2MtMi43LjI4LTUuMTYgMS4yMS03LjU5IDIuNDJhNDAgNDAgMCAwIDAtOS4wNCA2LjMyYy03LjcxIDctMTEuNDYgMTUuOTQtMTIuOTYgMjYuMTRhNS41IDUuNSAwIDAgMC0yLjkxIDIuMzkgNi4zNiA2LjM2IDAgMCAwIDIuNCA5LjE3IDYuNiA2LjYgMCAwIDAgNy4zNC0uOTIgNi41IDYuNSAwIDAgMCAuMzQtOS4yMmMuNTEtLjcxIDEuMS0xLjIgMS43MS0xLjc0IDItMS43OSAzLjk5LTMuNDQgNi4zMi00Ljc5YTEwLjQgMTAuNCAwIDAgMSA1Ljc5LTEuNTdjLjM3LjAyLjczLjExIDEuMDIuNDJMOTQuMTIgMTA1YTIzLjYgMjMuNiAwIDAgMC0zLjkzIDEwLjM4djMuNDljLjE2IDIuMzguOTUgNC41NyAxLjgyIDYuNzYuMzcuOTIuNDggMS43OC4yMiAyLjcyYTUxIDUxIDAgMCAxLTIuNDIgNi40OVoiIHN0eWxlPSJmaWxsOiNmZWZlZmUiLz48cGF0aCBkPSJNMTAwLjM2IDIxMy4zNmExLjIgMS4yIDAgMCAxLTEuNjItLjAzYy0uNC0uMzQtLjQ0LTEuMDItLjA3LTEuNTdsNi41NC05LjgxYTgyIDgyIDAgMCAwIDUuOTEtMTEuOTdjMi4yOC01LjggMy44LTEyLjc5IDIuOTQtMTkuMS0zLjc1IDEuMjktOCAyLjI5LTExLjU5LjktNC4zNy0xLjktNC40NS02LjI2LTMuMzUtMTAuNTUuMTUtLjU4LS4wNi0uOTktLjUxLTEuMzUtMS43LTEuMzMtMS45Mi0zLjIyLTEuMTYtNS4yMi4wNy0uMTktLjAyLS40NS0uMjItLjUyLTEuMjktLjQ1LTEuOTQtMS42Ni0xLjczLTMuMDUuMDYtLjM4LjE0LTEuMTEtLjIzLTEuMzQtMS4xOS0uNzYtMy44My0uMDctNS43LTEuODJhNS40IDUuNCAwIDAgMS0xLjY1LTQuMThjLjA0LS43OS4zNC0xLjUzLjYyLTIuMjRsLjk2LTIuNDMgMS45NC00LjQzYy44NC0xLjkxIDEuNi0zLjc5IDIuMDQtNS44M2E3LjQgNy40IDAgMCAwLS4zNS00LjE5bC0xLjI0LTMuNjRjLS41OC0yLjE4LS42LTQuNDgtLjE5LTYuNzFhMjUgMjUgMCAwIDEgMi4wMS01Ljg2bDEuOTEtMy4yMSAxLjc5LTIuOTRjLjQ3LS43Ny4xMi0xLjYxLS42Ni0yLjAzLTIuMjMtMS4xOS02LjExLjI0LTguNDUgMS42N2E0MyA0MyAwIDAgMC04Ljk5IDcuNSA1LjEgNS4xIDAgMCAxIDEuOTMgNi41NyA0LjkgNC45IDAgMCAxLTQuMzUgMi43OSA0Ljk5IDQuOTkgMCAwIDEtMS4zNy05LjgzYzEuNzUtMTEuNjMgNS41MS0yMC40MSAxNC43OS0yNy45MiAzLjY4LTIuOTggOC43OS01Ljk3IDEzLjQ4LTYuNTFsNS40OS0uNjRjMi40Ni0uMjkgMy41OS0uNjQgNC45LTIuNzUgNC4yLTYuNzYgOS4wNS0xMi44NyAxNS41NS0xNy41N2E0MCA0MCAwIDAgMSA2LjkxLTQuMWM3Ljg1LTMuNTggMTQuOTYtNC4xMiAyMy40Mi0yLjM5bDQuODUgMS40MSA2LjA5IDIuNDQgNy4yLTMuMjUuMjQtLjA1Yy4xMS4wMi4xNC4xMS4yMS4yNGw0Ljk2IDguODItLjc4IDEuMTYtOS4wNyA0LjI1Yy0uMDguMDQtLjE1LjEyLS4xOS4xMS0uMDYgMC0uMTItLjE0LS4xNy0uMjNsLTMuOTgtOC4xOGMtOS45NS45OS0yMC4xMiA1LjM5LTIzLjAxIDE1LjU5YTI5IDI5IDAgMCAwLTEuMDIgNy45N2MwIC44NCAxLjEyIDEuMDEgMi4yNi45MWE0OCA0OCAwIDAgMSA5LjM4LjA5YzQuOTUuNDkgOS42OCAxLjc3IDE0LjA5IDQuMDNhMjMuNyAyMy43IDAgMCAxIDExLjc2IDEzYzIuNTkgNy4wOCAyLjI3IDE0LjU4Ljg1IDIxLjk2cy0zLjY0IDEzLjg3LTYuODYgMjAuNDRhNS4yIDUuMiAwIDAgMSAyLjExIDcuMTggNC43IDQuNyAwIDAgMS0zLjY5IDIuNDQgNS4wMyA1LjAzIDAgMCAxLTUuNTktNi4zNiA0LjcgNC43IDAgMCAxIDMuNDctMy40MmwtLjQ5LTguMzctLjkxLTUuOTlhMzUgMzUgMCAwIDAtMi40MS04LjM1IDI0IDI0IDAgMCAwLTQuMzUtNi45MSAxOCAxOCAwIDAgMC00LjA4LTMuMjhjLS43NS0uNDYtMS41Ni0uNzQtMi40MS0xYS45LjkgMCAwIDAtLjg2LjI0LjkuOSAwIDAgMC0uMSAxYzEuMDUgMS43NSAyLjE2IDMuNDIgMi44NSA1LjM5IDIuNzEgNy43MiAxLjk5IDE1Ljc4LS45MyAyMy4zNWwtMi4wOCA0LjU1Yy0zLjAzIDYuNjItNC4zNiAxNC4wNy0zLjMyIDIxLjMgMS4yNyA4LjggNC41NSAxNi4wNiAxMCAyMi45OWwxLjY1IDIuMWMuMy4zOC4yMy45MS4wMyAxLjI3LS4yNS40NS0uNy41LTEuMjUuNDhhNTQgNTQgMCAwIDAtOC4wMS4yMWMtOS4xOCAxLjA5LTE4LjEyIDQuMjItMjYuNDQgOC4yMWExNjIgMTYyIDAgMCAwLTI5LjY5IDE4LjU0WiIgY2xhc3M9ImNscy0yMiIvPjxwYXRoIGQ9Im0xODAuNTggNTcuMy01Ljk5IDIuOTYgMS41OS00Ljc2IDMuMjQgMS4wN2MuNC4xNy43OC4xNyAxLjE1LjczWiIgc3R5bGU9ImZpbGw6IzdlYzhlMCIvPjxwYXRoIGQ9Im0xNzguMjkgNTIuMjMuMiAyLjI0Yy0uOTMuMjgtMS43NC0uMDMtMi41Ny0uMzktLjczLS4zMi0xLjQzLS43Mi0xLjYtMS41N2wxLjU3LTEuMjYuNTctLjIxLjc1LjcxIDEuMDYuNDhaIiBzdHlsZT0iZmlsbDojNmFiN2QzIi8+PHBhdGggZD0iTTE4MS42MyA1NS42M2MtLjUyLS4wNC0uODctLjM1LTEuMjUtLjY0bC0xLjE1LS44Ni0uNjEtMy40MmMuOTEgMS4wMyAxLjQzIDIuMTggMi4wOSAzLjMzeiIgc3R5bGU9ImZpbGw6IzZkYjhkNSIvPjxwYXRoIGQ9Ik0xNzguMjkgNTIuMjNzLS4wNS4yOC0uMS4yNWwtLjI1LS4xOGEyLjIgMi4yIDAgMCAxLTEuNTMtMS4wN2MtLjIyLjE1LS40My4xNy0uNTIuMDFsMS45Ny0xLjQ1LjQyIDIuNDNaIiBzdHlsZT0iZmlsbDojYTFkZGVkIi8+PHBhdGggZD0ibTE3NS44IDU1LjM3LTEuODUgNC43My0zLjA1LTYuNjIgMi45OSAxLjI0eiIgc3R5bGU9ImZpbGw6IzFjNTQ4NiIvPjxwYXRoIGQ9Im0xNzMuOTggNTIuMzctMi41My0uMDggNC44Ny0yLjA4eiIgc3R5bGU9ImZpbGw6IzFkNGQ3YSIvPjxwYXRoIGQ9Ik0xMDUuNzYgMTUyLjY0YzEuNzgtLjgzIDYuMi0zLjY5IDUuNTgtNC44MS0uMDYtLjExLS4yNC0uMTQtLjQ0LS4wM2EzNCAzNCAwIDAgMS0xMC4yOCA0LjAyYy0uODQuMTYtMS43NS0uMDktMi4xOC0uNzQtLjc1LTEuMTIuMzktMy4wNy0xLjItNC41NS40NS0uNDQuOTctLjYzIDEuNDgtLjk0bDEuMzItLjgxYy4xNi0uMS4yNC0uMjkuMTctLjQ0LS4wNi0uMTMtLjI5LS4xOC0uNDctLjE3LTIgLjAyLTMuODEuNy01LjY2IDEuNDItLjk3LjM4LTIuMDQtLjEyLTIuNzQtLjc4cy0uOTktMS42NC0uNTUtMi41MmwxLjI5LTIuNThjLjgyLTEuNjUgMS42Ni0zLjE5IDIuMzMtNC45Mi43Ni0xLjk4IDEuNDYtMy45IDEuOS01Ljk3YTUuNyA1LjcgMCAwIDAtLjM4LTMuNzVjLTEuMy0yLjc5LTEuNDEtNy4xMi0uNjEtMTAuMTRzMi40NS01LjcyIDQuNzQtNy44NmExNyAxNyAwIDAgMSAxMy43OC00LjYzcTMuMzYuMzkgNi4yNSAyLjI2YzkuMDIgNS44NSAxMy41MyAxNi4zNiAxMi4xNCAyNy4wNWE3MSA3MSAwIDAgMS0xLjY3IDguN2wtMS45OCA2LjE0LTIuNTYgNS42OWEzOSAzOSAwIDAgMS02LjAxIDguNzIgMjYgMjYgMCAwIDEtNC45NCA0LjQ1bC0zLjY0IDIuMzhhMTYgMTYgMCAwIDEtNS4xIDIuMTQgNS43IDUuNyAwIDAgMS0zLjMxLS4xMWMtMy4zMi0xLjIzLTIuNDYtNS45Mi0xLjY0LTkuMDkuNTEtMS45Ny0xLjQyLTIuMi0xLjYxLTQuMjVxLS4wOS0xLjAzLjgxLTEuNDRsNS4xOS0yLjQyWiIgc3R5bGU9ImZpbGw6I2ZkZmVmZSIvPjxwYXRoIGQ9Ik0xMTUuNDcgMTI1LjA0YTE0LjIgMTQuMiAwIDAgMS04LjQ2IDIuNTYgNC41IDQuNSAwIDAgMS0zLjA0LTEuMDdjLTEuNjMtMS41Ni0uNDItNC40NiAxLjY5LTUuNzQgMi41MS0xLjUyIDYuMDktLjE5IDguNzIgMS4wOHExLjkuOTQgNC4wMi40N2MuMTItLjAzLjA4LjMyIDAgLjQxYTE3IDE3IDAgMCAxLTIuOTIgMi4yOVoiIHN0eWxlPSJmaWxsOiMyNjIyMzgiLz48cGF0aCBkPSJtMTU0LjY1IDMwLjAxLjg4IDE0LjM2LTUuNzctMS4zNS0uNDktMTMuMTItMS45NC0uNC0yLjggMTIuMzgtNS42Mi0xLjI1IDYuMTItMjcuODEgNi41OCAxLjMxYzEuMzMuMjcgMi41Ny41NiAzLjgyIDEuMDYgMi4zNi45NSA0LjE2IDIuNjMgNC40MSA1LjIzLjE2IDIuMzMtLjMyIDQuNjQtMS40NiA2LjY4YTYgNiAwIDAgMS0zLjcyIDIuOVoiIGNsYXNzPSJjbHMtMyIvPjxwYXRoIGQ9Ik0xNTMuMzcgMjQuOTNhMi43IDIuNyAwIDAgMS0yLjc1IDEuMzZsLTIuNDgtLjUgMS43MS03LjkxYzEuMDIuMTUgMS45Mi4zNyAyLjgyLjcgMi4zMy44NiAxLjkgNC4xNi43IDYuMzUiIGNsYXNzPSJjbHMtMjIiLz48cGF0aCBkPSJNNjQuMjEgMjE4LjA0YzIuMzEgMS40NyA0LjEtMS4wMyA1LjUtMy4xNWwtMi4wMS0xLjUzIDEuNDktMi4xMiA1LjE4IDMuNy00LjM3IDUuOTUtMi4zMSAzLjEzLTIuMi0xLjUzLjg3LTEuNzhjLTIuNTUgMS40NS01LjE4LS41LTYuNTYtMi43OS0xLjI0LTIuMDUtLjM5LTQuODEgMS4wMy02LjcxbDUuOTktNy45OGE3IDcgMCAwIDEgMi4wNC0xLjcxIDUuMyA1LjMgMCAwIDEgNC40NC0uNDcgOSA5IDAgMCAxIDQuMTIgMi44NyA1IDUgMCAwIDEgLjY1IDUuMzFjLS40NC45OC0xLjA2IDEuOC0xLjc2IDIuNzRMNzMgMjA5LjY0bDEuNTYtMi40MWMuNjQtLjk5LjE1LTEuOTYtLjc4LTIuNTQtMS4xMy0uNzEtMi4zMy0uNTMtMy4xOC42bC02LjA5IDguMWE4IDggMCAwIDAtMS4yNCAyLjE0Yy0uMzQgMS4wMy4wNSAxLjk1LjkzIDIuNTFaIiBzdHlsZT0iZmlsbDojODdkMGUyIi8+PHBhdGggZD0iTTEzNy40MiAyNDEuMTljLTIuOTcuNjktNiAuMTItNy40NS0yLjY3LS41Ny0xLjA5LS43NS0yLjI5LS45Ni0zLjU4bDMuNzgtLjk1Yy4yIDIuMTEuNjIgNC4zMyAyLjg0IDQuMjUuNjktLjAyIDEuMzMtLjM4IDEuNTMtMS4wOGEzLjY1IDMuNjUgMCAwIDAtMS4zMi00LjAybC00LjI5LTMuMTljLS41OC0uNDMtMS4xOC0uODEtMS42My0xLjM3YTYuOCA2LjggMCAwIDEtMS4zNi00Ljc1IDQuOSA0LjkgMCAwIDEgMy43Mi00LjU3IDkgOSAwIDAgMSAzLjU3LS4zNWMyLjkuMzkgNC4wOSAyLjc5IDQuNTQgNS41NWwtMy42MS45My0uNS0yLjA0YTEuOCAxLjggMCAwIDAtMS4zOS0xLjM1Yy0uNzUtLjEzLTEuNjUuMDQtMiAuNzUtLjc0IDEuNDgtLjE0IDMuMTMgMS4xNSA0LjFsNC44NSAzLjYyYTYuNiA2LjYgMCAwIDEgMi42MyA1LjY2IDUuMyA1LjMgMCAwIDEtNC4xIDUuMDdaIiBjbGFzcz0iY2xzLTMiLz48cGF0aCBkPSJtMTE4LjQ4IDIzMC45Ni00LjM4LS41NS0uOTMgNy4wMiA1LjY0Ljc2LS40NCAyLjkyLTkuODUtMS4zMiAyLjk2LTIxLjc1IDkuNjkgMS4yMS0uMzggMi44Ny01LjU0LS42My0uOCA1LjkxIDQuNDUuNjZ6bTcwLjgtMTkuODcgNC4yNSA1LjYxIDQuNTItMy4zNyAxLjc3IDIuMzQtMy41MSAyLjY0LTQuMzkgMy4zNy0xMy4yNS0xNy41OCA3LjcxLTUuOTMgMS44NyAyLjMxLTQuNDIgMy40NyAzLjY1IDQuODIgMy41NS0yLjY2IDEuNzMgMi4zMXptLTM2LjkgMjcuNzQtNC4xNi44My0zLjg1LTE4LjYzLTMuNTguNzEtLjYzLTIuOTYgMTEuNDQtMi4yNi41NyAyLjkyLTMuNjQuNzh6IiBjbGFzcz0iY2xzLTEwIi8+PHBhdGggZD0ibTE4NC4yNyAyMjYuNDYtNy4wNi03LjM2LTEuNy45MyA0LjY3IDguNi0zLjczIDIuMTItMTAuNS0xOS4zNiA1Ljg3LTMuMTdxMS40OS0uODEgMy4xNi0uOTZhNSA1IDAgMCAxIDMuNjYgMS4yM2MyLjAzIDIuMTYgMy41OCA1LjU3IDEuNTggOC4wN2w1LjgyIDUuNzUgMS45NyAxLjk5LTMuNzYgMi4xNloiIHN0eWxlPSJmaWxsOiM4N2QwZTMiLz48cGF0aCBkPSJNMTc3LjIxIDIxNC4zOWMuMTggMS42NS0xLjQ0IDIuNDgtMy4wMSAzLjIybC0zLjExLTUuNzYgMi4wMi0xYy45Ni0uNDggMi4wNS0uMjcgMi43NC41N3MxLjE5IDEuODggMS4zNyAyLjk4WiIgc3R5bGU9ImZpbGw6IzI2MjMzYSIvPjxwYXRoIGQ9Ik0xNjMuMTkgMjM1Ljg3Yy0zLjIzLjM3LTUuMzQtMS44OC02LjI5LTQuNzdsLTIuOC04LjQ1Yy0uOTQtMi44NC0uOTgtNS41NCAxLjU3LTcuMzZhMTAgMTAgMCAwIDEgNC42OS0xLjc3IDUuMyA1LjMgMCAwIDEgNS4xOSAyLjU2Yy42NCAxLjA0IDEuMDggMi4xIDEuNDggMy4yN2wyLjQ5IDcuMjVjMS4wNSAzLjA2Ljg0IDYuMTQtMS45OCA3LjgzYTExIDExIDAgMCAxLTQuMzUgMS40NVoiIGNsYXNzPSJjbHMtMyIvPjxwYXRoIGQ9Ik0xNjUuODkgMjMxLjExYy0uMyAxLjA4LTEuNDIgMS41NC0yLjQ0IDEuNDktLjk0LS4wNS0xLjc4LS44LTIuMTMtMS44M2wtMy41My0xMC41NWMtLjI0LS43MS0uNDEtMS41OC0uMDctMi4yNS41Ni0xLjExIDIuMTMtMS41OSAzLjIyLTEuMDUuNi4zLjk2Ljk4IDEuMTcgMS42bDMuNTIgMTAuMjJjLjI2Ljc1LjQ4IDEuNTUuMjUgMi4zOFoiIGNsYXNzPSJjbHMtMjEiLz48cGF0aCBkPSJtODEuNDEgMjI1LjgtMy40OC0xLjgtMy4xNyA0LjEzLTMuNTktMS45NiAzLjE5LTQuMDggMTAuODItMTMuMjIgNC4wOCAxLjk1LTMuMzggMTMuMDUtMi4yIDguNzMtMy43Mi0xLjg3eiIgc3R5bGU9ImZpbGw6Izg2ZDBlMyIvPjxwYXRoIGQ9Im04Mi4yNSAyMjMuMTQtMi42My0xLjQzIDUuMTctNy4wM3oiIHN0eWxlPSJmaWxsOiMyNTIzM2EiLz48L3N2Zz4=" />
+    <div>
+      <h1>Gestor de Torneos — Yu-Gi-Oh!</h1>
+      <div class="sub">By Velvet Room</div>
+    </div>
+    <button class="theme-switch" id="theme-toggle" aria-label="Cambiar entre tema claro y oscuro" title="Tema claro / oscuro">
+      <span class="track"><span class="knob"></span></span>
+    </button>
+  </header>
+
+  <nav class="tabs">
+    <span class="tab-indicator" id="tab-indicator"></span>
+    <button data-tab="registro" class="active">Registro</button>
+    <button data-tab="rondas">Rondas</button>
+    <button data-tab="standings">Standings</button>
+  </nav>
+
+  <div class="tab-stack" id="tab-stack">
+
+  <!-- ===================== TAB 1: REGISTRO ===================== -->
+  <section id="tab-registro" class="tab-panel active">
+    <div class="card" id="registration-card">
+      <h2 id="reg-title">Inscripción de Jugadores <span class="count" id="reg-count"></span></h2>
+      <p class="hint" id="reg-mode-hint" style="margin-top:0; display:none;"></p>
+      <div class="row" id="reg-input-row">
+        <input type="text" id="player-name" class="grow" placeholder="Nombre del jugador…" maxlength="40" autocomplete="off" />
+        <button class="btn btn-gold" id="add-player">Agregar Jugador</button>
+      </div>
+      <div class="disclosure" id="bulk-details">
+        <button type="button" class="disc-summary" data-action="disclosure" data-target="bulk-body" aria-expanded="false" aria-controls="bulk-body">Pegar lista completa</button>
+        <div class="disc-collapse" id="bulk-body">
+          <div class="disc-inner disclosure-body">
+          <textarea id="player-bulk" rows="4" placeholder="Un jugador por línea" style="width:100%; min-height:84px; background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink); border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; resize:vertical; box-sizing:border-box; outline:none;"></textarea>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn" id="add-bulk">Agregar lista</button>
+          </div>
+          </div>
+        </div>
+      </div>
+      <div id="reg-list" style="margin-top:14px;"></div>
+
+      <div class="setup-sep"></div>
+
+      <div id="setup-controls">
+        <div class="row wrap setup-row">
+          <label for="num-rounds" style="font-weight:600; color:var(--ink);">Número de Rondas</label>
+          <input type="number" id="num-rounds" min="1" max="50" style="width:70px;" />
+          <span class="hint" id="rounds-suggestion" style="margin:0;"></span>
+          <button class="btn btn-gold" id="start-tournament">Iniciar Torneo</button>
+        </div>
+        <div class="hint" id="start-hint"></div>
+      </div>
+      <div id="setup-summary" style="display:none;"></div>
+
+      <div class="disclosure" id="note-details">
+        <button type="button" class="disc-summary" data-action="disclosure" data-target="note-body" aria-expanded="false" aria-controls="note-body">Comentario / Premiación <span class="opt">(opcional · se guarda y exporta)</span><span id="note-badge"></span></button>
+        <div class="disc-collapse" id="note-body">
+          <div class="disc-inner disclosure-body">
+          <textarea id="tournament-note" rows="3" placeholder="Ej.: premiación en crédito de tienda, sede, observaciones del evento…" style="width:100%; min-height:70px; background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink); border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; resize:vertical; box-sizing:border-box; outline:none;"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gestión del archivo del torneo (respaldo / restauración / reinicio) -->
+    <div class="toolbar" style="margin-top:14px;">
+      <button class="btn btn-sm btn-ghost" id="export-json">⤓ Exportar JSON</button>
+      <button class="btn btn-sm btn-ghost" id="import-json">⤒ Importar JSON</button>
+      <input type="file" id="import-file" accept="application/json,.json" style="display:none" />
+      <span class="spacer"></span>
+      <button class="btn btn-sm btn-danger" id="reset-all">Nuevo Torneo</button>
+    </div>
+  </section>
+
+  <!-- ===================== TAB 2: RONDAS ===================== -->
+  <section id="tab-rondas" class="tab-panel">
+    <div class="card">
+      <div class="round-head">
+        <h2 id="round-title">Ronda —</h2>
+        <div class="timer-bar" id="timer-bar" style="display:none;">
+          <span class="timer-display" id="timer-display">50:00</span>
+          <div class="timer-controls">
+            <span class="timer-min-wrap" id="timer-min-wrap">
+              <input type="number" id="timer-min" min="1" max="180" value="50" title="Minutos por ronda" />
+              <span class="min-suffix">min</span>
+            </span>
+            <button class="btn btn-sm btn-gold" id="timer-toggle">Iniciar</button>
+            <button class="btn btn-sm btn-ghost" id="timer-reset" title="Reiniciar el cronómetro">↺</button>
+            <button class="btn btn-sm" id="timer-popout" title="Proyectar el timer en una pestaña (casteable a Chromecast desde el menú ⋮ de Chrome)">⛶</button>
+          </div>
+        </div>
+        <select id="round-selector" class="roundsel"></select>
+      </div>
+      <div id="round-banner"></div>
+      <div id="matches-list"></div>
+      <div class="toolbar" id="round-toolbar">
+        <button class="btn btn-ghost btn-sm" id="correct-prev" style="display:none;">↩ Corregir ronda anterior</button>
+        <span class="spacer"></span>
+        <button class="btn btn-gold" id="advance-round">Cerrar Ronda y Avanzar</button>
+      </div>
+      <div class="hint" id="round-hint"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TAB 3: STANDINGS ===================== -->
+  <section id="tab-standings" class="tab-panel">
+    <div class="card">
+      <div class="card-head">
+        <h2>Tabla de Posiciones <span class="count" id="stand-count"></span></h2>
+        <div class="head-actions" id="standings-actions" style="display:none;">
+          <button class="btn btn-sm btn-gold" id="share-standings" title="Abre el menú de compartir del sistema (WhatsApp, etc.)">📤 Compartir</button>
+          <button class="btn btn-sm btn-ghost" id="download-standings" title="Descarga el PNG para adjuntar en WhatsApp Web o donde quieras">⬇ Descargar</button>
+        </div>
+      </div>
+      <div id="standings-list"></div>
+      <div class="tb-legend" id="tie-legend">
+        <div class="tb-legend-inner">
+          <div class="hint" style="margin:0 0 10px;">El <strong>número de desempate</strong> ordena a quienes empatan en puntos y se lee como un único valor, de mayor a menor. Sus 4 partes (<strong>AA·BBB·CCC·DDD</strong>):</div>
+          <div class="tb-grid">
+            <div class="tb-chip"><div class="seg">AA</div><div class="lbl">Puntos totales (Victoria 3 / Derrota 0)</div></div>
+            <div class="tb-chip"><div class="seg">BBB</div><div class="lbl">Fuerza de tu camino: % de victorias promedio de tus rivales (OMW%)</div></div>
+            <div class="tb-chip"><div class="seg">CCC</div><div class="lbl">Lo mismo, pero de los rivales de tus rivales (OOMW%)</div></div>
+            <div class="tb-chip"><div class="seg">DDD</div><div class="lbl">Suma de los cuadrados de las rondas en que perdiste</div></div>
+          </div>
+          <label class="tb-switch-row" for="exclude-drops">
+            <span class="sw-text"><strong>Excluir DROPs de la premiación</strong><span class="hint" style="margin:2px 0 0; display:block;">Los jugadores con drop se ordenan al fondo de la tabla (entre ellos mantienen su orden por desempate).</span></span>
+            <input type="checkbox" id="exclude-drops" class="sw-input" />
+            <span class="sw-ui" aria-hidden="true"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /.tab-stack -->
+
+  <footer class="app-footer">
+    <span>Made with passion by</span>
+    <img class="footer-logo" id="footer-logo" alt="Budget Occidente" title="Budget Occidente" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MDAgNTAwIj48ZyBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIHN0cm9rZT0iIzdhMWYzMCIgZD0iTTI4MC44IDEzNS44N3EtMi40OS0uOS0xMC43LTQuMi0yLjE4LS44OC01LS42NWEuNTYuNTYgMCAwIDAtLjUxLjU4cS4yOCA3LjE4LjA1IDkuMDljLTIuMTIgMTcuMzgtMTcuMzIgMjguMzUtMzQuMzYgMjQuMTRxLTMuODQtLjk1LTguNTEtMy40OGEuNDYuNDUgODkuMSAwIDAtLjYxLjYzbDYuMDQgMTAuNDZhLjMxLjMtODguNCAwIDEtLjQzLjQxcS0xNy42Ny0xMS43NC0yOS40MS0xOS43MS0yLjI3LTEuNTQtNC42LTEuNDgtNi40Ni4xOS0xMi4zNCAxLjAzYTIuNSAyLjUgMCAwIDAtMS43IDEuMDVxLTEwLjUzIDE1LjMxLTE5LjQ4IDI5Ljk5LTEuMSAxLjgtLjk3IDMuNTEgMS4zNCAxNy43IDUuNDcgMzUuOC4zOCAxLjY0LjM5IDEuOTZhLjMzLjMzIDAgMCAxLS41OS4yMXEtMy45OS01LjU0LTcuMTMtMTIuNzZhLjUuNSAwIDAgMC0uOTQuMDdsLTcuMzQgMjcuMTlhMS41OSAxLjU4LTYzLjggMCAwIC41NiAxLjY2cTEyLjY3IDkuNzcgMjYuMzkgMTguNTQgMi40MyAxLjU1IDQuMTYgMS41NCAyNi41OC0uMTUgMzUuNzYuMDZjNy44Mi4xOCAxNi4yOC45OSAyMi40MiA1LjMyYS43Ni43NS00NS4zIDAgMCAuODgtLjAxcTUuNjYtNC4wNyAxNC4wNC05LjUyIDUuNjctMy42OSA5LjIyLTcuMzEgOS4zMi05LjQ5IDEwLjIzLTEwLjQ5IDEuODgtMi4wNSA1LjMtMi40MyAxMC4wNS0xLjExIDEzLjU3LTEuNDMgMi44Ni0uMjUgNC4xNy0xLjMxIDE0LjIzLTExLjUxIDIzLjY4LTE4LjgxIDMuMjQtMi41IDQuNDUtNC41NyA3LjY3LTEzLjE1IDEzLjk0LTI1LjU3YTIuNTIgMi41MS00NS44IDAgMC0uMDMtMi4zNHEtOC41Ni0xNS42OC0xNS45Ni0yOC45NC0yLjY0LTQuNzQtNS41NS0xMS40N2EuMy4zIDAgMCAwLS41Ny4xNXEuNDggNC45Mi0yLjAzIDguNDctMTAuMzIgMTQuNTYtMTMuMzMgMTguOTEtMS4yNiAxLjgyLTEuNjMgNC4xNC0yLjI4IDE0LjEyLTQuMTIgMjYuNjctLjk3IDYuNTctNi40NCAxMS42OGEuMy4zIDAgMCAxLS41LS4yNWw0LjE5LTQwLjU1YTYuNDMgNi4zOSA2NC43IDAgMSAxLjAxLTIuODVsMTMuNTMtMjAuODRhMyAzIDAgMCAwIC40My0xLjAycS40Ni0xLjcyLjI2LTQuMzctMS4wNi0xNC4xNi0yLjM5LTI0LjM1YTguMjIgOC4xNy02My44IDAgMC0xLjAzLTMuMDVMMjgzLjEgODEuMzVhMS4yIDEuMiAwIDAgMC0xLjc2LS4zOEwyNTguNTggOTcuNWEuMzQuMzQgMCAwIDEtLjQ1LS41bDE3LjQ3LTE5LjY1YS44Ni44NiAwIDAgMC0uMzMtMS4zOGwtMjUuMTEtOS43NWExLjcxIDEuNjYgNDQuNiAwIDAtMS4xOS0uMDFxLTEzLjk4IDUuMzktMjcuNDYgMTEuMzljLTIuNTggMS4xNS01LjgxIDIuMzUtNy4yNCA0LjQ1cS0xNC45OCAyMS45NS0xOS41MSAyOC4yMS0xLjIxIDEuNjgtMi44NSAzLjE0LTE0LjU4IDEyLjk1LTE2LjE0IDE0LjU0YTEuMzUgMS4zNC0zMC40IDAgMC0uMzQgMS4yOWwzLjI2IDEyLjNhMS4xIDEuMSAwIDAgMCAxLjA1LjhoOC4wN2EyLjcgMi42OC03MS4xIDAgMCAyLjEzLTEuMDVjMi43Ny0zLjYxIDMuOTktNS42MyA2LjgyLTguMTRxMi40OC0yLjE5IDQuMDQtMy4yOGEuMjguMjggMCAwIDEgLjQxLjM2cS0yLjQ5IDQuOTEtMy4zIDEwLjJhMS44IDEuNzkgMTcuOCAwIDAgLjk3IDEuODhjNC4wMyAyLjAyIDkuMjMgNC4zOSAxMy40OSAyLjMgNS4zLTIuNjEgMTEuOTMtNy4wNSAxOC4wNy0xMC4xNnExNi45Ni04LjYgMzQuNTQtMTQuNjVhMiAyIDAgMCAxIDIuMTMuNTRsMTMuOTQgMTUuMTdhLjIzLjIzIDAgMCAxLS4yNS4zNyIgdmVjdG9yLWVmZmVjdD0ibm9uLXNjYWxpbmctc3Ryb2tlIi8+PHBhdGggc3Ryb2tlPSIjMGE1ODgwIiBkPSJtMjUzLjgyIDEzMy4xNi0zMC4xMyAxNC4yNC0uMDEuMDQuMDQuMDlhMTYuNjkgMTYuNjEtMjUuMyAwIDAgMjIuMTkgNy44OSAxNi42OSAxNi42MS0yNS4zIDAgMCA3Ljk5LTIyLjE1bC0uMDUtLjA5LS4wMy0uMDIiIHZlY3Rvci1lZmZlY3Q9Im5vbi1zY2FsaW5nLXN0cm9rZSIvPjxwYXRoIHN0cm9rZT0iIzdhMWYzMCIgZD0ibTM1MC40MyAyMTUuMTYtMjMuMDMgMjEuMTdhMy4yIDMuMiAwIDAgMC0uOTYgMy4xM2w1LjE5IDIxLjUyYS4zMy4zMi00MS45IDAgMCAuNjIuMDNxLjI4LS43Ni40My0xLjgxIDEuNDItMTAuMSAyLjYzLTE0LjY0LjY1LTIuNDMgMS4yNC0zLjUyIDEuMzUtMi40NiAxNC4zMi0yNS41M2EuMjguMjggMCAwIDAtLjQ0LS4zNW0tNDIuODIgNDcuMDItNC4wMi0yMS4zM2EuNjUuNjUgMCAwIDAtLjc0LS41MnEtNi45MSAxLjA4LTE4Ljk3IDMuMjgtMi43My41LTQuMTIgMS45LTguMjggOC4zMy0xMy4zNiAxNy44N2EuNDguNDggMCAwIDAgLjU5LjY3cTE5LjY5LTcuNDUgMzkuOTctMS4yOWEuNS41IDAgMCAwIC42NS0uNThtLTEzNi4zOC01NS4xM2E1LjggNS44IDAgMCAwIDQuODMuNTRxMTguNzYtNi4zMSAzNy41Ni04LjQ5YTEyLjY2IDEyLjUzIDQ4LjIgMCAxIDQuNDIuMjdjOC42OSAyLjEgMTcuNDUgNi4zMSAyNS40IDEwLjM3IDEuNzQuODkgMi44My44NyA0LjMtLjJhMS44IDEuOCAwIDAgMCAuNDItMi40OXEtMS44OS0yLjctNC44NC01LjI4LTkuMjYtOC4wOC0xOC4xNC0xNC4wNi0zLjc4LTIuNTQtNi45MS0xLjY5LTE5LjkzIDUuNDItNDYuOTcgMTguMjJhMS41NyAxLjU3IDAgMCAwLS4xNSAyLjc2bC4wOC4wNW04OS4zNyAxNy4xMnEyLjEzLTcuMTMgMS4wOS0xNi4xOWEyLjU0IDIuNDktNjMuOCAwIDAtLjMyLS45N3EtMS43My0yLjkyLTQuOTYtNS45NGwtOC41OS04LjA0YS4yNy4yNiA2IDAgMC0uNDEuMzNsNy40NiAxMi4xYTMuNjEgMy41Ny02Ny45IDAgMSAuNC45Nmw0LjQxIDE3LjczYS40OC40OCAwIDAgMCAuOTIuMDIiIHZlY3Rvci1lZmZlY3Q9Im5vbi1zY2FsaW5nLXN0cm9rZSIvPjxwYXRoIHN0cm9rZT0iIzBhNTg4MCIgZD0iTTI0Ni4yMiAxNDUuMDlhNS4zMSA1LjAyLTQ2LjggMCAwLTcuMjkuNDMgNS4zMSA1LjAyLTQ2LjggMCAwIC4wMyA3LjMxIDUuMzEgNS4wMi00Ni44IDAgMCA3LjI5LS40MyA1LjMxIDUuMDItNDYuOCAwIDAtLjAzLTcuMzEiIHZlY3Rvci1lZmZlY3Q9Im5vbi1zY2FsaW5nLXN0cm9rZSIvPjwvZz48cGF0aCBmaWxsPSIjZWUxZDIyIiBkPSJNMTcwLjg4IDMyNi4zMWEuNzEuNzEgMCAwIDEtMS4xNi41NXEtMzcuNTgtMzAuNjEtNTEuMzgtNzcuMThjLTQuNDItMTQuODktNS43NC0yOC40Ny01LjczLTQ1LjQycS4wMS00MC45MS4wNi0xMDcuOTlhMS44IDEuOCAwIDAgMSAuOTctMS41OHEzOS4yLTE5LjY0IDgyLjI2LTI1Ljg4YTEuODQgMS44MyAxMC4zIDAgMCAxLjM0LS45MmMyLjM5LTQuMjkgMy45NC03LjIxIDguNC05LjEycTIxLjkzLTkuMzggNDMuNS0xNy4xYTMuMzMgMy4yOS00Ni4xIDAgMSAyLjExLS4wNXExOS40MSA1Ljk2IDM4LjU2IDEzLjI4IDQuNDggMS43MSA1Ljk1IDIuNzhhOC4wMyA3Ljg1LjIgMCAxIDEuOTQgMS45MWw1LjE3IDcuMThhMy40IDMuNCAwIDAgMCAyLjM1IDEuMzhxMzUuMzUgNC4xMiA2OC41NiAxNy4zNCAxMC44MSA0LjMxIDIxIDkuNzVhMS4wNiAxLjA1LTc1LjggMCAxIC41NS45M3EtLjAxIDQyLjQ4LjEgMTAyLjMxLjAzIDIwLjg4LTEuNDMgMzAuOTgtNi42MiA0NS42Ny0zNi40NSA4MC41OS05LjEyIDEwLjY4LTIyLjc0IDIyLjc1YS4yMS4yMSAwIDAgMS0uMzUtLjJsMi4wNC0xMC4wN2EzLjU4IDMuNTYgNzMuMSAwIDEgLjk2LTEuODFsNi4wMi01Ljk4cTI3LjM1LTI3LjE1IDM4LjYzLTY0LjYzYzQuNTctMTUuMjEgNS42OC0yOC43NyA1LjY0LTQ2LjMycS0uMTUtNTIuNTQuMDEtMTAzLjA1YTEuMSAxLjEgMCAwIDAtLjUyLS45M3EtMS41OS0uOTgtMi45NC0xLjYtMjIuMzUtMTAuMTYtMzguNzEtMTQuNTEtMTYuMDQtNC4yNy0zMy43NC03LjU1LS44OS0uMTYtMS41MS4wM2EuNTcuNTcgMCAwIDAtLjI3Ljg5cTEzLjExIDE2Ljc3IDI1LjI4IDMyLjU5YTI2IDI2IDAgMCAxIDMuMTYgNi4wNXE2LjA5IDE3IDkuMiAyNS4wOC41MyAxLjM3IDEuMzYgMi44OWExLjU1IDEuMTItODkuMSAwIDAgLjIxLjNsMjAuMDYgMjEuNzJhOS41MiA5LjUtNzMuNCAwIDEgMi4yMyA0LjEzcTIuODQgMTEuNDcgNy44NSAzMC41MyAxLjk2IDcuNDcgMS45MyAxMi4xOC0uMDUgNi4yMy0uOTkgMTIuMzdhLjI0LjI0IDAgMCAxLS40Ny4wM3EtNi4zNS0yNC41Ni0xMy40Mi01MC42OC0uODgtMy4yNi0yLjk0LTUuNS0xMC4yMi0xMS4xMi0xOS4yMi0yMC40OS0xLjM0LTEuMzktMi44Ni01LjY3LTQuOTctMTMuOTgtOC43Ny0yNC43OS0uOS0yLjU2LTUuNDEtOC4zLTEyLjc3LTE2LjI2LTM0LjAxLTQzLjkyLTEuMzktMS44MS0zLjgyLTIuNzYtMjAuNDgtOC4wNC0zNi4yOS0xMi43Ny0zLjE2LS45NC01LjU4LS4wMS0xNy41MiA2LjcyLTM4LjExIDE1LjE3Yy0xLjc5Ljc0LTIuNzggMS4yOC0zLjc5IDIuOS0yLjE2IDMuNDctMy4yNiA1LjU3LTUuOTUgNy4xNmEzLjU3IDMuNDcgMjQgMCAxLTEuMjguNDdjLTI2LjcxIDQuMjgtNTMuMDMgMTEuNjgtNzcuNDcgMjMuODdhMS4zNyAxLjM2IDc2LjYgMCAwLS43NiAxLjI0cS4yIDMxLjg1LjEgMTA4LjQ1LS4wMSAxMS43Ni44OCAxOC4zNWMxLjQgMTAuMzIgNC4wMyAyMC40NyA4LjQ5IDMyLjE2cTEyLjg1IDMzLjYyIDQwLjAzIDU3LjU5YTMuNSAzLjQ4LTY5LjMgMCAxIDEuMTcgMi42MXoiLz48cGF0aCBmaWxsPSIjMDYyMTNkIiBkPSJNMjQ1LjMxIDI5NC4wNHEtMi45Mi0xNi41NS0xOS4yNC0yMi4xMWMtNS4wOS0xLjc0LTEwLjgzLTIuMDgtMTYuODMtMi4wN2wtMzYuMTUuMDNhNCA0LTI1LjggMCAxLTIuNDgtLjg2cS0xNS4xOC0xMi0zMC4wOC0yNS44MmExLjIxIDEuMiAzMS44IDAgMS0uMzEtMS4zTDE1Mi45NyAyMDdhLjk4Ljk0LTM4LjIgMCAwIC4wNi0uNDNsLTIuMDEtMjMuNzVhMi40OCAyLjQxLTMyIDAgMSAuMzctMS41MWwyMC41Ni0zMi45OGExLjUxIDEuNDgtMzUgMCAwIC4yLTEuMDdsLTMuNjktMTkuNThhMS45IDEuOSAwIDAgMSAuNTgtMS43NGwyMC4wNS0xOC40MWE5LjE4IDkuMTUtNS4zIDAgMCAxLjQ5LTEuNzlsMjAuMjUtMzEuNjFhMi42OCAyLjY2LTg1IDAgMSAxLjE4LTFxMTguMTItNy42MSAzNS42Ny0xNC43NSAyLjE0LS44NyA1LjAxLS4wMyAxNC40NyA0LjI1IDMyLjc1IDExLjI2YTYuMTUgNi4wOCA4MS4yIDAgMSAyLjY3IDEuOThxMzAuNiAzOS41IDM1LjY0IDQ2LjE2IDEuNzUgMi4zMSAyLjYyIDQuNjYgMi40NCA2LjYgOS40NyAyNmExMiAxMiAwIDAgMCAyLjUyIDMuOTVxMTAuNDEgMTAuNzYgMjAuMTUgMjEuMjRhNi42MyA2LjU1IDE2LjQgMCAxIDEuNTMgMi43N2wxNi43OSA2My4yYTUgNSAwIDAgMSAwIDIuNXEtMTAuMzQgMzkuODUtNDAuMSA2OS40OWEuMTguMTggMCAwIDEtLjMxLS4xYy00LjQ2LTM2LjI3LTQ1LjE3LTU0LjE3LTc1LjUtMzMuOHEtOS40NCA2LjM1LTE0LjY4IDE2LjUyYS41LjUgMCAwIDEtLjkzLS4xNG0zNS40OS0xNTguMTdxLTIuNDktLjktMTAuNy00LjItMi4xOC0uODgtNS0uNjVhLjU2LjU2IDAgMCAwLS41MS41OHEuMjggNy4xOC4wNSA5LjA5Yy0yLjEyIDE3LjM4LTE3LjMyIDI4LjM1LTM0LjM2IDI0LjE0cS0zLjg0LS45NS04LjUxLTMuNDhhLjQ2LjQ1IDg5LjEgMCAwLS42MS42M2w2LjA0IDEwLjQ2YS4zMS4zLTg4LjQgMCAxLS40My40MXEtMTcuNjctMTEuNzQtMjkuNDEtMTkuNzEtMi4yNy0xLjU0LTQuNi0xLjQ4LTYuNDYuMTktMTIuMzQgMS4wM2EyLjUgMi41IDAgMCAwLTEuNyAxLjA1cS0xMC41MyAxNS4zMS0xOS40OCAyOS45OS0xLjEgMS44LS45NyAzLjUxIDEuMzQgMTcuNyA1LjQ3IDM1LjguMzggMS42NC4zOSAxLjk2YS4zMy4zMyAwIDAgMS0uNTkuMjFxLTMuOTktNS41NC03LjEzLTEyLjc2YS41LjUgMCAwIDAtLjk0LjA3bC03LjM0IDI3LjE5YTEuNTkgMS41OC02My44IDAgMCAuNTYgMS42NnExMi42NyA5Ljc3IDI2LjM5IDE4LjU0IDIuNDMgMS41NSA0LjE2IDEuNTQgMjYuNTgtLjE1IDM1Ljc2LjA2YzcuODIuMTggMTYuMjguOTkgMjIuNDIgNS4zMmEuNzYuNzUtNDUuMyAwIDAgLjg4LS4wMXE1LjY2LTQuMDcgMTQuMDQtOS41MiA1LjY3LTMuNjkgOS4yMi03LjMxIDkuMzItOS40OSAxMC4yMy0xMC40OSAxLjg4LTIuMDUgNS4zLTIuNDMgMTAuMDUtMS4xMSAxMy41Ny0xLjQzIDIuODYtLjI1IDQuMTctMS4zMSAxNC4yMy0xMS41MSAyMy42OC0xOC44MSAzLjI0LTIuNSA0LjQ1LTQuNTcgNy42Ny0xMy4xNSAxMy45NC0yNS41N2EyLjUyIDIuNTEtNDUuOCAwIDAtLjAzLTIuMzRxLTguNTYtMTUuNjgtMTUuOTYtMjguOTQtMi42NC00Ljc0LTUuNTUtMTEuNDdhLjMuMyAwIDAgMC0uNTcuMTVxLjQ4IDQuOTItMi4wMyA4LjQ3LTEwLjMyIDE0LjU2LTEzLjMzIDE4LjkxLTEuMjYgMS44Mi0xLjYzIDQuMTQtMi4yOCAxNC4xMi00LjEyIDI2LjY3LS45NyA2LjU3LTYuNDQgMTEuNjhhLjMuMyAwIDAgMS0uNS0uMjVsNC4xOS00MC41NWE2LjQzIDYuMzkgNjQuNyAwIDEgMS4wMS0yLjg1bDEzLjUzLTIwLjg0YTMgMyAwIDAgMCAuNDMtMS4wMnEuNDYtMS43Mi4yNi00LjM3LTEuMDYtMTQuMTYtMi4zOS0yNC4zNWE4LjIyIDguMTctNjMuOCAwIDAtMS4wMy0zLjA1TDI4My4xIDgxLjM1YTEuMiAxLjIgMCAwIDAtMS43Ni0uMzhMMjU4LjU4IDk3LjVhLjM0LjM0IDAgMCAxLS40NS0uNWwxNy40Ny0xOS42NWEuODYuODYgMCAwIDAtLjMzLTEuMzhsLTI1LjExLTkuNzVhMS43MSAxLjY2IDQ0LjYgMCAwLTEuMTktLjAxcS0xMy45OCA1LjM5LTI3LjQ2IDExLjM5Yy0yLjU4IDEuMTUtNS44MSAyLjM1LTcuMjQgNC40NXEtMTQuOTggMjEuOTUtMTkuNTEgMjguMjEtMS4yMSAxLjY4LTIuODUgMy4xNC0xNC41OCAxMi45NS0xNi4xNCAxNC41NGExLjM1IDEuMzQtMzAuNCAwIDAtLjM0IDEuMjlsMy4yNiAxMi4zYTEuMSAxLjEgMCAwIDAgMS4wNS44aDguMDdhMi43IDIuNjgtNzEuMSAwIDAgMi4xMy0xLjA1YzIuNzctMy42MSAzLjk5LTUuNjMgNi44Mi04LjE0cTIuNDgtMi4xOSA0LjA0LTMuMjhhLjI4LjI4IDAgMCAxIC40MS4zNnEtMi40OSA0LjkxLTMuMyAxMC4yYTEuOCAxLjc5IDE3LjggMCAwIC45NyAxLjg4YzQuMDMgMi4wMiA5LjIzIDQuMzkgMTMuNDkgMi4zIDUuMy0yLjYxIDExLjkzLTcuMDUgMTguMDctMTAuMTZxMTYuOTYtOC42IDM0LjU0LTE0LjY1YTIgMiAwIDAgMSAyLjEzLjU0bDEzLjk0IDE1LjE3YS4yMy4yMyAwIDAgMS0uMjUuMzdtLTI2Ljk4LTIuNzEtMzAuMTMgMTQuMjQtLjAxLjA0LjA0LjA5YTE2LjY5IDE2LjYxLTI1LjMgMCAwIDIyLjE5IDcuODkgMTYuNjkgMTYuNjEtMjUuMyAwIDAgNy45OS0yMi4xNWwtLjA1LS4wOXptOTYuNjEgODItMjMuMDMgMjEuMTdhMy4yIDMuMiAwIDAgMC0uOTYgMy4xM2w1LjE5IDIxLjUyYS4zMy4zMi00MS45IDAgMCAuNjIuMDNxLjI4LS43Ni40My0xLjgxIDEuNDItMTAuMSAyLjYzLTE0LjY0LjY1LTIuNDMgMS4yNC0zLjUyIDEuMzUtMi40NiAxNC4zMi0yNS41M2EuMjguMjggMCAwIDAtLjQ0LS4zNW0tNDIuODIgNDcuMDItNC4wMi0yMS4zM2EuNjUuNjUgMCAwIDAtLjc0LS41MnEtNi45MSAxLjA4LTE4Ljk3IDMuMjgtMi43My41LTQuMTIgMS45LTguMjggOC4zMy0xMy4zNiAxNy44N2EuNDguNDggMCAwIDAgLjU5LjY3cTE5LjY5LTcuNDUgMzkuOTctMS4yOWEuNS41IDAgMCAwIC42NS0uNTgiLz48cGF0aCBmaWxsPSIjZWUxZDIyIiBkPSJNMjgwLjggMTM1Ljg3YS4yMy4yMyAwIDAgMCAuMjUtLjM3bC0xMy45NC0xNS4xN2EyIDIgMCAwIDAtMi4xMy0uNTRxLTE3LjU4IDYuMDUtMzQuNTQgMTQuNjVjLTYuMTQgMy4xMS0xMi43NyA3LjU1LTE4LjA3IDEwLjE2LTQuMjYgMi4wOS05LjQ2LS4yOC0xMy40OS0yLjNhMS44IDEuNzkgMTcuOCAwIDEtLjk3LTEuODhxLjgxLTUuMjkgMy4zLTEwLjJhLjI4LjI4IDAgMCAwLS40MS0uMzZxLTEuNTYgMS4wOS00LjA0IDMuMjhjLTIuODMgMi41MS00LjA1IDQuNTMtNi44MiA4LjE0YTIuNyAyLjY4LTcxLjEgMCAxLTIuMTMgMS4wNWgtOC4wN2ExLjEgMS4xIDAgMCAxLTEuMDUtLjhsLTMuMjYtMTIuM2ExLjM1IDEuMzQtMzAuNCAwIDEgLjM0LTEuMjlxMS41Ni0xLjU5IDE2LjE0LTE0LjU0IDEuNjQtMS40NiAyLjg1LTMuMTQgNC41My02LjI2IDE5LjUxLTI4LjIxYzEuNDMtMi4xIDQuNjYtMy4zIDcuMjQtNC40NXExMy40OC02IDI3LjQ2LTExLjM5YTEuNzEgMS42NiA0NC42IDAgMSAxLjE5LjAxbDI1LjExIDkuNzVhLjg2Ljg2IDAgMCAxIC4zMyAxLjM4TDI1OC4xMyA5N2EuMzQuMzQgMCAwIDAgLjQ1LjVsMjIuNzYtMTYuNTNhMS4yIDEuMiAwIDAgMSAxLjc2LjM4bDE5LjY0IDM0LjAyYTguMjIgOC4xNy02My44IDAgMSAxLjAzIDMuMDVxMS4zMyAxMC4xOSAyLjM5IDI0LjM1LjIgMi42NS0uMjYgNC4zN2EzIDMgMCAwIDEtLjQzIDEuMDJMMjkxLjk0IDE2OWE2LjQzIDYuMzkgNjQuNyAwIDAtMS4wMSAyLjg1bC00LjE5IDQwLjU1YS4zLjMgMCAwIDAgLjUuMjVxNS40Ny01LjExIDYuNDQtMTEuNjggMS44NC0xMi41NSA0LjEyLTI2LjY3LjM3LTIuMzIgMS42My00LjE0IDMuMDEtNC4zNSAxMy4zMy0xOC45MSAyLjUxLTMuNTUgMi4wMy04LjQ3YS4zLjMgMCAwIDEgLjU3LS4xNXEyLjkxIDYuNzMgNS41NSAxMS40NyA3LjQgMTMuMjYgMTUuOTYgMjguOTRhMi41MiAyLjUxLTQ1LjggMCAxIC4wMyAyLjM0cS02LjI3IDEyLjQyLTEzLjk0IDI1LjU3LTEuMjEgMi4wNy00LjQ1IDQuNTctOS40NSA3LjMtMjMuNjggMTguODEtMS4zMSAxLjA2LTQuMTcgMS4zMS0zLjUyLjMyLTEzLjU3IDEuNDMtMy40Mi4zOC01LjMgMi40My0uOTEgMS0xMC4yMyAxMC40OS0zLjU1IDMuNjItOS4yMiA3LjMxLTguMzggNS40NS0xNC4wNCA5LjUyYS43Ni43NS00NS4zIDAgMS0uODguMDFjLTYuMTQtNC4zMy0xNC42LTUuMTQtMjIuNDItNS4zMnEtOS4xOC0uMjEtMzUuNzYtLjA2LTEuNzMuMDEtNC4xNi0xLjU0LTEzLjcyLTguNzctMjYuMzktMTguNTRhMS41OSAxLjU4LTYzLjggMCAxLS41Ni0xLjY2bDcuMzQtMjcuMTlhLjUuNSAwIDAgMSAuOTQtLjA3cTMuMTQgNy4yMiA3LjEzIDEyLjc2YS4zMy4zMyAwIDAgMCAuNTktLjIxcS0uMDEtLjMyLS4zOS0xLjk2LTQuMTMtMTguMS01LjQ3LTM1LjgtLjEzLTEuNzEuOTctMy41MSA4Ljk1LTE0LjY4IDE5LjQ4LTI5Ljk5YTIuNSAyLjUgMCAwIDEgMS43LTEuMDVxNS44OC0uODQgMTIuMzQtMS4wMyAyLjMzLS4wNiA0LjYgMS40OCAxMS43NCA3Ljk3IDI5LjQxIDE5LjcxYS4zMS4zLTg4LjQgMCAwIC40My0uNDFsLTYuMDQtMTAuNDZhLjQ2LjQ1IDg5LjEgMCAxIC42MS0uNjNxNC42NyAyLjUzIDguNTEgMy40OGMxNy4wNCA0LjIxIDMyLjI0LTYuNzYgMzQuMzYtMjQuMTRxLjIzLTEuOTEtLjA1LTkuMDlhLjU2LjU2IDAgMCAxIC41MS0uNThxMi44Mi0uMjMgNSAuNjUgOC4yMSAzLjMgMTAuNyA0LjJtLTEwOS41NyA3MS4xOGE1LjggNS44IDAgMCAwIDQuODMuNTRxMTguNzYtNi4zMSAzNy41Ni04LjQ5YTEyLjY2IDEyLjUzIDQ4LjIgMCAxIDQuNDIuMjdjOC42OSAyLjEgMTcuNDUgNi4zMSAyNS40IDEwLjM3IDEuNzQuODkgMi44My44NyA0LjMtLjJhMS44IDEuOCAwIDAgMCAuNDItMi40OXEtMS44OS0yLjctNC44NC01LjI4LTkuMjYtOC4wOC0xOC4xNC0xNC4wNi0zLjc4LTIuNTQtNi45MS0xLjY5LTE5LjkzIDUuNDItNDYuOTcgMTguMjJhMS41NyAxLjU3IDAgMCAwLS4xNSAyLjc2em04OS4zNyAxNy4xMnEyLjEzLTcuMTMgMS4wOS0xNi4xOWEyLjU0IDIuNDktNjMuOCAwIDAtLjMyLS45N3EtMS43My0yLjkyLTQuOTYtNS45NGwtOC41OS04LjA0YS4yNy4yNiA2IDAgMC0uNDEuMzNsNy40NiAxMi4xYTMuNjEgMy41Ny02Ny45IDAgMSAuNC45Nmw0LjQxIDE3LjczYS40OC40OCAwIDAgMCAuOTIuMDIiLz48cGF0aCBmaWxsPSIjMGQ4ZWMyIiBkPSJtMjUzLjgyIDEzMy4xNi4wMy4wMi4wNS4wOWExNi42OSAxNi42MS0yNS4zIDAgMS03Ljk5IDIyLjE1IDE2LjY5IDE2LjYxLTI1LjMgMCAxLTIyLjE5LTcuODlsLS4wNC0uMDkuMDEtLjA0em0tNy42IDExLjkzYTUuMzEgNS4wMi00Ni44IDAgMC03LjI5LjQzIDUuMzEgNS4wMi00Ni44IDAgMCAuMDMgNy4zMSA1LjMxIDUuMDItNDYuOCAwIDAgNy4yOS0uNDMgNS4zMSA1LjAyLTQ2LjggMCAwLS4wMy03LjMxIi8+PGVsbGlwc2UgZmlsbD0iIzA2MjEzZCIgcng9IjUuMzEiIHJ5PSI1LjAyIiB0cmFuc2Zvcm09InJvdGF0ZSgtNDYuOCAyOTMuNCAtMjA1LjgyKSIvPjxwYXRoIGZpbGw9IiMwNjIxM2QiIGQ9Im0xNzEuMjMgMjA3LjA1LS4wOC0uMDVhMS41NyAxLjU3IDAgMCAxIC4xNS0yLjc2cTI3LjA0LTEyLjggNDYuOTctMTguMjIgMy4xMy0uODUgNi45MSAxLjY5IDguODggNS45OCAxOC4xNCAxNC4wNiAyLjk1IDIuNTggNC44NCA1LjI4YTEuOCAxLjggMCAwIDEtLjQyIDIuNDljLTEuNDcgMS4wNy0yLjU2IDEuMDktNC4zLjItNy45NS00LjA2LTE2LjcxLTguMjctMjUuNC0xMC4zN2ExMi42NiAxMi41MyA0OC4yIDAgMC00LjQyLS4yN3EtMTguOCAyLjE4LTM3LjU2IDguNDlhNS44IDUuOCAwIDAgMS00LjgzLS41NG04OS4zNyAxNy4xMmEuNDguNDggMCAwIDEtLjkyLS4wMmwtNC40MS0xNy43M2EzLjYxIDMuNTctNjcuOSAwIDAtLjQtLjk2bC03LjQ2LTEyLjFhLjI3LjI2IDYgMCAxIC40MS0uMzNsOC41OSA4LjA0cTMuMjMgMy4wMiA0Ljk2IDUuOTRhMi41NCAyLjQ5LTYzLjggMCAxIC4zMi45N3ExLjA0IDkuMDYtMS4wOSAxNi4xOSIvPjxwYXRoIGZpbGw9IiNlZTFkMjIiIGQ9Ik0zNTAuNDMgMjE1LjE2YS4yOC4yOCAwIDAgMSAuNDQuMzVxLTEyLjk3IDIzLjA3LTE0LjMyIDI1LjUzLS41OSAxLjA5LTEuMjQgMy41Mi0xLjIxIDQuNTQtMi42MyAxNC42NC0uMTUgMS4wNS0uNDMgMS44MWEuMzMuMzItNDEuOSAwIDEtLjYyLS4wM2wtNS4xOS0yMS41MmEzLjIgMy4yIDAgMCAxIC45Ni0zLjEzem0tNDIuODIgNDcuMDJhLjUuNSAwIDAgMS0uNjUuNThxLTIwLjI4LTYuMTYtMzkuOTcgMS4yOWEuNDguNDggMCAwIDEtLjU5LS42N3E1LjA4LTkuNTQgMTMuMzYtMTcuODcgMS4zOS0xLjQgNC4xMi0xLjkgMTIuMDYtMi4yIDE4Ljk3LTMuMjhhLjY1LjY1IDAgMCAxIC43NC41MnoiLz48cGF0aCBmaWxsPSIjMGQ4ZWMyIiBkPSJNMzI5LjU2IDMxMy4xM2E0MC44MSAzOS45LTMuMyAwIDEtMzguNDQgNDIuMTggNDAuODEgMzkuOS0zLjMgMCAxLTQzLjA0LTM3LjQ4IDQwLjgxIDM5LjktMy4zIDAgMSAzOC40NC00Mi4xOCA0MC44MSAzOS45LTMuMyAwIDEgNDMuMDQgMzcuNDhNMjg4LjkgMjkxLjhhMjMuODMgMjIuNzQtOTAuMSAwIDAtMjIuNyAyMy44NyAyMy44MyAyMi43NC05MC4xIDAgMCAyMi43OCAyMy43OSAyMy44MyAyMi43NC05MC4xIDAgMCAyMi43LTIzLjg3IDIzLjgzIDIyLjc0LTkwLjEgMCAwLTIyLjc4LTIzLjc5bS02MC4zMyAyMS43NGM2LjQ2IDIuNjUgMTEuMjggNy4xOCAxMi4zMiAxMy42IDIuOSAxNy44Mi0xMC43NiAyNi44LTI2LjkxIDI2Ljg5cS0zMC44NS4xOS0zNS40OC4wOWEuNTUuNTUgMCAwIDEtLjU0LS41NXYtNzUuNGExLjA3IDEuMDcgMCAwIDEgMS4wNi0xLjA3cTIxLjY0LS4yMSAzNi45Ni4wOCA2LjA3LjEyIDEyLjc4IDMuNTIgOC44MiA0LjQ3IDkuNTEgMTQuODIuNzkgMTEuODktOS43NCAxNy4yYS40NS40NSAwIDAgMCAuMDQuODJtLTMyLjItMjEuMzIuMDYgMTUuNGEuOC44IDAgMCAwIC44MS44MWwxNC41MS0uMDVhOS4yIDguMTEtLjIgMCAwIDkuMTctOC4xNHYtLjhhOS4yIDguMTEtLjIgMCAwLTkuMjMtOC4wOGwtMTQuNTEuMDVhLjguOCAwIDAgMC0uODEuODFtLS4wOCAzMC4zNy4yIDE2LjcxYS42NS42NSAwIDAgMCAuNjYuNjVsMTYuNjEtLjIxYTkuNyA4LjYzLS43IDAgMCA5LjU5LTguNzRsLS4wMS0uNzZhOS43IDguNjMtLjcgMCAwLTkuOC04LjUybC0xNi42MS4yMWEuNjUuNjUgMCAwIDAtLjY0LjY2bTg1LjUxIDYwLjEzYTEuMSAxLjEgMCAwIDEgMS4wOS0xLjA5aDEzLjYxYS44LjggMCAwIDEgLjc5LjcxcS4zNSAzLjg0LS4zNyA3LjI3Yy0yLjA3IDkuNzgtMTIuMTMgMTMuMTItMjAuOTQgMTAuODMtMTIuMTEtMy4xNC0xNi41OS0xNy43NS05LjIyLTI3LjQzIDYuNzItOC44MiAyMC41My05LjQ4IDI3LjktMS4yNWExIDEgMCAwIDEtLjA3IDEuMzlsLTMuNzEgMy40MWEuOTYuOTYgMCAwIDEtMS4zOC0uMDggMTAuNzMgMTAuNzMgMCAwIDAtMTUuMTctMS4wNGMtMy4yIDIuODItMy41OSA2LjQxLTMuMDggMTAuNTkuNTMgNC4zOCA0LjUyIDcuNzYgOC42MSA4LjUgMy44OS43IDguMzQtMS4yNSA5LjctNS4zMmExLjE0IDEuMTQgMCAwIDAtMS4wOC0xLjUxaC01LjZhMS4xIDEuMSAwIDAgMS0xLjA4LTEuMDh6bS0xMjUuNjUtMTUuOXE5Ljk0LS4xNCAxNS45MS4wOWMzLjc0LjE0IDcuNjMgMi41NCA4LjYxIDYuNDVxMS4zOCA1LjQ0LTMuNjUgOS4yM2EuNDkuNDkgMCAwIDAgLjE0Ljg2cTUuMTYgMS43NiA1LjIzIDcuNTRjLjA3IDYuNS01LjM0IDkuMzItMTEuMTQgOS41MXEtNy4zMi4yMy0xNC44LS4wNGEuOC44IDAgMCAxLS43OC0uODF2LTMyLjM0YS41LjUgMCAwIDEgLjQ4LS40OW02Ljk1IDcuMjIuMDYgNS4zNGExLjEgMS4xIDAgMCAwIDEuMTEgMS4wOGw1LjA3LS4wNmE0LjQgMy41OC0uNyAwIDAgNC4zNS0zLjYzdi0uMzZhNC40IDMuNTgtLjcgMCAwLTQuNDUtMy41M2wtNS4wNy4wNmExLjEgMS4xIDAgMCAwLTEuMDcgMS4xbS4wMiAxMy4yMi4wNCA2LjMyYS45Ni45NiAwIDAgMCAuOTcuOTVsNi41Mi0uMDRhNC4yNiAzLjktLjQgMCAwIDQuMjMtMy45M3YtLjQ0YTQuMjYgMy45LS40IDAgMC00LjI5LTMuODdsLTYuNTIuMDRhLjk2Ljk2IDAgMCAwLS45NS45N200MC42IDYuOTNxMi4xNCAwIDMuMzUtLjY5YzMuODEtMi4xNiAzLjQtNS4wMyAzLjQ0LTguOTFxLjA4LTguMDctLjA2LTE2Ljk0YS44OS44OC0uNiAwIDEgLjg5LS45aDUuNzZhLjkuOSAwIDAgMSAuOS44OXEuMDYgNy41LS4wNCAxOS44M2MtLjA4IDkuMDItNS43OSAxMy41OS0xNC4yMyAxMy42LTguNDMuMDItMTQuMTYtNC41NC0xNC4yNi0xMy41NXEtLjE0LTEyLjM0LS4xLTE5Ljg0YS45LjkgMCAwIDEgLjg5LS44OWw1Ljc2LS4wMmEuODkuODguNSAwIDEgLjkuOXEtLjEyIDguODctLjAxIDE2Ljk0Yy4wNSAzLjg4LS4zNSA2Ljc1IDMuNDYgOC45cTEuMjIuNjggMy4zNS42OG0yMy4xOS0yNi45YS41Ni41NiAwIDAgMSAuNTYtLjU2bDEyLjQ5LjAzYTE3LjE1IDE2LjI1LjEgMCAxIDE3LjEyIDE2LjI4djEuMjRhMTcuMTUgMTYuMjUuMSAwIDEtMTcuMTggMTYuMjJsLTEyLjQ5LS4wM2EuNTYuNTYgMCAwIDEtLjU2LS41NnptNy4yNCA2Ljg2LjA0IDE4Ljk2YS44Ni44NiAwIDAgMCAuODYuODZsNC4zOS0uMDFhMTAuMjEgOS44OC0uMSAwIDAgMTAuMTktOS44OXYtLjkyYTEwLjIxIDkuODgtLjEgMCAwLTEwLjIzLTkuODdsLTQuMzkuMDFhLjg2Ljg2IDAgMCAwLS44Ni44Nm05MS4xNiA5LjUxcTAgMS45My0uMDcgMi43MWEuNTYuNTYgMCAwIDEtLjU2LjUxaC0xMS41NmEuNzkuNzggMCAwIDAtLjc5Ljc4djUuNDVhLjgzLjgzIDAgMCAwIC44My44M2gxMy40NWEuOS45IDAgMCAxIC44OS44OXY0LjkxYS44NC44NCAwIDAgMS0uODQuODRIMzA1LjRhLjU2LjU1IDg1LjggMCAxLS41NS0uNDhxLS4wMi0uMTItLjAyLTE2LjQ0bC4wMi0xNi40NGEuNTYuNTUtODUuOCAwIDEgLjU1LS40OGwyMS4yNi4wMWEuODQuODQgMCAwIDEgLjg0Ljg0djQuOTFhLjkuOSAwIDAgMS0uODkuODlsLTEzLjQ1LS4wMWEuODMuODMgMCAwIDAtLjgzLjgzdjUuNDVhLjc5Ljc4IDAgMCAwIC43OS43OGwxMS41Ni4wMWEuNTYuNTYgMCAwIDEgLjU2LjVxLjA3Ljc5LjA3IDIuNzFtMjEuOTItMTYuOTcgMTIuNTQtLjAyYS44Ni44NiAwIDAgMSAuODYuODZ2NC45OGEuODYuODUgMCAwIDEtLjg2Ljg1aC04LjAyYS42Ni42NiAwIDAgMC0uNjYuNjZ2MjUuODZhLjYuNiAwIDAgMS0uNDkuNnEtLjU2LjEyLTMuMjUuMTN0LTMuMjQtLjExYS42LjYgMCAwIDEtLjUtLjU5bC0uMTgtMjUuODZhLjY2LjY2IDAgMCAwLS42Ni0uNjZsLTguMDIuMDZhLjg2Ljg1LS40IDAgMS0uODctLjg1bC0uMDQtNC45N2EuODYuODYgMCAwIDEgLjg2LS44N3E1LjkyLS4wNSAxMi41My0uMDdtLTE5Ny42NiA1OS43NGExOC4xMSAxNy4zNy0yLjMgMCAxLTE3LjQgMTguMDkgMTguMTEgMTcuMzctMi4zIDAgMS0xOC44LTE2LjYzIDE4LjExIDE3LjM3LTIuMyAwIDEgMTcuNC0xOC4wOSAxOC4xMSAxNy4zNy0yLjMgMCAxIDE4LjggMTYuNjNtLTcuNDkuNjhhMTAuNTYgMTAuNTYgMCAwIDAtMTAuNTYtMTAuNTYgMTAuNTYgMTAuNTYgMCAwIDAtMTAuNTYgMTAuNTYgMTAuNTYgMTAuNTYgMCAwIDAgMTAuNTYgMTAuNTYgMTAuNTYgMTAuNTYgMCAwIDAgMTAuNTYtMTAuNTZtMjEuMDMuMTNjLjEgOS44NSAxMS40IDEzLjgxIDE4LjAxIDYuNzJhMS4wOCAxLjA3IDQyIDAgMSAxLjUtLjA3bDMuNzcgMy4zNmEuOTUuOTUgMCAwIDEgLjA5IDEuMzNjLTEwLjMgMTEuODUtMzAuODYgNC43OS0zMS4wMi0xMS4yNy0uMTUtMTYuMDYgMjAuMjctMjMuNTIgMzAuNzktMTEuODdhLjk1Ljk1IDAgMCAxLS4wNiAxLjMzbC0zLjcgMy40NGExLjA4IDEuMDctNDMuMSAwIDEtMS41LS4wNWMtNi43NS02Ljk2LTE3Ljk3LTIuNzgtMTcuODggNy4wOG0yOC43LjA2Yy0uMTMtMTYuMDUgMjAuMjgtMjMuNDggMzAuNzktMTEuODJhLjk1Ljk1IDAgMCAxLS4wNiAxLjMzbC0zLjcxIDMuNDJhMS4wOCAxLjA3LTQzLjEgMCAxLTEuNS0uMDRjLTYuNzQtNi45Ny0xNy45NS0yLjgxLTE3Ljg3IDcuMDQuMDkgOS44NiAxMS4zNyAxMy44MyAxNy45OSA2Ljc1YTEuMDggMS4wNyA0Mi4xIDAgMSAxLjUtLjA3bDMuNzYgMy4zNmEuOTUuOTUgMCAwIDEgLjA5IDEuMzNjLTEwLjMxIDExLjgzLTMwLjg1IDQuNzUtMzAuOTktMTEuMyIvPjxyZWN0IHdpZHRoPSI3LjQiIGhlaWdodD0iMzMuNCIgeD0iMjMwLjMiIHk9IjQxMC4zOCIgZmlsbD0iIzBkOGVjMiIgcng9IjEuMDUiLz48cGF0aCBmaWxsPSIjMGQ4ZWMyIiBkPSJNMjQ2LjU1IDQxMC44OGEuNS41IDAgMCAxIC40OC0uNDhoMTIuNDNhMTcuMDMgMTYuMjYgMCAwIDEgMTcuMDMgMTYuMjZ2Ljg2YTE3LjAzIDE2LjI2IDAgMCAxLTE3LjAzIDE2LjI2aC0xMi40M2EuNS41IDAgMCAxLS40OC0uNDh6bTcuMzggNi43Ni0uMDYgMTguNzRhLjc2Ljc2IDAgMCAwIC43NS43N2w0LjUyLjAxYTkuODYgOS43MS4yIDAgMCA5LjktOS42N3YtLjg0YTkuODYgOS43MS4yIDAgMC05LjgyLTkuNzVsLTQuNTItLjAxYS43Ni43NiAwIDAgMC0uNzcuNzVtMjkuNzcgOS40NXEtLjA1LTE2LjE3LS4wMy0xNi4yOWEuNTYuNTUtODYgMCAxIC41NC0uNDhsMjEuMDgtLjA3YS44My44MyAwIDAgMSAuODMuODNsLjAyIDQuODdhLjkuOSAwIDAgMS0uODguODlsLTEzLjM0LjA0YS44LjggMCAwIDAtLjgyLjgybC4wMiA1LjQxYS43OC43Ny0uMiAwIDAgLjc5Ljc3bDExLjQ2LS4wNGEuNTUuNTUgMCAwIDEgLjU1LjVxLjA4Ljc4LjA4IDIuNjkuMDEgMS45MS0uMDYgMi42OGEuNTUuNTUgMCAwIDEtLjU1LjUxbC0xMS40Ni4wNGEuNzguNzctLjIgMCAwLS43OC43N2wuMDEgNS40MWEuOC44IDAgMCAwIC44My44MmwxMy4zMy0uMDVhLjkuOSAwIDAgMSAuODkuODhsLjAxIDQuODdhLjgzLjgzIDAgMCAxLS44My44NGwtMjEuMDcuMDdhLjU2LjU1IDg1LjYgMCAxLS41NS0uNDhxLS4wMi0uMTItLjA3LTE2LjNtNTEuMDYgMy44YS40OS40OSAwIDAgMCAuOS0uMjh2LTE5LjMzYS45My45MyAwIDAgMSAuOTMtLjkzaDUuN2EuOTYuOTYgMCAwIDEgLjk2Ljk2djMxLjc1YS43My43MyAwIDAgMS0uNzMuNzNoLTUuOThhMS4xOCAxLjE2IDcyLjUgMCAxLS45Ni0uNTFxLTEyLjE0LTE3LjUxLTEzLjQ4LTE5LjQ4LS4zNi0uNTEtLjkxLS4yLS4yNC4xMy0uMjQuNC0uMDIgMi43OS4wNiAxOWEuNzkuNzgtOTAgMCAxLS43OC43OWgtNS42OGEuNy43IDAgMCAxLS43Mi0uNzJ2LTMyLjE1YS41Ni41NSAwIDAgMSAuNTYtLjU1aDUuNWExLjUgMS41IDAgMCAxIDEuMjcuNjd6bTI3Ljg3IDEyLjkycS0yLjY1LS4wMS0zLjIxLS4xMmEuNi42IDAgMCAxLS40OC0uNmwuMDMtMjUuNTVhLjY1LjY1IDAgMCAwLS42Ni0uNjVsLTcuOTItLjAxYS44NS44NC4xIDAgMS0uODUtLjg0bC4wMS00LjkyYS44NS44NSAwIDAgMSAuODUtLjg0cTUuODUgMCAxMi4zOC4wM3QxMi4zOS4wOGEuODUuODUgMCAwIDEgLjg0Ljg1bC0uMDQgNC45MmEuODUuODQuNSAwIDEtLjg2LjgzbC03LjkyLS4wNmEuNjUuNjUgMCAwIDAtLjY2LjY1bC0uMiAyNS41NWEuNi42IDAgMCAxLS40OS41OXEtLjU2LjExLTMuMjEuMDltMTkuNzMtMTYuNjlxLS4wNC0xNi4xNS0uMDMtMTYuMjdhLjU1LjU1IDAgMCAxIC41NS0uNDdsMjEuMDMtLjA1YS44My44MyAwIDAgMSAuODMuODNsLjAxIDQuODVhLjkuOSAwIDAgMS0uODcuODlsLTEzLjMxLjAzYS44LjggMCAwIDAtLjgyLjgybC4wMSA1LjM5YS43OC43Ny0uMSAwIDAgLjc5Ljc3bDExLjQzLS4wMmEuNTUuNTUgMCAwIDEgLjU1LjVxLjA4Ljc3LjA5IDIuNjggMCAxLjktLjA3IDIuNjhhLjU1LjU1IDAgMCAxLS41NS41bC0xMS40NC4wM2EuNzguNzctLjEgMCAwLS43OC43N2wuMDIgNS40YS44LjggMCAwIDAgLjgyLjgxbDEzLjMxLS4wM2EuOS45IDAgMCAxIC44OC44OGwuMDEgNC44NmEuODMuODMgMCAwIDEtLjgzLjgzbC0yMS4wMy4wNWEuNTUuNTUgMCAwIDEtLjU1LS40N3oiLz48L3N2Zz4=" />
+  </footer>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="confirm-modal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h3 class="modal-title" id="confirm-title">Confirmar</h3>
+    <p class="modal-msg" id="confirm-msg"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="confirm-cancel">Cancelar</button>
+      <button class="btn btn-gold" id="confirm-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   GESTOR DE TORNEOS — Yu-Gi-Oh! TCG
+
+   Secciones:
+     1) MODELOS / ESTADO
+     2) PERSISTENCIA (localStorage + Export/Import JSON)
+     3) MATEMÁTICA DE DESEMPATES (MatchPoints, OMW%, GW%)
+     4) ALGORITMO DE EMPAREJAMIENTO SUIZO (Greedy + Backtracking)
+     5) FLUJO DEL TORNEO (iniciar, reportar, avanzar, drop)
+     6) RENDER / UI
+     7) WIRING DE EVENTOS
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   1) MODELOS / ESTADO
+   - Internamente referenciamos jugadores por id (Guid) en cada Match para que
+     la serialización a JSON sea limpia y sin duplicación.
+   - Match.player1/2 del spec se representan como p1Id / p2Id.
+--------------------------------------------------------------------------- */
+const STORAGE_KEY = 'ygo_swiss_v1';
+
+function uid(){
+  // Guid v4 simple (suficiente para uso local)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0, v = c==='x'? r : (r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
+function emptyState(){
+  return {
+    started: false,
+    finished: false,  // true cuando se jugó la última ronda (resultados definitivos)
+    maxRounds: 0,     // rondas totales, fijadas al iniciar
+    players: [],      // {id, name, dropped, hasReceivedBye, lateEntry, droppedAtRounds}
+    rounds: [],       // {roundNumber, matches:[...]}
+    currentRound: 0,  // número de la última ronda generada
+    viewRound: 0,     // ronda visible en la pestaña (puede ser pasada)
+    note: '',         // comentario libre del torneo (premiación, observaciones…)
+    excludeDrops: true, // si está activo, los DROP se relegan al fondo de los standings (no compiten por prizing)
+    timer: { endsAt: null, pausedMs: null, durationMin: 50 }, // cronómetro de ronda
+  };
+}
+
+/* Rondas sugeridas según jugadores, alineado a la tabla oficial Tier 1/2:
+   4-8 → 3, 9-16 → 4, 17-32 → 5, etc. (Para N≥9 equivale a ⌈log2(N)⌉.)
+   Es solo una sugerencia: el campo "Número de Rondas" sigue siendo editable. */
+function computeMaxRounds(n){
+  if(n >= 4 && n <= 8) return 3;
+  return n >= 2 ? Math.ceil(Math.log2(n)) : 0;
+}
+
+let state = emptyState();
+
+// UI: ¿el usuario editó manualmente el "Número de Rondas"? Si es false, el campo
+// sigue autocompletándose con ⌈log2(N)⌉; si es true, respetamos su valor.
+let roundsManuallySet = false;
+
+function newMatch(p1Id, p2Id, opts={}){
+  const isBye = opts.isBye ?? false;
+  return {
+    id: uid(),
+    p1Id, p2Id,
+    // result: 'p1' | 'p2' | 'doubleLoss' | null   (v2.5: el empate ya no existe)
+    result: isBye ? 'p1' : null,   // el BYE se auto-reporta como victoria de p1
+    isBye,
+    isReported: isBye,
+  };
+}
+
+const getPlayer = id => state.players.find(p => p.id === id);
+
+/* ---------------------------------------------------------------------------
+   2) PERSISTENCIA
+   localStorage envuelto en try/catch: si el entorno lo bloquea (p.ej. el
+   preview de un sandbox), la app sigue funcionando 100% en memoria; al abrir
+   el archivo descargado en un navegador real, la persistencia funciona sola.
+--------------------------------------------------------------------------- */
+function save(){
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e){ /* sin persistencia */ }
+}
+function load(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object'){
+        state = Object.assign(emptyState(), parsed);
+        // Compat: torneos guardados antes del tope de rondas no traían maxRounds.
+        if(state.started && !state.maxRounds) state.maxRounds = computeMaxRounds(state.players.length);
+        // Compat: migra matches del formato viejo (game wins) al nuevo (result).
+        for(const r of (state.rounds||[])) for(const m of (r.matches||[])){
+          if(m.result === undefined){
+            m.result = m.isBye ? 'p1'
+              : (m.isDoubleLoss ? 'doubleLoss'
+              : (m.isReported ? ((m.p1GameWins||0) >= (m.p2GameWins||0) ? 'p1' : 'p2') : null));
+          }
+          delete m.p1GameWins; delete m.p2GameWins; delete m.isDoubleLoss;
+        }
+      }
+    }
+  } catch(e){ /* estado limpio */ }
+}
+
+/* ---------------------------------------------------------------------------
+   3) MATEMÁTICA DE DESEMPATES
+   Cada jugador acumula su "número" de desempate AABBBCCCDDD:
+     AA  = puntos totales        (Victoria 3 / Derrota 0 / Bye 3)   ↓ mayor mejor
+     BBB = OMW%  · % victorias de tus oponentes        (×1000)      ↓ mayor mejor
+     CCC = OOMW% · % victorias de los oponentes de tus oponentes    ↓ mayor mejor
+     DDD = Σ (ronda_perdida)²                                       ↓ mayor mejor (*)
+   (*) La política presenta AABBBCCCDDD como UN número y rankea de mayor a menor;
+       por tanto TODOS los componentes, incluido DDD, ordenan descendente: perder
+       en rondas TARDÍAS te coloca por encima de quien perdió temprano.
+   Sin suelo del 33%. Sin GW% (rendimiento por duelos). Sin winrate individual
+   como criterio directo. Único supuesto (la política calla sobre el Bye): el Bye
+   da 3 pts en AA pero se EXCLUYE de todos los porcentajes.
+   El orden REAL usa la tupla numérica (no la cadena), para no romperse cuando un
+   % llega a 100% (1000 → 4 dígitos) o DDD supera 999 (14+ rondas).
+--------------------------------------------------------------------------- */
+function avg(a){ return a.length ? a.reduce((s,v)=>s+v,0) / a.length : 0; }
+function pad(n,w){ return String(n).padStart(w,'0'); }   // sólo presentación
+
+function computeStats(){
+  const stats = {};
+  for(const p of state.players){
+    stats[p.id] = {
+      id:p.id, name:p.name, dropped:p.dropped,
+      matchPoints:0,            // AA (incluye Bye)
+      mwPts:0, mwGames:0,       // numerador/denominador del MWP propio (sin Bye)
+      wins:0, losses:0,         // récord a mostrar (Bye cuenta como win)
+      opponents:[], lostRounds:[],
+      mwp:0, omw:0, oomw:0, ddd:0,
+    };
+  }
+  const h2h = {};               // h2h['X|Y']='a' ⇒ X venció a Y (desempate final)
+
+  state.rounds.forEach((round, idx) => {
+    const roundNo = idx + 1;
+    for(const m of round.matches){
+      if(!m.isReported) continue;
+      if(m.isBye){ const s = stats[m.p1Id]; if(s){ s.matchPoints += 3; s.wins++; } continue; }
+      // Late Entry: derrota administrativa por una ronda ya jugada. A diferencia del BYE,
+      // SÍ cuenta como un partido jugado-y-perdido en su winrate (mwGames++, 0 pts), para que
+      // su % real se refleje en el BBB/CCC de quienes lo enfrentaron. No tiene oponente, así
+      // que no agrega rival a su propia lista. Suma puntos 0 (AA) y suma al DDD.
+      if(m.isLateLoss){ const s = stats[m.p1Id]; if(s){ s.losses++; s.mwGames++; s.lostRounds.push(roundNo); } continue; }
+
+      const a = stats[m.p1Id], b = stats[m.p2Id];
+      if(!a || !b) continue;
+      a.opponents.push(b.id); b.opponents.push(a.id);
+      a.mwGames++; b.mwGames++;
+
+      if(m.result === 'p1'){
+        a.matchPoints += 3; a.mwPts += 3; a.wins++;
+        b.losses++; b.lostRounds.push(roundNo);
+        h2h[a.id+'|'+b.id]='a'; h2h[b.id+'|'+a.id]='b';
+      } else if(m.result === 'p2'){
+        b.matchPoints += 3; b.mwPts += 3; b.wins++;
+        a.losses++; a.lostRounds.push(roundNo);
+        h2h[a.id+'|'+b.id]='b'; h2h[b.id+'|'+a.id]='a';
+      } else if(m.result === 'doubleLoss'){
+        a.losses++; a.lostRounds.push(roundNo);
+        b.losses++; b.lostRounds.push(roundNo);
+      }
+    }
+  });
+
+  const vals = Object.values(stats);
+  for(const s of vals) s.mwp  = s.mwGames ? s.mwPts / (3 * s.mwGames) : 0;  // sin suelo
+  for(const s of vals) s.omw  = avg(s.opponents.map(id => stats[id].mwp));   // BBB
+  for(const s of vals) s.oomw = avg(s.opponents.map(id => stats[id].omw));   // CCC
+  for(const s of vals){
+    s.ddd = s.lostRounds.reduce((acc, r) => acc + r*r, 0);                   // DDD
+    s.tieString = pad(s.matchPoints,2) + pad(Math.round(s.omw*1000),3)
+                + pad(Math.round(s.oomw*1000),3) + pad(s.ddd,3);
+  }
+  stats._h2h = h2h;   // se adjunta tras armar `vals` (no es un jugador)
+  return stats;
+}
+
+function headToHead(h2h, x, y){
+  const r = h2h[x.id+'|'+y.id];
+  if(r === 'a') return -1;   // x ganó el directo → x más arriba
+  if(r === 'b') return 1;    // y ganó el directo → y más arriba
+  return 0;                  // no jugaron / doble derrota → siguiente criterio
+}
+
+// BBB y CCC tal como aparecen en la cadena: % redondeado al primer decimal (entero 0–1000).
+// Se comparan por estos ENTEROS, no por el float crudo: así el orden coincide exactamente
+// con el string mostrado, y el ruido de punto flotante no decide un empate que el spec
+// considera idéntico ("al primer decimal").
+function bbbInt(s){ return Math.round(s.omw  * 1000); }
+function cccInt(s){ return Math.round(s.oomw * 1000); }
+
+/* Orden DETERMINISTA (sin azar) para el emparejador: AA↓ BBB↓ CCC↓ DDD↓, nombre. */
+function sortByStandings(players, stats){
+  return [...players].sort((a,b) => {
+    const sa = stats[a.id], sb = stats[b.id];
+    return (sb.matchPoints - sa.matchPoints)
+        || (bbbInt(sb) - bbbInt(sa))
+        || (cccInt(sb) - cccInt(sa))
+        || (sb.ddd  - sa.ddd)
+        || a.name.localeCompare(b.name);
+  });
+}
+
+/* Tabla de posiciones FINAL: orden oficial + desempate head-to-head y, si persiste,
+   un orden ESTABLE por id (uid aleatorio fijo): no cambia al recargar/exportar.
+   Devuelve las entradas de stats ya ordenadas (cada una trae id/name/dropped). */
+function computeStandings(){
+  const stats = computeStats();
+  const h2h = stats._h2h;
+  const vals = state.players.map(p => stats[p.id]);
+  vals.sort((x,y) =>
+       (y.matchPoints - x.matchPoints)
+    || (bbbInt(y) - bbbInt(x))
+    || (cccInt(y) - cccInt(x))
+    || (y.ddd  - x.ddd)
+    || headToHead(h2h, x, y)
+    || x.id.localeCompare(y.id)
+  );
+  return vals;
+}
+
+/* ---------------------------------------------------------------------------
+   4) ALGORITMO DE EMPAREJAMIENTO SUIZO (Greedy + Backtracking)
+--------------------------------------------------------------------------- */
+
+// ¿Estos dos jugadores ya se enfrentaron antes en el torneo? (ignora Byes)
+function havePlayed(aId, bId){
+  for(const round of state.rounds){
+    for(const m of round.matches){
+      if(m.isBye) continue;
+      if((m.p1Id===aId && m.p2Id===bId) || (m.p1Id===bId && m.p2Id===aId)) return true;
+    }
+  }
+  return false;
+}
+
+/* Backtracking recursivo.
+   `players` viene pre-ordenado por standings (mayor→menor). Tomamos siempre al
+   primero y probamos al rival válido más cercano (i=1,2,3…). Esto da el sesgo
+   "greedy" de emparejar dentro del mismo grupo de puntaje; si una rama lleva a
+   un deadlock (a todos los restantes ya se enfrentaron), retorna null y el nivel
+   anterior deshace su emparejamiento y prueba la siguiente alternativa.
+   Devuelve un array de parejas [ [pA,pB], ... ] o null si no hay solución. */
+function pairBacktrack(players){
+  if(players.length === 0) return [];
+  const first = players[0];
+  for(let i=1; i<players.length; i++){
+    const opp = players[i];
+    if(havePlayed(first.id, opp.id)) continue;
+    const rest = players.slice(1, i).concat(players.slice(i+1));
+    const sub = pairBacktrack(rest);
+    if(sub !== null) return [[first, opp], ...sub];
+  }
+  return null; // deadlock → backtrack
+}
+
+// Plan B: si es imposible evitar todos los rematches, emparejar igual (greedy puro).
+function pairAllowRematch(players){
+  const res = [];
+  const pool = [...players];
+  while(pool.length){
+    const a = pool.shift();
+    const b = pool.shift();
+    res.push([a, b]);
+  }
+  return res;
+}
+
+function shuffle(arr){
+  for(let i=arr.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/* Resuelve una ronda IMPAR eligiendo el BYE de forma dinámica: el BYE entra al
+   proceso de validación. Se prueban candidatos en orden de preferencia (los que
+   NUNCA tuvieron bye, de menos a más puntos) y, para cada uno, se intenta
+   emparejar al resto SIN revanchas. El primer candidato que lo logra gana.
+   Devuelve { byePlayer, pairs, rematchForced }. No muta el estado. */
+function solveOddRound(active, stats, isFirstRound){
+  const byPointsAsc = arr => [...arr].sort((a,b) =>
+    (stats[a.id].matchPoints - stats[b.id].matchPoints) || a.name.localeCompare(b.name));
+  // Orden del resto al emparejar: R1 baraja; en adelante, por standings.
+  const orderRest = rest => isFirstRound ? shuffle([...rest]) : sortByStandings(rest, stats);
+
+  // 1) Candidatos elegibles para BYE: nunca lo recibieron, de menos a más puntos.
+  const eligible = byPointsAsc(active.filter(p => !p.hasReceivedBye));
+
+  // 2) Bucle de prueba (backtracking del BYE):
+  //    el primer candidato cuyo "resto" se empareja sin revanchas, gana.
+  for(const cand of eligible){
+    const rest = active.filter(p => p.id !== cand.id);
+    const pairs = pairBacktrack(orderRest(rest));
+    if(pairs !== null) return { byePlayer: cand, pairs, rematchForced:false };
+  }
+
+  // 3) CLÁUSULA DE ESCAPE (último recurso):
+  if(eligible.length){
+    // Hay elegibles pero ninguno evita la revancha: conservar el preferente
+    // (menos puntos) y permitir el rematch como última opción.
+    const byePlayer = eligible[0];
+    const rest = active.filter(p => p.id !== byePlayer.id);
+    let pairs = pairBacktrack(orderRest(rest));
+    if(pairs === null) pairs = pairAllowRematch(orderRest(rest));
+    return { byePlayer, pairs, rematchForced:true };
+  }
+  // Caso degenerado: TODOS los activos ya recibieron bye (pool muy pequeño).
+  // Intentar igualmente evitar revancha probando el pool completo como BYE.
+  const pool = byPointsAsc(active);
+  for(const cand of pool){
+    const rest = active.filter(p => p.id !== cand.id);
+    const pairs = pairBacktrack(orderRest(rest));
+    if(pairs !== null) return { byePlayer: cand, pairs, rematchForced:false };
+  }
+  // Imposible evitar revancha de cualquier forma: bye al de menos puntos + rematch.
+  const byePlayer = pool[0];
+  const rest = active.filter(p => p.id !== byePlayer.id);
+  return { byePlayer, pairs: pairAllowRematch(orderRest(rest)), rematchForced:true };
+}
+
+/* Genera los matches de una nueva ronda y la agrega al estado. */
+function generateRound(){
+  // GUARD CLAUSE: nunca generar más allá del límite de rondas del torneo.
+  // Esto previene de raíz la "Ronda 4 fantasma" con rematches forzados.
+  if(state.maxRounds && state.rounds.length >= state.maxRounds){
+    return false;
+  }
+
+  const stats = computeStats();
+  const active = state.players.filter(p => !p.dropped);
+
+  if(active.length < 2){
+    showToast('Se necesitan al menos 2 jugadores activos para generar una ronda.', true);
+    return false;
+  }
+
+  const isFirstRound = state.rounds.length === 0;
+  const matches = [];
+  let rematchForced = false;
+
+  if(active.length % 2 === 0){
+    // PAR: sin BYE. Emparejar con backtracking (R1 baraja, resto por standings).
+    const ordered = isFirstRound ? shuffle([...active]) : sortByStandings(active, stats);
+    let pairs = pairBacktrack(ordered);
+    if(pairs === null){ pairs = pairAllowRematch(ordered); rematchForced = true; }
+    for(const [a, b] of pairs) matches.push(newMatch(a.id, b.id));
+  } else {
+    // IMPAR: el BYE es parte de la búsqueda (ver solveOddRound).
+    const sol = solveOddRound(active, stats, isFirstRound);
+    rematchForced = sol.rematchForced;
+    sol.byePlayer.hasReceivedBye = true; // se marca SOLO el elegido (no en los intentos)
+    matches.push(newMatch(sol.byePlayer.id, null, { isBye:true }));
+    for(const [a, b] of sol.pairs) matches.push(newMatch(a.id, b.id));
+  }
+
+  state.currentRound += 1;
+  state.viewRound = state.currentRound;
+  state.rounds.push({ roundNumber: state.currentRound, matches, rematchForced });
+  timerReset();   // nueva ronda → timer a cero en ambas pantallas; el título se refresca solo
+  return true;
+}
+
+/* ---------------------------------------------------------------------------
+   5) FLUJO DEL TORNEO
+--------------------------------------------------------------------------- */
+function addPlayer(name){
+  name = name.trim();
+  if(!name) return;
+  if(state.started){ showToast('El registro está cerrado.', true); return; }
+  if(state.players.some(p => p.name.toLowerCase() === name.toLowerCase())){
+    showToast('Ya existe un jugador con ese nombre.', true); return;
+  }
+  state.players.push({ id: uid(), name, dropped:false, hasReceivedBye:false });
+  save(); render();
+}
+
+function addPlayersBulk(text){
+  if(state.started){ showToast('El registro está cerrado.', true); return; }
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if(lines.length === 0){ showToast('Pega al menos un nombre por línea.', true); return; }
+  const existing = new Set(state.players.map(p => p.name.toLowerCase()));
+  let added = 0, dupes = 0;
+  for(const name of lines){
+    const key = name.toLowerCase();
+    if(existing.has(key)){ dupes++; continue; } // omite duplicados (también dentro de la lista)
+    existing.add(key);
+    state.players.push({ id: uid(), name: name.slice(0,40), dropped:false, hasReceivedBye:false });
+    added++;
+  }
+  save();
+  document.getElementById('player-bulk').value = '';
+  render();
+  let msg = `Agregados: ${added}.`;
+  if(dupes) msg += ` Omitidos por duplicado: ${dupes}.`;
+  showToast(msg, added === 0);
+}
+
+function removePlayer(id){
+  if(state.started) return;
+  state.players = state.players.filter(p => p.id !== id);
+  save(); render();
+}
+
+/* LATE ENTRY (política oficial): inscribe a un jugador con el torneo ya iniciado.
+   Recibe una derrota administrativa por CADA ronda ya generada y se empareja desde
+   la próxima ronda. No cambia el número de rondas del torneo. */
+function lateEntryOpen(){
+  return state.started && !state.finished && state.rounds.length < state.maxRounds;
+}
+function _createLatePlayer(name){
+  const player = { id: uid(), name: name.slice(0,40), dropped:false, hasReceivedBye:false, lateEntry:true };
+  // Una derrota por cada ronda ya jugada (se anexa al final de cada ronda).
+  for(const r of state.rounds){
+    r.matches.push({ id: uid(), p1Id: player.id, p2Id: null, result: 'lateLoss', isBye:false, isReported:true, isLateLoss:true });
+  }
+  state.players.push(player);
+  return player;
+}
+function addLateEntry(name){
+  name = (name || '').trim();
+  if(!name) return;
+  if(!lateEntryOpen()){ showToast('El Late Entry sólo aplica con el torneo en curso y rondas por jugar.', true); return; }
+  if(state.players.some(p => p.name.toLowerCase() === name.toLowerCase())){
+    showToast('Ya existe un jugador con ese nombre.', true); return;
+  }
+  _createLatePlayer(name);
+  save(); render();
+  showToast(`${name} entró tarde con ${state.rounds.length} derrota(s); se empareja en la próxima ronda.`);
+}
+function addLateEntriesBulk(text){
+  if(!lateEntryOpen()){ showToast('El Late Entry sólo aplica con el torneo en curso y rondas por jugar.', true); return; }
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if(lines.length === 0){ showToast('Pega al menos un nombre por línea.', true); return; }
+  const existing = new Set(state.players.map(p => p.name.toLowerCase()));
+  let added = 0, dupes = 0;
+  for(const name of lines){
+    const key = name.toLowerCase();
+    if(existing.has(key)){ dupes++; continue; }
+    existing.add(key);
+    _createLatePlayer(name);
+    added++;
+  }
+  save();
+  document.getElementById('player-bulk').value = '';
+  render();
+  let msg = `Late entries agregados: ${added} (con ${state.rounds.length} derrota(s) c/u).`;
+  if(dupes) msg += ` Omitidos por duplicado: ${dupes}.`;
+  showToast(msg, added === 0);
+}
+
+/* ---------------------------------------------------------------------------
+   CRONÓMETRO DE RONDA (50 min por defecto). Estado en state.timer:
+     endsAt   = timestamp absoluto cuando corre (sobrevive recargas)
+     pausedMs = ms restantes cuando está en pausa
+     durationMin = duración configurada
+--------------------------------------------------------------------------- */
+let _timerInterval = null;
+let _timerWin = null;   // ventana de proyección (pantalla de tienda), si está abierta
+function _timer(){ if(!state.timer) state.timer = { endsAt:null, pausedMs:null, durationMin:50 }; return state.timer; }
+function roundTitleText(){
+  if(!state.started) return 'SwissYGO';
+  if(state.finished) return 'Torneo finalizado';
+  return 'Ronda ' + state.currentRound + ' de ' + state.maxRounds;
+}
+function timerRunning(){ return !!_timer().endsAt; }
+function timerRemainingMs(){
+  const t = _timer();
+  if(t.endsAt) return Math.max(0, t.endsAt - Date.now());
+  if(t.pausedMs != null) return t.pausedMs;
+  return (t.durationMin || 50) * 60000;
+}
+function fmtMMSS(ms){
+  const tot = Math.ceil(ms / 1000), m = Math.floor(tot / 60), s = tot % 60;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+function renderTimer(){
+  const ms = timerRemainingMs();
+  const active = timerRunning() || _timer().pausedMs != null;
+  const over = ms <= 0 && active;
+  const txt = fmtMMSS(ms);
+
+  const disp = $('#timer-display');
+  if(disp){
+    disp.textContent = txt;
+    disp.classList.toggle('over', over);
+    const toggle = $('#timer-toggle');
+    if(toggle) toggle.textContent = timerRunning() ? 'Pausar' : (_timer().pausedMs != null ? 'Reanudar' : 'Iniciar');
+    const minInput = $('#timer-min');
+    if(minInput && document.activeElement !== minInput) minInput.value = _timer().durationMin || 50;
+    // El campo de minutos solo se ve detenido (antes de iniciar / tras reiniciar): así no compite con el reloj.
+    const minWrap = $('#timer-min-wrap');
+    if(minWrap){
+      const idle = !timerRunning() && _timer().pausedMs == null;
+      minWrap.style.display = idle ? '' : 'none';
+    }
+  }
+
+  // La ventana de proyección tiene su propio reloj; solo le reenviamos el estado.
+  _pushTimerWin();
+}
+/* Reenvía el estado del timer a la ventana de proyección. Esa ventana corre su
+   propio bucle a partir de endsAt absoluto, así que sigue avanzando aunque esta
+   pestaña quede congelada en segundo plano (típico en móvil). */
+function _pushTimerWin(){
+  if(!_timerWin || _timerWin.closed) return;
+  try {
+    const t = _timer();
+    if(typeof _timerWin.applyState === 'function'){
+      // Al finalizar el torneo, la proyección pasa a "pantalla de campeón":
+      // enviamos los standings (con la misma partición de DROPs que la tabla).
+      let standings = null;
+      if(state.finished){
+        let ordered = computeStandings();
+        if(state.excludeDrops){
+          ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
+        }
+        standings = ordered.map(s => ({
+          name: s.name, pts: s.matchPoints, wl: s.wins + '-' + s.losses, dropped: !!s.dropped
+        }));
+      }
+      _timerWin.applyState({
+        endsAt: t.endsAt,
+        pausedMs: t.pausedMs,
+        durationMin: t.durationMin || 50,
+        title: roundTitleText(),
+        finished: !!state.finished,
+        standings: standings
+      });
+    } else {
+      // El documento aún no terminó de cargar su script: pintamos directo por esta vez.
+      const d = _timerWin.document;
+      const ms = timerRemainingMs(), active = timerRunning() || t.pausedMs != null, over = ms <= 0 && active;
+      const bt = d.getElementById('big-time'); if(bt){ bt.textContent = fmtMMSS(ms); bt.classList.toggle('over', over); }
+      const br = d.getElementById('big-round'); if(br) br.textContent = roundTitleText();
+      const bs = d.getElementById('big-sub');  if(bs) bs.textContent = over ? '¡TIEMPO!' : '';
+    }
+  } catch(e){ /* ventana cerrada o sin acceso */ }
+}
+function timerToggle(){
+  const t = _timer();
+  if(t.endsAt){ t.pausedMs = Math.max(0, t.endsAt - Date.now()); t.endsAt = null; }   // pausar
+  else { t.endsAt = Date.now() + (t.pausedMs != null ? t.pausedMs : (t.durationMin||50)*60000); t.pausedMs = null; } // iniciar/reanudar
+  save(); renderTimer();
+}
+function timerReset(){ const t = _timer(); t.endsAt = null; t.pausedMs = null; save(); renderTimer(); }
+function timerSetMinutes(v){
+  const n = Math.max(1, Math.min(180, parseInt(v,10) || 50));
+  _timer().durationMin = n;
+  save(); renderTimer();
+}
+function startTimerLoop(){ if(!_timerInterval) _timerInterval = setInterval(renderTimer, 1000); }
+
+/* Aplica el tema actual de la app a la ventana de proyección (lee las variables
+   computadas del documento principal y las copia como variables de la ventana). */
+function _applyTimerWinTheme(){
+  if(!_timerWin || _timerWin.closed) return;
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+    const root = _timerWin.document.documentElement.style;
+    root.setProperty('--pp-bg',     v('--bg', '#14131f'));
+    root.setProperty('--pp-ink',    v('--ink', '#eef1f7'));
+    root.setProperty('--pp-accent', v('--gold', '#82d8eb'));
+    root.setProperty('--pp-over',   v('--crimson', '#e5534b'));
+    root.setProperty('--pp-line',   v('--border-2', '#443f5d'));
+  } catch(e){ /* sin acceso */ }
+}
+
+/* Abre (o reenfoca) la proyección del timer para las pantallas de la tienda.
+   Se abre como PESTAÑA normal (sin features en window.open): así conserva la barra
+   completa de Chrome, incluido el menú ⋮ → "Transmitir…" para castear la pestaña a
+   un Chromecast. (Un popup con features pierde esa UI y no se puede castear.)
+   Muestra el título de la ronda + el tiempo, y corre su PROPIO bucle de reloj a
+   partir del endsAt absoluto que le pasa la app, así sigue avanzando aunque la
+   pestaña principal quede dormida en segundo plano (móvil). */
+function openTimerWindow(){
+  if(_timerWin && !_timerWin.closed){ _timerWin.focus(); return; }
+  const w = window.open('', 'ygoTimerWindow');
+  if(!w){ showToast('El navegador bloqueó la pestaña. Permite pop-ups para proyectar el timer.', true); return; }
+  w.document.open();
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Timer · SwissYGO</title><style>
+    :root{--pp-bg:#14131f;--pp-ink:#eef1f7;--pp-accent:#82d8eb;--pp-over:#e5534b;--pp-line:#443f5d;}
+    *{margin:0;padding:0;box-sizing:border-box;}
+    html,body{height:100%;width:100%;}
+    body{background:var(--pp-bg);color:var(--pp-ink);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.5vh;overflow:hidden;transition:background .2s,color .2s;}
+    #big-round{font-size:min(9vh,9vw);font-weight:700;color:var(--pp-accent);letter-spacing:1px;text-align:center;padding:0 4vw;}
+    #big-time{font-size:min(50vh,34vw);font-weight:800;line-height:.9;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #big-time.over{color:var(--pp-over);}
+    #big-sub{font-size:min(6vh,7vw);color:var(--pp-over);font-weight:800;height:1.15em;letter-spacing:3px;}
+    #champ-screen{display:none;flex-direction:column;align-items:center;gap:2.2vh;width:100%;padding:0 4vw;}
+    #champ-label{font-size:min(5.5vh,5vw);font-weight:800;color:var(--pp-accent);letter-spacing:5px;}
+    /* line-height ≥1.25: con line-height:1 el overflow:hidden (necesario para el
+       ellipsis) recortaba los descendentes de letras como j, g, y, p, q. */
+    #champ-name{font-size:min(22vh,15vw);font-weight:900;line-height:1.25;text-align:center;max-width:94vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #champ-list{display:flex;flex-direction:column;gap:.9vh;margin-top:1.5vh;font-size:min(4.4vh,3.6vw);font-weight:600;}
+    #champ-list .crow{display:flex;align-items:baseline;gap:1.6vw;}
+    #champ-list .cpos{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--pp-accent);min-width:2.2em;text-align:right;}
+    #champ-list .cpts{color:var(--pp-accent);opacity:.85;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #champ-list .cdrop{opacity:.45;text-decoration:line-through;}
+    #champ-list .cmore{opacity:.55;font-weight:500;}
+    #fs-btn{position:fixed;bottom:18px;right:18px;background:transparent;color:var(--pp-ink);opacity:.6;border:1px solid var(--pp-line);border-radius:8px;padding:9px 13px;font-size:14px;cursor:pointer;font-family:inherit;}
+    #fs-btn:hover{opacity:1;}
+    :fullscreen #fs-btn{opacity:.15;}
+  </style></head><body>
+    <div id="big-round">Ronda —</div>
+    <div id="big-time">00:00</div>
+    <div id="big-sub"></div>
+    <div id="champ-screen">
+      <div id="champ-label">🏆 CAMPEÓN</div>
+      <div id="champ-name"></div>
+      <div id="champ-list"></div>
+    </div>
+    <button id="fs-btn" onclick="if(document.fullscreenElement){document.exitFullscreen();}else if(document.documentElement.requestFullscreen){document.documentElement.requestFullscreen();}">⛶ Pantalla completa</button>
+    <script>
+      (function(){
+        var S = { endsAt:null, pausedMs:null, durationMin:50, title:'SwissYGO', finished:false, standings:null };
+        var MAX_ROWS = 8; // filas visibles después del campeón
+        function fmt(ms){ var tot=Math.ceil(ms/1000), m=Math.floor(tot/60), s=tot%60; return (m<10?'0'+m:m)+':'+(s<10?'0'+s:s); }
+        function remaining(){ if(S.endsAt) return Math.max(0, S.endsAt - Date.now()); if(S.pausedMs!=null) return S.pausedMs; return (S.durationMin||50)*60000; }
+        function champMode(){ return !!(S.finished && S.standings && S.standings.length); }
+        /* Construye la pantalla de campeón. SIEMPRE vía DOM/textContent: los nombres
+           vienen del registro y jamás deben interpretarse como HTML. */
+        function buildChamp(){
+          var nameEl = document.getElementById('champ-name');
+          var listEl = document.getElementById('champ-list');
+          if(!nameEl || !listEl) return;
+          var rows = S.standings;
+          var champIdx = -1;
+          for(var i=0;i<rows.length;i++){ if(!rows[i].dropped){ champIdx=i; break; } }
+          if(champIdx === -1) champIdx = 0; // todos drop: el primero igual corona
+          nameEl.textContent = rows[champIdx].name;
+          while(listEl.firstChild) listEl.removeChild(listEl.firstChild);
+          var shown = 0;
+          for(var j=0;j<rows.length;j++){
+            if(j === champIdx) continue;
+            if(shown >= MAX_ROWS){
+              var more = document.createElement('div');
+              more.className = 'crow cmore';
+              more.textContent = '+ ' + (rows.length - 1 - shown) + ' más…';
+              listEl.appendChild(more);
+              break;
+            }
+            var r = rows[j];
+            var row = document.createElement('div');
+            row.className = 'crow' + (r.dropped ? ' cdrop' : '');
+            var pos = document.createElement('span'); pos.className='cpos'; pos.textContent = (j+1) + '.';
+            var nm  = document.createElement('span'); nm.textContent = r.name;
+            var pt  = document.createElement('span'); pt.className='cpts'; pt.textContent = r.pts + ' pts (' + r.wl + ')';
+            row.appendChild(pos); row.appendChild(nm); row.appendChild(pt);
+            listEl.appendChild(row);
+            shown++;
+          }
+        }
+        function render(){
+          var champ = champMode();
+          var cs = document.getElementById('champ-screen');
+          var bt = document.getElementById('big-time');
+          var br = document.getElementById('big-round');
+          var bs = document.getElementById('big-sub');
+          if(cs) cs.style.display = champ ? 'flex' : 'none';
+          if(bt) bt.style.display = champ ? 'none' : '';
+          if(bs) bs.style.display = champ ? 'none' : '';
+          if(br) br.style.display = champ ? 'none' : '';
+          if(champ) return; // la corona no necesita el tick del reloj
+          var active = !!S.endsAt || S.pausedMs!=null;
+          var ms = remaining();
+          var over = ms<=0 && active;
+          var bt = document.getElementById('big-time');
+          if(bt){ bt.textContent = fmt(ms); bt.classList.toggle('over', over); }
+          var br = document.getElementById('big-round'); if(br) br.textContent = S.title || 'SwissYGO';
+          var bs = document.getElementById('big-sub');  if(bs) bs.textContent = over ? '¡TIEMPO!' : '';
+        }
+        window.applyState = function(s){
+          if(s) S = s;
+          if(champMode()){
+            // Reconstruir solo si los standings cambiaron (llega un push por segundo).
+            var sig = JSON.stringify(S.standings);
+            if(sig !== window.__champSig){ window.__champSig = sig; buildChamp(); }
+          } else {
+            window.__champSig = null;
+          }
+          render();
+        };
+        setInterval(render, 250);
+        document.addEventListener('visibilitychange', render);
+        render();
+      })();
+    <\/script>
+  </body></html>`);
+  w.document.close();
+  _timerWin = w;
+  _applyTimerWinTheme();
+  _pushTimerWin();
+  renderTimer();
+}
+
+function startTournament(){
+  if(state.players.length < 2){ showToast('Agrega al menos 2 jugadores.', true); return; }
+
+  // MaxRounds se toma del campo "Número de Rondas" (editable por el TO).
+  const field = document.getElementById('num-rounds');
+  let rounds = parseInt(field.value, 10);
+  if(isNaN(rounds) || rounds < 1){
+    showToast('Ingresa un número de rondas válido (≥ 1).', true);
+    field.focus();
+    return;
+  }
+  if(rounds > 50) rounds = 50; // tope de seguridad ante typos
+
+  state.started = true;
+  state.finished = false;
+  state.maxRounds = rounds;
+  if(generateRound()){
+    save(); switchTab('rondas'); render();
+  }
+}
+
+/* Un único reporte: un toque marca al ganador del match.
+   result: 'p1' | 'p2' | 'doubleLoss' | null (null = limpiar). */
+function reportResult(matchId, result){
+  if(state.finished) return;          // resultados bloqueados al finalizar
+  const m = findMatch(matchId);
+  if(!m || m.isBye) return;           // el Bye no se reporta a mano
+  m.result = result;
+  m.isReported = result !== null;
+  save(); render();
+}
+
+function findMatch(matchId){
+  for(const r of state.rounds) for(const m of r.matches) if(m.id === matchId) return m;
+  return null;
+}
+
+function currentRoundObj(){ return state.rounds.find(r => r.roundNumber === state.currentRound) || null; }
+function viewedRoundObj(){ return state.rounds.find(r => r.roundNumber === state.viewRound) || null; }
+
+function allReported(round){ return round && round.matches.every(m => m.isReported); }
+
+function advanceRound(){
+  if(state.finished) return;
+  const cur = currentRoundObj();
+  if(!cur || !allReported(cur)){ showToast('Faltan mesas por reportar.', true); return; }
+
+  // Si estamos en la última ronda, NO se genera otra: se finaliza el torneo.
+  if(state.currentRound >= state.maxRounds){
+    openConfirm(
+      'Esta es la última ronda. Al finalizar se bloquean los resultados y se calculan los standings definitivos.',
+      () => finishTournament(),
+      { title:'Finalizar Torneo', confirmText:'Finalizar' }
+    );
+    return;
+  }
+
+  if(generateRound()){ save(); render(); showToast('Ronda ' + state.currentRound + ' generada.'); }
+}
+
+/* Cierra el torneo: bloquea resultados y lleva a Standings definitivos. */
+function finishTournament(){
+  state.finished = true;
+  save();
+  switchTab('standings');
+  render();
+  showToast('🏆 Torneo finalizado — standings definitivos.');
+}
+
+/* Recalcula hasReceivedBye de cada jugador a partir de las rondas vigentes.
+   Se usa al descartar una ronda para no dejar flags de bye "fantasma". */
+function recomputeByeFlags(){
+  const had = new Set();
+  for(const r of state.rounds) for(const m of r.matches) if(m.isBye) had.add(m.p1Id);
+  for(const p of state.players) p.hasReceivedBye = had.has(p.id);
+}
+
+/* Corregir la ronda inmediatamente anterior: sólo permitido si la ronda actual
+   ya se generó pero NO tiene resultados reportados. Descarta los emparejamientos
+   de la ronda actual (no había datos que perder), retrocede a la anterior para
+   editarla, y al volver a "Avanzar" se generan de nuevo los pairings. */
+function correctPreviousRound(){
+  if(state.finished) return;
+  if(state.currentRound < 2){ showToast('No hay ronda anterior que corregir.', true); return; }
+  const cur = currentRoundObj();
+  const hasReported = cur && cur.matches.some(m => !m.isBye && m.isReported);
+  if(hasReported){
+    showToast('La ronda actual ya tiene resultados; no se puede retroceder.', true); return;
+  }
+  const discarded = state.currentRound;
+  openConfirm(
+    `Se descartarán los emparejamientos de la Ronda ${discarded} (no tiene resultados) para que puedas corregir la Ronda ${discarded - 1}. Después podrás volver a generar la Ronda ${discarded}.`,
+    () => {
+      state.rounds = state.rounds.filter(r => r.roundNumber !== discarded);
+      state.currentRound -= 1;
+      state.viewRound = state.currentRound;
+      recomputeByeFlags(); // el bye de la ronda descartada deja de contar
+      save(); render();
+      showToast(`Ronda ${discarded} descartada. Corrige la Ronda ${state.currentRound} y pulsa "Avanzar" para regenerarla.`);
+    },
+    { title:'Corregir ronda anterior', confirmText:'Sí, corregir' }
+  );
+}
+
+function toggleDrop(id){
+  if(state.finished) return; // sin cambios de roster tras finalizar
+  const p = getPlayer(id); if(!p) return;
+  if(!p.dropped){
+    p.dropped = true;
+    p.droppedAtRounds = state.rounds.length; // cuántas rondas existían al hacer drop
+  } else {
+    // Reingreso permitido SÓLO si no se generó ninguna ronda desde el drop.
+    const at = p.droppedAtRounds ?? state.rounds.length; // saves viejos: permisivo
+    if(state.rounds.length !== at){
+      showToast('No puede reingresar: ya se jugó al menos una ronda sin este jugador.', true);
+      return;
+    }
+    p.dropped = false;
+    delete p.droppedAtRounds;
+  }
+  save(); render();
+}
+
+function resetAll(){
+  openConfirm(
+    'Se borrarán todos los jugadores y rondas actuales. Esta acción no se puede deshacer.',
+    () => {
+      state = emptyState(); roundsManuallySet = false; save(); switchTab('registro'); render();
+    },
+    { title:'Nuevo Torneo', confirmText:'Sí, reiniciar', danger:true }
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   6) RENDER / UI
+--------------------------------------------------------------------------- */
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct = v => (v*100).toFixed(2) + '%';
+
+function render(){
+  renderRegistro();
+  renderRondas();
+  renderStandings();
+}
+
+function renderRegistro(){
+  const lateOpen = lateEntryOpen();
+  const formMode = !state.started ? 'reg' : (lateOpen ? 'late' : 'closed');
+  const formEnabled = formMode === 'reg' || formMode === 'late';
+  const countTxt = state.players.length ? '· ' + state.players.length + ' inscritos' : '';
+
+  // El form principal se reutiliza: registro normal antes de iniciar; Late Entry en curso.
+  $('#player-name').disabled = !formEnabled;
+  $('#add-player').disabled  = !formEnabled;
+  $('#player-bulk').disabled = !formEnabled;
+  $('#add-bulk').disabled    = !formEnabled;
+
+  const modeHint = $('#reg-mode-hint');
+  if(formMode === 'late'){
+    $('#reg-title').innerHTML = 'Late Entry <span class="count" id="reg-count">' + countTxt + '</span>';
+    $('#add-player').textContent = 'Agregar (Late Entry)';
+    $('#add-bulk').textContent   = 'Agregar lista (Late Entry)';
+    modeHint.style.display = '';
+    modeHint.innerHTML = 'Torneo en curso: cada nombre entra como <strong>Late Entry</strong> con una derrota por cada ronda ya jugada (0 pts, suma al DDD y baja su winrate) y se empareja desde la próxima ronda.';
+  } else {
+    $('#reg-title').innerHTML = 'Inscripción de Jugadores <span class="count" id="reg-count">' + countTxt + '</span>';
+    $('#add-player').textContent = 'Agregar Jugador';
+    $('#add-bulk').textContent   = 'Agregar lista';
+    if(formMode === 'closed'){
+      modeHint.style.display = '';
+      modeHint.innerHTML = state.finished ? 'Torneo finalizado · registro cerrado.' : 'Ventana de Late Entry cerrada (no quedan rondas por jugar).';
+    } else {
+      modeHint.style.display = 'none';
+    }
+  }
+
+  // --- Setup (pre-inicio) vs Resumen (en curso) ---
+  $('#setup-controls').style.display = state.started ? 'none' : '';
+  const summary = $('#setup-summary');
+  summary.style.display = state.started ? '' : 'none';
+
+  const roundsField = $('#num-rounds');
+  const suggestion  = $('#rounds-suggestion');
+  const suggested = computeMaxRounds(state.players.length);
+  if(!state.started){
+    roundsField.disabled = false;
+    if(!roundsManuallySet) roundsField.value = suggested > 0 ? suggested : '';
+    suggestion.innerHTML = suggested > 0 ? `Sugerido: <strong>${suggested}</strong> · editable` : 'Agrega al menos 2 jugadores';
+    const hint = $('#start-hint');
+    if(state.players.length >= 2){
+      const chosen = parseInt(roundsField.value, 10);
+      let msg = `Sugerencia: <strong>${suggested} ronda(s)</strong> (tabla oficial; 4-8 jugadores → 3). Editable antes de iniciar.`;
+      if(!isNaN(chosen) && chosen > suggested){
+        msg += ` Con <strong>${chosen}</strong> extiendes el evento; si se agotan los emparejamientos únicos, alguna ronda podría forzar revanchas (se avisa).`;
+      }
+      hint.innerHTML = msg;
+    } else {
+      hint.innerHTML = 'Necesitas al menos 2 jugadores para iniciar.';
+    }
+  } else {
+    const activos = state.players.filter(p => !p.dropped).length;
+    const lates   = state.players.filter(p => p.lateEntry).length;
+    summary.innerHTML = `<table><tbody>
+      <tr><td>Estado</td><td class="num">${state.finished ? 'Finalizado' : 'En curso'}</td></tr>
+      <tr><td>Ronda</td><td class="num">${state.currentRound} / ${state.maxRounds}</td></tr>
+      <tr><td>Jugadores</td><td class="num">${state.players.length} (${activos} activos)</td></tr>
+      <tr><td>Late entries</td><td class="num">${lates}</td></tr>
+    </tbody></table>`;
+  }
+  $('#start-tournament').disabled = state.started || state.players.length < 2;
+  $('#start-tournament').textContent = state.started ? 'Torneo en curso' : 'Iniciar Torneo';
+
+  // Marca el desplegable de comentario si ya hay texto guardado (para que no quede oculto).
+  const noteBadge = $('#note-badge');
+  if(noteBadge) noteBadge.textContent = (state.note && state.note.trim()) ? ' •' : '';
+
+  // --- Lista de inscritos (con marca Late / DROP; clave para import/export) ---
+  const list = $('#reg-list');
+  if(state.players.length === 0){
+    list.innerHTML = '<div class="empty">Aún no hay jugadores inscritos.</div>';
+  } else {
+    let rows = state.players.map((p,i) => `
+      <tr>
+        <td class="pos">${i+1}</td>
+        <td>${esc(p.name)}${p.lateEntry ? ' <span class="pill pill-pend">Late</span>' : ''}${p.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
+        <td style="text-align:right;">
+          ${state.started ? '' : `<button class="btn btn-sm btn-danger" data-action="remove" data-id="${p.id}">Eliminar</button>`}
+        </td>
+      </tr>`).join('');
+    list.innerHTML = `<table><tbody>${rows}</tbody></table>`;
+  }
+
+  // --- Nota / premiación (editable siempre, persistida y exportada) ---
+  const noteEl = $('#tournament-note');
+  if(noteEl && document.activeElement !== noteEl) noteEl.value = state.note || '';
+}
+
+function playerNameById(id){ const p = getPlayer(id); return p ? p.name : '—'; }
+
+function renderRondas(){
+  const title = $('#round-title');
+  const matchesList = $('#matches-list');
+  const banner = $('#round-banner');
+  const selector = $('#round-selector');
+  const toolbar = $('#round-toolbar');
+  const hint = $('#round-hint');
+  const timerBar = $('#timer-bar');
+
+  if(!state.started || state.rounds.length === 0){
+    title.textContent = 'Ronda —';
+    selector.innerHTML = '';
+    banner.innerHTML = '';
+    matchesList.innerHTML = '<div class="empty">El torneo aún no ha iniciado. Ve a la pestaña <strong>Registro</strong>.</div>';
+    toolbar.style.display = 'none';
+    if(timerBar) timerBar.style.display = 'none';
+    hint.innerHTML = '';
+    return;
+  }
+  toolbar.style.display = '';
+  // Cronómetro de ronda: visible mientras el torneo está en curso (no finalizado).
+  if(timerBar){
+    timerBar.style.display = state.finished ? 'none' : '';
+    if(!state.finished) renderTimer();
+  }
+
+  // Selector de rondas (para ver historial)
+  selector.innerHTML = state.rounds.map(r =>
+    `<option value="${r.roundNumber}" ${r.roundNumber===state.viewRound?'selected':''}>Ronda ${r.roundNumber}${r.roundNumber===state.currentRound?' (actual)':''}</option>`
+  ).join('');
+
+  const round = viewedRoundObj();
+  const isCurrent = round.roundNumber === state.currentRound;
+  // Editable sólo en la ronda actual y mientras el torneo no haya finalizado.
+  const editable = isCurrent && !state.finished;
+  title.textContent = 'Ronda ' + round.roundNumber + ' de ' + state.maxRounds +
+    (state.finished ? ' · final' : (isCurrent ? '' : ' · histórico'));
+
+  banner.innerHTML = round.rematchForced
+    ? '<div class="banner">⚠ En esta ronda fue imposible evitar todas las revanchas; se permitió al menos un rematch para completar el emparejamiento.</div>'
+    : '';
+
+  let mesa = 0;
+  const html = round.matches.map(m => {
+    mesa++;
+    if(m.isBye){
+      return `<div class="match bye">
+        <div class="mesa">BYE</div>
+        <div class="players"><span class="pname">${esc(playerNameById(m.p1Id))}</span>
+          <span class="pill pill-bye">BYE · +3 pts</span></div>
+      </div>`;
+    }
+    if(m.isLateLoss){
+      return `<div class="match dl">
+        <div class="mesa">—</div>
+        <div class="players"><span class="pname">${esc(playerNameById(m.p1Id))}</span>
+          <span class="pill pill-drop">Late entry · derrota</span></div>
+      </div>`;
+    }
+    const dl   = m.result === 'doubleLoss';
+    const win1 = m.result === 'p1';
+    const win2 = m.result === 'p2';
+    const cls  = m.isReported ? (dl ? 'dl' : 'reported') : '';
+
+    // Un toque en un nombre = ganador. Doble derrota y "limpiar" son secundarias.
+    const wonMark = '<span class="won-mark" aria-hidden="true">✓</span>';
+    const picks = editable
+      ? `<button class="pick ${win1?'won':''} ${m.isReported&&!win1?'lost':''}" data-action="win" data-result="p1" data-id="${m.id}">${win1?wonMark:''}${esc(playerNameById(m.p1Id))}</button>
+         <span class="vs">VS</span>
+         <button class="pick ${win2?'won':''} ${m.isReported&&!win2?'lost':''}" data-action="win" data-result="p2" data-id="${m.id}">${win2?wonMark:''}${esc(playerNameById(m.p2Id))}</button>`
+      : `<span class="pname ${win1?'winner':''}">${win1?wonMark:''}${esc(playerNameById(m.p1Id))}</span>
+         <span class="vs">VS</span>
+         <span class="pname ${win2?'winner':''}">${win2?wonMark:''}${esc(playerNameById(m.p2Id))}</span>`;
+
+    let foot;
+    if(m.isReported){
+      foot = `<span class="pill ${dl?'pill-drop':'pill-ok'}">${dl?'Doble derrota':'✓ Reportado'}</span>`
+           + (editable ? ` <button class="btn btn-sm btn-ghost" data-action="clear" data-id="${m.id}">↺ Limpiar</button>` : '');
+    } else {
+      foot = `<span class="pill pill-pend">Pendiente</span>`
+           + (editable ? ` <button class="btn btn-sm btn-ghost" data-action="dl" data-id="${m.id}">Doble derrota</button>` : '');
+    }
+
+    return `<div class="match ${cls}">
+      <div class="mesa">Mesa ${mesa}</div>
+      <div class="winner-pick">${picks}</div>
+      <div class="match-foot">${foot}</div>
+    </div>`;
+  }).join('');
+  matchesList.innerHTML = html;
+
+  // Botón inferior: "Cerrar Ronda y Avanzar" / "Finalizar Torneo" / bloqueado.
+  const cur = currentRoundObj();
+  const isLastRound = state.currentRound >= state.maxRounds;
+  const canAdvance = isCurrent && !state.finished && allReported(cur);
+  const adv = $('#advance-round');
+  if(state.finished){
+    adv.textContent = '✓ Torneo Finalizado';
+    adv.disabled = true;
+  } else {
+    adv.textContent = isLastRound ? 'Finalizar Torneo' : 'Cerrar Ronda y Avanzar';
+    adv.disabled = !canAdvance;
+  }
+
+  // Botón "Corregir ronda anterior": visible sólo en la ronda actual, con ronda
+  // previa, torneo no finalizado y SIN resultados reportados en la ronda actual.
+  const correctBtn = $('#correct-prev');
+  const hasReported = cur && cur.matches.some(m => !m.isBye && m.isReported);
+  const canCorrect = isCurrent && !state.finished && state.currentRound >= 2 && !hasReported;
+  if(canCorrect){
+    correctBtn.textContent = '↩ Corregir Ronda ' + (state.currentRound - 1);
+    correctBtn.disabled = false;
+    correctBtn.style.display = '';
+  } else {
+    correctBtn.style.display = 'none';
+  }
+
+  const pending = isCurrent ? cur.matches.filter(m => !m.isReported).length : 0;
+  if(state.finished){
+    hint.innerHTML = 'Torneo finalizado. Los resultados son definitivos; revisa la pestaña <strong>Standings</strong>.';
+  } else if(!isCurrent){
+    hint.innerHTML = 'Estás viendo una ronda anterior (sólo lectura). Vuelve a la ronda actual para reportar.';
+  } else if(canAdvance){
+    hint.innerHTML = isLastRound
+      ? 'Última ronda completa. Al <strong>finalizar</strong> se bloquean los resultados y verás los standings definitivos.'
+      : 'Todas las mesas reportadas. Al avanzar se calculan los standings y se genera la siguiente ronda.';
+  } else {
+    hint.innerHTML = `Faltan <strong>${pending}</strong> mesa(s) por reportar para poder ${isLastRound ? 'finalizar el torneo' : 'cerrar la ronda'}.`;
+  }
+}
+
+// Ícono de podio: trofeo para el 1º, medalla para 2º/3º. SVG inline (sin dependencias).
+function rankIcon(i){
+  if(i > 2) return '';
+  const trophy = '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>';
+  const medal  = '<circle cx="12" cy="15" r="5"/><path d="M9 10.5 6 3M15 10.5 18 3M9 3h6"/>';
+  const path = i === 0 ? trophy : medal;
+  return `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+}
+// Separa AABBBCCCDDD en sus 4 segmentos para que se lea como 4 datos, no como un churro.
+function segmentTie(str){
+  const s = String(str);
+  if(s.length < 11) return esc(s);
+  const sep = '<span class="tieseg">·</span>';
+  return esc(s.slice(0,2)) + sep + esc(s.slice(2,5)) + sep + esc(s.slice(5,8)) + sep + esc(s.slice(8,11));
+}
+function renderStandings(){
+  const SHOW_TIE_DEBUG = false;   // ponlo en true para auditar OMW%/OOMW%/AABBBCCCDDD
+  const list = $('#standings-list');
+  const swEx = $('#exclude-drops');
+  if(swEx) swEx.checked = !!state.excludeDrops;
+  $('#stand-count').textContent = state.finished
+    ? '· Resultados Finales'
+    : (state.players.length ? '· ' + state.players.filter(p=>!p.dropped).length + ' activos' : '');
+
+  // Acciones contextuales: compartir/descargar solo aplican a resultados
+  // definitivos. "Compartir" se oculta si el navegador no soporta Web Share
+  // (ej. Firefox de escritorio), dejando "Descargar" como camino universal.
+  const actions = $('#standings-actions');
+  if(actions){
+    actions.style.display = (state.finished && state.players.length) ? '' : 'none';
+    const shareBtn = $('#share-standings');
+    if(shareBtn) shareBtn.style.display = (typeof navigator.share === 'function') ? '' : 'none';
+  }
+
+  if(state.players.length === 0){
+    list.innerHTML = '<div class="empty">No hay jugadores.</div>';
+    return;
+  }
+  let ordered = computeStandings();   // entradas de stats ya ordenadas
+  // Modo premiación: los DROP se relegan al fondo, manteniendo entre ellos su orden.
+  if(state.excludeDrops){
+    ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
+  }
+
+  // Banner de campeón cuando el torneo finaliza (primer NO-dropeado).
+  let champBanner = '';
+  if(state.finished){
+    const champ = ordered.find(s => !s.dropped) || ordered[0];
+    if(champ){
+      champBanner = `<div class="banner" style="background:rgba(130,216,235,.12); border-color:var(--gold-soft); color:var(--gold); margin-bottom:14px;">🏆 Campeón: <strong>${esc(champ.name)}</strong> — ${champ.matchPoints} pts tras ${state.maxRounds} ronda(s)</div>`;
+    }
+  }
+
+  const rows = ordered.map((s, i) => {
+    const rankCls = !s.dropped && i===0 ? 'rank-1' : (!s.dropped && i===1 ? 'rank-2' : (!s.dropped && i===2 ? 'rank-3' : ''));
+    const dbg = SHOW_TIE_DEBUG
+      ? `<td class="num">${(s.omw*100).toFixed(1)}</td>
+         <td class="num">${(s.oomw*100).toFixed(1)}</td>`
+      : '';
+    // Celda de Drop/Reingreso. El reingreso se bloquea si ya pasó una ronda sin el jugador.
+    let dropCell = '';
+    if(state.started && !state.finished){
+      if(!s.dropped){
+        dropCell = `<button class="btn btn-sm btn-danger" data-action="drop" data-id="${s.id}">Drop</button>`;
+      } else {
+        const pl = getPlayer(s.id);
+        const canReenter = pl && state.rounds.length === (pl.droppedAtRounds ?? state.rounds.length);
+        dropCell = canReenter
+          ? `<button class="btn btn-sm" data-action="drop" data-id="${s.id}">Reingresar</button>`
+          : `<span class="hint" style="margin:0; white-space:nowrap;">drop definitivo</span>`;
+      }
+    }
+    return `<tr class="${s.dropped?'dropped':''}">
+      <td class="pos ${rankCls}"><span class="rank-wrap">${!s.dropped?rankIcon(i):''}${i+1}</span></td>
+      <td>${esc(s.name)} ${s.dropped?'<span class="pill pill-drop">DROP</span>':''}</td>
+      <td class="num">${s.matchPoints}</td>
+      <td class="num" style="color:var(--ink-soft)">${s.wins}-${s.losses}</td>
+      ${dbg}
+      <td class="num" style="font-family:var(--mono); letter-spacing:.5px; color:var(--ink-soft)" title="AA·BBB·CCC·DDD">${segmentTie(s.tieString)}</td>
+      <td class="keep" style="text-align:right;">
+        ${dropCell}
+      </td>
+    </tr>`;
+  }).join('');
+
+  const dbgHead = SHOW_TIE_DEBUG
+    ? '<th class="num">OMW%</th><th class="num">OOMW%</th>' : '';
+
+  list.innerHTML = champBanner + `<div class="table-scroll"><table>
+    <thead><tr>
+      <th class="pos">#</th><th>Jugador</th>
+      <th class="num">Pts</th><th class="num">W-L</th>${dbgHead}<th class="num">Desempate<button class="tb-info-btn" type="button" data-action="tbinfo" aria-expanded="false" aria-controls="tie-legend" title="¿Cómo se calcula?" aria-label="Explicar el número de desempate">ⓘ</button></th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+/* ---------------------------------------------------------------------------
+   STANDINGS COMPARTIBLES — PNG brandeado (Velvet Room + Budget Occidente)
+   Genera un artefacto portable: una imagen lista para postear en el grupo de
+   WhatsApp/Facebook o proyectar, distinta de la tabla viva dentro de la app.
+   · Usa <canvas> + los dos SVG ya embebidos como data URI (sin CORS/taint).
+   · Los nombres se dibujan con fillText: nunca se interpretan como HTML.
+   · En móvil intenta el share sheet nativo (Web Share API con archivos);
+     si no está disponible, descarga el PNG.
+--------------------------------------------------------------------------- */
+function _svgWithSize(src, px){
+  // Chrome no rasteriza en canvas un SVG sin width/height intrínsecos
+  // (los nuestros solo traen viewBox): se los inyectamos al vuelo.
+  try{
+    const svg = atob(src.split(',')[1]).replace('<svg ', '<svg width="'+px+'" height="'+px+'" ');
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+  }catch(e){ return src; }
+}
+function _loadImg(src){
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('No se pudo cargar un logo.'));
+    im.src = src;
+  });
+}
+function _wrapLines(ctx, text, maxW, maxLines){
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = []; let line = '';
+  for(const w of words){
+    const t = line ? line + ' ' + w : w;
+    if(ctx.measureText(t).width > maxW && line){
+      lines.push(line); line = w;
+      if(lines.length === maxLines){ line = ''; break; }
+    } else line = t;
+  }
+  if(line && lines.length < maxLines) lines.push(line);
+  if(lines.length === maxLines && ctx.measureText(words.join(' ')).width > maxW * maxLines){
+    lines[maxLines-1] = lines[maxLines-1].replace(/.{2}$/, '') + '…';
+  }
+  return lines;
+}
+function _ellipsize(ctx, text, maxW){
+  let t = String(text);
+  if(ctx.measureText(t).width <= maxW) return t;
+  while(t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+async function buildStandingsImageBlob(){
+    /* --- Datos: misma partición de DROPs que la tabla en vivo --- */
+    let ordered = computeStandings();
+    if(state.excludeDrops){
+      ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
+    }
+    const finished = !!state.finished;
+    const champ = finished ? (ordered.find(s => !s.dropped) || ordered[0]) : null;
+    const listRows = finished ? ordered.filter(s => s !== champ) : ordered;
+
+    /* --- Paleta: se respeta el tema activo de la app --- */
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+    const C = {
+      bg:    v('--bg', '#14131f'),
+      ink:   v('--ink', '#eef1f7'),
+      soft:  v('--ink-soft', '#a7adc2'),
+      faint: v('--ink-faint', '#767089'),
+      gold:  v('--gold', '#82d8eb'),
+      line:  v('--border-2', '#443f5d'),
+    };
+    const SANS = v('--sans', 'system-ui, sans-serif');
+    const MONO = v('--mono', 'monospace');
+
+    /* --- Ambos logos, desde los data URI ya presentes en el documento --- */
+    const crestEl  = document.querySelector('header.app .crest');
+    const budgetEl = document.getElementById('footer-logo');
+    const [crest, budget] = await Promise.all([
+      _loadImg(_svgWithSize(crestEl.src, 256)),
+      _loadImg(_svgWithSize(budgetEl.src, 256)),
+    ]);
+
+    /* --- Medición previa (para calcular la altura total del lienzo) --- */
+    const W = 1080, PAD = 72;
+    const meas = document.createElement('canvas').getContext('2d');
+    const dateTxt = new Date().toLocaleDateString('es-CR', { day:'numeric', month:'long', year:'numeric' });
+    const note = (state.note || '').trim();
+
+    meas.font = '400 27px ' + SANS;
+    const noteLines = note ? _wrapLines(meas, note, W - PAD*2, 3) : [];
+
+    let champFS = 0;
+    if(champ){
+      champFS = 124;
+      meas.font = '900 ' + champFS + 'px ' + SANS;
+      while(meas.measureText(champ.name).width > W - PAD*2 && champFS > 46){
+        champFS -= 4;
+        meas.font = '900 ' + champFS + 'px ' + SANS;
+      }
+    }
+
+    const headerH = 96;                                       // crest + títulos
+    const heroH   = champ ? (44 + Math.ceil(champFS * 1.3) + 52) : 0;
+    const ROW_H   = 62;
+    const rowsH   = listRows.length * ROW_H + (listRows.length ? 18 : 0);
+    const noteH   = noteLines.length ? noteLines.length * 38 + 34 : 0;
+    const footerH = 132;
+    const H = PAD + headerH + 44 + heroH + rowsH + noteH + footerH;
+
+    /* --- Lienzo --- */
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = C.bg;
+    ctx.fillRect(0, 0, W, H);
+
+    /* Cabecera: crest + nombre de la tienda + fecha */
+    ctx.drawImage(crest, PAD, PAD - 6, headerH, headerH);
+    ctx.fillStyle = C.ink;
+    ctx.font = '800 42px ' + SANS;
+    ctx.fillText('Torneo Yu-Gi-Oh!', PAD + headerH + 28, PAD + 36);
+    ctx.fillStyle = C.gold;
+    ctx.font = '700 27px ' + SANS;
+    ctx.fillText('Velvet Room Game Store', PAD + headerH + 28, PAD + 72);
+    ctx.fillStyle = C.soft;
+    ctx.font = '400 23px ' + SANS;
+    const subInfo = finished
+      ? 'Resultados finales · ' + state.maxRounds + ' ronda' + (state.maxRounds === 1 ? '' : 's') + ' · ' + dateTxt
+      : 'Standings · Ronda ' + state.currentRound + ' de ' + state.maxRounds + ' · ' + dateTxt;
+    ctx.fillText(subInfo, PAD + headerH + 28, PAD + headerH - 2);
+
+    let y = PAD + headerH + 26;
+    ctx.strokeStyle = C.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+    y += 18;
+
+    /* Héroe del campeón (solo torneo finalizado) */
+    if(champ){
+      y += 44;
+      ctx.fillStyle = C.gold;
+      ctx.font = '800 30px ' + SANS;
+      try{ ctx.letterSpacing = '6px'; }catch(e){}
+      ctx.textAlign = 'center';
+      ctx.fillText('🏆 CAMPEÓN', W / 2, y);
+      try{ ctx.letterSpacing = '0px'; }catch(e){}
+
+      y += Math.ceil(champFS * 1.08);
+      ctx.fillStyle = C.ink;
+      ctx.font = '900 ' + champFS + 'px ' + SANS;
+      ctx.fillText(champ.name, W / 2, y);
+
+      y += 46;
+      ctx.fillStyle = C.soft;
+      ctx.font = '600 27px ' + MONO;
+      ctx.fillText(champ.matchPoints + ' pts · ' + champ.wins + '-' + champ.losses, W / 2, y);
+      ctx.textAlign = 'left';
+      y += 6;
+    }
+
+    /* Tabla (desde el 2.º lugar si hay héroe; completa si no) */
+    y += 18;
+    const numX = PAD + 64;                 // posición, alineada a la derecha
+    const nameX = PAD + 92;
+    const ptsX = W - PAD;                  // puntos, alineados a la derecha
+    const maxNameW = ptsX - nameX - 300;
+    for(let i = 0; i < listRows.length; i++){
+      const r = listRows[i];
+      const pos = ordered.indexOf(r) + 1;
+      const rowY = y + ROW_H * (i + 1) - 20;
+      const inkMain = r.dropped ? C.faint : C.ink;
+
+      ctx.font = '700 30px ' + MONO;
+      ctx.fillStyle = r.dropped ? C.faint : C.gold;
+      ctx.textAlign = 'right';
+      ctx.fillText(pos + '.', numX, rowY);
+
+      ctx.textAlign = 'left';
+      ctx.font = '600 32px ' + SANS;
+      ctx.fillStyle = inkMain;
+      const nm = _ellipsize(ctx, r.name, maxNameW);
+      ctx.fillText(nm, nameX, rowY);
+      if(r.dropped){
+        const w = ctx.measureText(nm).width;
+        ctx.strokeStyle = C.faint; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(nameX, rowY - 10); ctx.lineTo(nameX + w, rowY - 10); ctx.stroke();
+        ctx.font = '700 19px ' + SANS;
+        ctx.fillText('DROP', nameX + w + 16, rowY - 4);
+      }
+
+      ctx.textAlign = 'right';
+      ctx.font = '600 28px ' + MONO;
+      ctx.fillStyle = r.dropped ? C.faint : C.gold;
+      ctx.fillText(r.matchPoints + ' pts (' + r.wins + '-' + r.losses + ')', ptsX, rowY);
+      ctx.textAlign = 'left';
+    }
+    y += rowsH;
+
+    /* Nota del torneo (premiación, sede…) */
+    if(noteLines.length){
+      y += 40;
+      ctx.fillStyle = C.soft;
+      ctx.font = 'italic 400 27px ' + SANS;
+      for(const ln of noteLines){ ctx.fillText(ln, PAD, y); y += 38; }
+      y -= 38;
+    }
+
+    /* Pie: divisor + ambas marcas */
+    const fy = H - 64;
+    ctx.strokeStyle = C.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(PAD, fy - 42); ctx.lineTo(W - PAD, fy - 42); ctx.stroke();
+    ctx.drawImage(crest, PAD, fy - 26, 44, 44);
+    ctx.fillStyle = C.soft;
+    ctx.font = '600 22px ' + SANS;
+    ctx.fillText('Velvet Room Game Store', PAD + 58, fy + 4);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = C.faint;
+    ctx.font = '400 21px ' + SANS;
+    const madeTxt = 'Made with passion by';
+    ctx.fillText(madeTxt, W - PAD - 56, fy + 3);
+    ctx.textAlign = 'left';
+    ctx.drawImage(budget, W - PAD - 46, fy - 26, 46, 46);
+
+    /* --- Resultado: el PNG, listo para que el llamador decida qué hacer --- */
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if(!blob) throw new Error('No se pudo generar la imagen.');
+    const fname = finished ? 'resultados-torneo.png' : ('standings-ronda-' + state.currentRound + '.png');
+    return { blob, file: new File([blob], fname, { type:'image/png' }), fname };
+}
+
+/* Dos acciones explícitas: el usuario decide. Compartir abre el share sheet
+   nativo (y al cancelar NO hace nada, respetando el "no"); Descargar baja el
+   PNG de forma deliberada — el camino para WhatsApp Web. */
+async function shareStandingsImage(){
+  if(!state.finished || !state.players.length){ showToast('Los resultados se comparten al finalizar el torneo.', true); return; }
+  const btn = $('#share-standings'); if(btn) btn.disabled = true;
+  try{
+    const { file } = await buildStandingsImageBlob();
+    if(navigator.canShare && navigator.canShare({ files:[file] })){
+      try{ await navigator.share({ files:[file], title:'Torneo Yu-Gi-Oh! · Velvet Room' }); }
+      catch(e){ /* cancelado o fallo: no hacemos nada — el usuario tiene "Descargar". */ }
+    }else{
+      showToast('Tu navegador no permite compartir aquí. Usa "Descargar".', true);
+    }
+  }catch(err){
+    showToast('No se pudo generar la imagen: ' + (err && err.message || err), true);
+  }finally{ if(btn) btn.disabled = false; }
+}
+async function downloadStandingsImage(){
+  if(!state.finished || !state.players.length){ showToast('Los resultados se comparten al finalizar el torneo.', true); return; }
+  const btn = $('#download-standings'); if(btn) btn.disabled = true;
+  try{
+    const { blob, fname } = await buildStandingsImageBlob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    showToast('Imagen descargada: adjúntala en WhatsApp Web o tu grupo. 📤');
+  }catch(err){
+    showToast('No se pudo generar la imagen: ' + (err && err.message || err), true);
+  }finally{ if(btn) btn.disabled = false; }
+}
+
+/* ---- Tabs ---- */
+const TAB_ORDER = ['registro','rondas','standings'];
+/* Estilo de transición entre pestañas:
+   'carousel' → los paneles se deslizan completos, como si la página vecina siempre existiera al lado.
+   'fade'     → desplazamiento corto con fundido (comportamiento anterior).
+   Cambia esta constante y listo; todo lo demás se ajusta solo. */
+const TAB_FX = 'carousel';
+document.getElementById('tab-stack').classList.add('fx-' + TAB_FX);
+let _currentTab = 'registro';
+let _tabsReady = false;
+
+function moveTabIndicator(){
+  const ind = document.getElementById('tab-indicator');
+  const btn = document.querySelector('nav.tabs button.active');
+  if(!ind || !btn) return;
+  ind.style.width = btn.offsetWidth + 'px';
+  ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
+}
+
+function switchTab(name){
+  // Defensivo: click sobre la pestaña ya activa → no hay nada que animar.
+  if(_tabsReady && name === _currentTab) return;
+  // dirección: adelante (1) = la pestaña nueva está a la derecha; atrás (-1) = a la izquierda
+  const dir = TAB_ORDER.indexOf(name) < TAB_ORDER.indexOf(_currentTab) ? -1 : 1;
+  document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+
+  const newPanel = document.getElementById('tab-' + name);
+  const oldPanel = document.getElementById('tab-' + _currentTab);
+
+  // Primera vez (arranque): coloca todo sin animación para no “crecer” el blob.
+  if(!_tabsReady){
+    const ind = document.getElementById('tab-indicator');
+    if(ind){ ind.style.transition = 'none'; }
+    moveTabIndicator();
+    if(ind){ requestAnimationFrame(() => { ind.style.transition = ''; }); }
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+    _currentTab = name; _tabsReady = true;
+    return;
+  }
+
+  moveTabIndicator(); // el blob se traslada a la nueva pestaña
+
+  const stack = document.getElementById('tab-stack');
+  const h0 = stack ? stack.offsetHeight : 0; // alto con la pestaña saliente aún en flujo
+
+  if(newPanel){
+    if(oldPanel && oldPanel !== newPanel){
+      oldPanel.classList.remove('active','enter-right','enter-left','exit-left','exit-right');
+      oldPanel.classList.add(dir === 1 ? 'exit-left' : 'exit-right');
+      oldPanel.addEventListener('animationend', function h(){
+        oldPanel.classList.remove('exit-left','exit-right');
+        oldPanel.removeEventListener('animationend', h);
+      }, { once:true });
+    }
+    newPanel.classList.remove('exit-left','exit-right','enter-right','enter-left');
+    newPanel.classList.add('active', dir === 1 ? 'enter-right' : 'enter-left');
+    if(stack) stack.classList.add('sliding'); // difumina los bordes durante el deslizamiento
+    newPanel.addEventListener('animationend', function h(){
+      newPanel.classList.remove('enter-right','enter-left');
+      if(stack) stack.classList.remove('sliding');
+      newPanel.removeEventListener('animationend', h);
+    }, { once:true });
+    if(stack) setTimeout(() => stack.classList.remove('sliding'), 700); // red de seguridad
+
+    // El alto del stack se anima entre pestañas de distinta altura: así el footer
+    // y el toolbar "viajan" en sincronía con el deslizamiento en lugar de saltar.
+    if(stack){
+      stack.classList.remove('h-anim');   // limpia una animación de alto en curso
+      stack.style.height = '';            // para medir el alto natural de la pestaña entrante
+      const h1 = stack.offsetHeight;
+      if(Math.abs(h1 - h0) > 1){
+        stack.classList.add('h-anim');
+        stack.style.height = h0 + 'px';
+        void stack.offsetHeight; // reflow para que la transición parta de h0
+        stack.style.height = h1 + 'px';
+        const settle = () => {
+          stack.style.height = '';
+          stack.classList.remove('h-anim');
+          stack.removeEventListener('transitionend', settle);
+        };
+        stack.addEventListener('transitionend', settle, { once:true });
+        setTimeout(settle, 600); // red de seguridad si transitionend no dispara
+      }
+    }
+  }
+  _currentTab = name;
+}
+
+/* ---- Toast ---- */
+let toastTimer = null;
+function showToast(msg, isErr=false){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('err', isErr);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ---- Modal de confirmación personalizado (reemplaza confirm() nativo) ----
+   Controlado por la clase .open en el overlay. El callback de confirmación se
+   guarda en _confirmCb y se ejecuta al pulsar "Confirmar". */
+let _confirmCb = null;
+function openConfirm(message, onConfirm, opts={}){
+  $('#confirm-title').textContent = opts.title || 'Confirmar';
+  $('#confirm-msg').textContent = message;
+  const ok = $('#confirm-ok');
+  ok.textContent = opts.confirmText || 'Confirmar';
+  ok.className = 'btn ' + (opts.danger ? 'btn-crimson' : 'btn-gold');
+  _confirmCb = onConfirm;
+  $('#confirm-modal').classList.add('open');
+  $('#confirm-modal').setAttribute('aria-hidden', 'false');
+}
+function closeConfirm(){
+  $('#confirm-modal').classList.remove('open');
+  $('#confirm-modal').setAttribute('aria-hidden', 'true');
+  _confirmCb = null;
+}
+
+/* ---- Tema claro/oscuro ---- */
+function applyTheme(theme){
+  if(theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+}
+function toggleTheme(){
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  applyTheme(next);
+  _applyTimerWinTheme();   // la ventana de proyección sigue el tema de la app
+  try{ localStorage.setItem('ygo_theme', next); }catch(e){}
+}
+
+/* ---- Export / Import ---- */
+function exportJSON(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href = url; a.download = `torneo-suizo-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Torneo exportado.');
+}
+function importJSON(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed || !Array.isArray(parsed.players)) throw new Error('formato');
+      state = Object.assign(emptyState(), parsed);
+      roundsManuallySet = state.started; // si ya arrancó, su maxRounds es definitivo
+      if(state.started && !state.maxRounds) state.maxRounds = computeMaxRounds(state.players.length);
+      save(); switchTab(state.finished ? 'standings' : (state.started ? 'rondas' : 'registro')); render();
+      showToast('Torneo importado.');
+    }catch(e){ showToast('Archivo JSON inválido.', true); }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------------------------------------------------------------------------
+   7) WIRING DE EVENTOS
+--------------------------------------------------------------------------- */
+document.querySelectorAll('nav.tabs button').forEach(b =>
+  b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+// El form principal se reutiliza: antes de iniciar = registro; en curso = Late Entry.
+$('#add-player').addEventListener('click', () => {
+  const inp = $('#player-name');
+  if(state.started) addLateEntry(inp.value); else addPlayer(inp.value);
+  inp.value=''; inp.focus();
+});
+$('#player-name').addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    if(state.started) addLateEntry(e.target.value); else addPlayer(e.target.value);
+    e.target.value='';
+  }
+});
+$('#add-bulk').addEventListener('click', () => {
+  const text = $('#player-bulk').value;
+  if(state.started) addLateEntriesBulk(text); else addPlayersBulk(text);
+});
+$('#start-tournament').addEventListener('click', startTournament);
+// Comentario / premiación: se guarda en el estado (y se exporta) mientras se escribe.
+$('#tournament-note').addEventListener('input', e => { state.note = e.target.value; save(); });
+// Switch de premiación: relega los DROP al fondo de los standings.
+$('#exclude-drops').addEventListener('change', e => { state.excludeDrops = e.target.checked; save(); render(); });
+// Cronómetro de ronda.
+$('#timer-toggle').addEventListener('click', timerToggle);
+$('#timer-reset').addEventListener('click', timerReset);
+$('#timer-min').addEventListener('input', e => timerSetMinutes(e.target.value));
+$('#timer-popout').addEventListener('click', openTimerWindow);
+// Al editar manualmente el número de rondas, dejamos de autocompletarlo.
+$('#num-rounds').addEventListener('input', () => {
+  roundsManuallySet = true;
+  if(!state.started) renderRegistro(); // refresca el hint sin tocar el valor escrito
+});
+$('#advance-round').addEventListener('click', advanceRound);
+$('#correct-prev').addEventListener('click', correctPreviousRound);
+$('#round-selector').addEventListener('change', e => {
+  state.viewRound = parseInt(e.target.value, 10); render();
+});
+
+// Delegación de eventos para botones dinámicos
+document.body.addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  const id = btn.dataset.id;
+  switch(btn.dataset.action){
+    case 'remove': removePlayer(id); break;
+    case 'win':    reportResult(id, btn.dataset.result); break;
+    case 'dl':     reportResult(id, 'doubleLoss'); break;
+    case 'clear':  reportResult(id, null); break;
+    case 'drop':   toggleDrop(id); break;
+    case 'tbinfo': {
+      const leg = $('#tie-legend');
+      if(leg){ const open = leg.classList.toggle('open'); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+      break;
+    }
+    case 'disclosure': {
+      const body = document.getElementById(btn.dataset.target);
+      if(body){ const open = body.classList.toggle('open'); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+      break;
+    }
+  }
+});
+
+$('#export-json').addEventListener('click', exportJSON);
+$('#share-standings').addEventListener('click', shareStandingsImage);
+$('#download-standings').addEventListener('click', downloadStandingsImage);
+$('#import-json').addEventListener('click', () => $('#import-file').click());
+$('#import-file').addEventListener('change', e => { if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
+$('#reset-all').addEventListener('click', resetAll);
+$('#theme-toggle').addEventListener('click', toggleTheme);
+
+// Modal de confirmación
+$('#confirm-ok').addEventListener('click', () => { const cb = _confirmCb; closeConfirm(); if(cb) cb(); });
+$('#confirm-cancel').addEventListener('click', closeConfirm);
+$('#confirm-modal').addEventListener('click', e => { if(e.target.id === 'confirm-modal') closeConfirm(); }); // clic en el fondo cancela
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && $('#confirm-modal').classList.contains('open')) closeConfirm();
+});
+
+/* ---- Arranque ---- */
+load();
+switchTab(state.finished ? 'standings' : (state.started ? 'rondas' : 'registro'));
+render();
+startTimerLoop();
+// Al cambiar tamaño/orientación o salir de fullscreen, limpiamos cualquier alto
+// inline que el carrusel haya dejado a medio camino (un cambio de viewport durante
+// la animación de altura puede dejar el stack con un height fijo que ya no
+// corresponde, recortando el contenido al lateral). Además reposiciona el blob.
+function _resyncTabStack(){
+  const stack = document.getElementById('tab-stack');
+  if(stack){
+    stack.classList.remove('h-anim','sliding');
+    stack.style.height = '';
+  }
+  moveTabIndicator();
+}
+window.addEventListener('resize', _resyncTabStack);
+window.addEventListener('orientationchange', _resyncTabStack);
+document.addEventListener('fullscreenchange', _resyncTabStack);
+</script>
+</body>
+</html>

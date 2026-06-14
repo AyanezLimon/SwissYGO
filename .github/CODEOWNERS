@@ -1,0 +1,6 @@
+# Cualquier cambio a cualquier archivo requiere tu aprobación.
+# Reemplaza @TU-USUARIO-GITHUB por tu usuario real (sin el correo, solo el handle).
+# Con "Require review from Code Owners" activo en la protección de master,
+# ningún PR puede mergearse sin tu visto bueno.
+
+*       @TU-USUARIO-GITHUB

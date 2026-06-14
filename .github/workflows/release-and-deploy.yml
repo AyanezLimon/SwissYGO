@@ -1,0 +1,90 @@
+name: Release & Deploy
+
+# Se dispara SOLO cuando algo entra a master.
+# Con la protección de rama configurada (ver docs/DEPLOYMENT.md), la única
+# forma de que algo entre a master es un Pull Request aprobado por ti.
+on:
+  push:
+    branches: [master]
+
+# Permite que el job de release cree tags y releases.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-deploy
+  cancel-in-progress: false   # nunca abortar un deploy a medias
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) RELEASE — corre en la nube de GitHub. Lee la versión del propio HTML
+  #    (<!-- app-version: X.Y.Z -->). Si ese tag aún no existe, crea el release
+  #    con notas autogeneradas a partir de los commits/PRs desde el release
+  #    anterior, y adjunta el HTML como asset descargable.
+  #    Si la versión NO cambió, no crea release (pero el deploy igual corre).
+  # ---------------------------------------------------------------------------
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      released: ${{ steps.rel.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo → notas de release correctas
+
+      - name: Leer versión del HTML
+        id: ver
+        run: |
+          V=$(grep -oP '(?<=app-version: )[0-9]+\.[0-9]+\.[0-9]+' SwissYGO.html | head -1)
+          if [ -z "$V" ]; then
+            echo "::error::No encontré '<!-- app-version: X.Y.Z -->' en SwissYGO.html"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Versión detectada: $V"
+
+      - name: Crear release si la versión es nueva
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "El release $TAG ya existe — no se vuelve a publicar (¿olvidaste subir la versión?)."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+            gh release create "$TAG" SwissYGO.html \
+              --title "SwissYGO $TAG" \
+              --generate-notes
+            echo "Release $TAG publicado."
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2) DEPLOY — corre EN el Raspberry Pi (runner self-hosted con la etiqueta
+  #    'swissygo-pi'). Copia el HTML al directorio que sirve tu servidor web.
+  #    Corre en CADA push a master, haya o no release nuevo, para que lo que
+  #    está en pantalla siempre refleje master.
+  #    DEPLOY_PATH se define como variable de repo (Settings → Variables).
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: release
+    runs-on: [self-hosted, swissygo-pi]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publicar en el servidor web del Pi
+        run: |
+          DEST="${{ vars.DEPLOY_PATH }}"
+          if [ -z "$DEST" ]; then
+            echo "::error::Falta la variable DEPLOY_PATH (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+          install -D -m 644 SwissYGO.html "$DEST/SwissYGO.html"
+          echo "Desplegado SwissYGO a las $(date +%H:%M:%S) → $DEST/SwissYGO.html"
+
+      # Opcional: si sirves con nginx y quieres dejar también un index.html,
+      # descomenta. (Estático: no hace falta recargar nginx para un .html.)
+      # - name: Alias index.html
+      #   run: install -m 644 SwissYGO.html "${{ vars.DEPLOY_PATH }}/index.html"

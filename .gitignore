@@ -1,0 +1,11 @@
+# Runner self-hosted (si llegaras a clonar dentro de su carpeta)
+actions-runner/
+_work/
+
+# Artefactos locales de validación
+node_modules/
+*.log
+.DS_Store
+
+# Capturas/exportes temporales
+*.tmp
