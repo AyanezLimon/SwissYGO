@@ -55,9 +55,25 @@ jobs:
             echo "El release $TAG ya existe — no se vuelve a publicar (¿olvidaste subir la versión?)."
             echo "released=false" >> "$GITHUB_OUTPUT"
           else
-            gh release create "$TAG" SwissYGO.html \
-              --title "SwissYGO $TAG" \
-              --generate-notes
+            # Cuerpo curado: extrae la sección "## vX.Y.Z" de CHANGELOG.md.
+            # --generate-notes le anexa la lista de PRs (categorizada por .github/release.yml).
+            NOTES="$(mktemp)"
+            awk -v hdr="## $TAG" '
+              $0==hdr {f=1; next}
+              /^## v/ && f {exit}
+              f {print}
+            ' CHANGELOG.md > "$NOTES"
+            if [ -s "$NOTES" ]; then
+              gh release create "$TAG" SwissYGO.html \
+                --title "SwissYGO $TAG" \
+                --notes-file "$NOTES" \
+                --generate-notes
+            else
+              echo "::warning::No hay sección $TAG en CHANGELOG.md; uso solo notas autogeneradas."
+              gh release create "$TAG" SwissYGO.html \
+                --title "SwissYGO $TAG" \
+                --generate-notes
+            fi
             echo "Release $TAG publicado."
             echo "released=true" >> "$GITHUB_OUTPUT"
           fi
