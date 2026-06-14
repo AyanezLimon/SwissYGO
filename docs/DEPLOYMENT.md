@@ -2,37 +2,31 @@
 
 Esta guía cubre tres cosas, una sola vez cada una:
 
-1. [Proteger `master`](#1-proteger-master-solo-aprobado-por-ti) — nadie mergea sin tu aprobación.
+1. [Flujo de trabajo y `master`](#1-flujo-de-trabajo-y-master) — cómo entran los cambios.
 2. [Instalar el runner en el Raspberry Pi](#2-runner-self-hosted-en-el-raspberry-pi) — para que el deploy corra ahí.
 3. [Configurar las variables del repo](#3-variables-del-repo) — dónde se publica el HTML.
 
-Después de esto, el ciclo es: **PR → tu aprobación → merge a master → release + deploy automáticos.**
+Después de esto, el ciclo es: **Claude Code trabaja en una rama → abre PR → tú lo revisas y mergeas a master → release + deploy automáticos.**
 
 ---
 
-## 1) Proteger `master` (solo aprobado por ti)
+## 1) Flujo de trabajo y `master`
 
-Esto bloquea pushes directos y obliga a que todo pase por un PR que **tú** apruebes.
+Repo **privado**, un solo dueño. El control de qué entra a `master` no viene de la
+protección de rama (que en privado requeriría GitHub Pro), sino del **flujo de trabajo**:
 
-`Settings → Branches → Add branch ruleset` (o *Branch protection rules*). Crea una regla para `master` con:
+- **Claude Code nunca commitea directo a `master`.** Trabaja en una rama aparte
+  (ej. `feature/...` o `claude/...`) y abre un **Pull Request**.
+- **Tú eres el único que mergea.** Revisas el diff del PR y, si te convence, lo
+  integras a `master`. Ese merge es lo único que dispara deploy + release.
 
-- ✅ **Require a pull request before merging**
-  - ✅ Require approvals: **1**
-  - ✅ **Require review from Code Owners** → usa el archivo `.github/CODEOWNERS`
-  - ✅ Dismiss stale approvals when new commits are pushed
-- ✅ **Require status checks to pass before merging**
-  - Marca el check **`release`** (aparece tras el primer run del workflow) para que no se pueda mergear si el release falla.
-- ✅ **Block force pushes**
-- ✅ **Restrict who can push** → solo tú (opcional, refuerza el bloqueo de pushes directos).
+Como eres el único con permiso de escritura, nadie más puede empujar a `master`; el
+"solo yo apruebo" queda garantizado por el control de acceso, sin configurar nada.
 
-### Importante para un repo de un solo mantenedor
-
-GitHub **no** te deja aprobar tu propio PR. Tienes dos caminos:
-
-- **Recomendado (velocidad):** activa la regla pero deja **"Do not require approval from someone other than the author"** / permite que los **administradores** mergeen. Así tus propios PRs los mergeas tú, y los de cualquier colaborador externo **sí** requieren tu review (vía CODEOWNERS). En la práctica: "solo aprobado por mí" para todo lo que no venga de ti.
-- **Estricto (gate también para ti):** deja la regla sin bypass de administradores. Entonces necesitarás un segundo colaborador (o un segundo usuario) para aprobar cualquier PR, incluidos los tuyos. Solo tiene sentido si más gente toca el repo.
-
-> Edita `.github/CODEOWNERS` y reemplaza `@TU-USUARIO-GITHUB` por tu handle real antes de confiar en la review obligatoria.
+> **Si algún día sumas un colaborador externo** y quieres bloquear *técnicamente* el
+> push directo a `master`: o lo invitas con rol **Read** para que contribuya vía
+> *fork* + PR (gratis), o pasas a **GitHub Pro ($4/mes)** para activar la protección
+> de rama con review obligatoria en privado.
 
 ---
 

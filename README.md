@@ -120,11 +120,12 @@ La guía completa de instalación del runner, variables y protección de rama es
 
 ## Política de contribución
 
-- `master` está protegida: **no se permiten pushes directos**.
-- Todo cambio entra por **Pull Request** y requiere **tu aprobación** (vía `CODEOWNERS`).
-- El merge a `master` es lo único que dispara deploy + release.
+Repo **privado**, un solo dueño. Los cambios entran por **Pull Request**, no por push directo a `master`:
 
-Detalle de la configuración en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- **Claude Code** (u cualquier trabajo) ocurre en una **rama aparte** y se abre un PR.
+- **Tú revisas el diff y mergeas** a `master`. Ese merge es lo único que dispara deploy + release.
+
+Como eres el único con acceso de escritura, nadie más puede empujar a `master` — el control queda garantizado sin protección de rama. Si algún día sumas un colaborador externo y quieres bloquear *técnicamente* el push directo, ve [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §1.
 
 ## Restricciones de diseño
 
