@@ -1,0 +1,30 @@
+# Configura cómo GitHub agrupa las notas autogeneradas (--generate-notes).
+# Los PRs se clasifican en secciones según sus LABELS.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release   # PRs con este label no aparecen en el changelog
+  categories:
+    - title: ✨ Nuevas funciones
+      labels:
+        - enhancement
+        - feature
+    - title: 🐛 Correcciones
+      labels:
+        - bug
+        - fix
+    - title: 🎨 UI / Estilo
+      labels:
+        - ui
+        - design
+    - title: 📝 Documentación
+      labels:
+        - documentation
+    - title: 🔧 Mantenimiento / CI
+      labels:
+        - chore
+        - ci
+        - dependencies
+    - title: 📦 Otros cambios
+      labels:
+        - "*"   # cualquier PR sin label de los anteriores cae aquí
