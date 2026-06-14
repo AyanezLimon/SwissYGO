@@ -1,11 +1,12 @@
 name: Release & Deploy
 
-# Se dispara SOLO cuando algo entra a master.
-# Con la protección de rama configurada (ver docs/DEPLOYMENT.md), la única
-# forma de que algo entre a master es un Pull Request aprobado por ti.
+# Se dispara SOLO cuando algo entra a main.
+# Con la protección de rama configurada, la única forma de que algo entre
+# a main es un Pull Request aprobado por ti.
 on:
   push:
-    branches: [master]
+    branches: [main]
+    paths: [SwissYGO.html]   # solo despliega si cambió el HTML, no al tocar workflows/README
 
 # Permite que el job de release cree tags y releases.
 permissions:
@@ -64,8 +65,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # 2) DEPLOY — corre EN el Raspberry Pi (runner self-hosted con la etiqueta
   #    'swissygo-pi'). Copia el HTML al directorio que sirve tu servidor web.
-  #    Corre en CADA push a master, haya o no release nuevo, para que lo que
-  #    está en pantalla siempre refleje master.
+  #    Corre en CADA push a main, haya o no release nuevo, para que lo que
+  #    está en pantalla siempre refleje main.
   #    DEPLOY_PATH se define como variable de repo (Settings → Variables).
   # ---------------------------------------------------------------------------
   deploy:
@@ -81,10 +82,5 @@ jobs:
             echo "::error::Falta la variable DEPLOY_PATH (Settings → Secrets and variables → Actions → Variables)."
             exit 1
           fi
-          install -D -m 644 SwissYGO.html "$DEST/SwissYGO.html"
-          echo "Desplegado SwissYGO a las $(date +%H:%M:%S) → $DEST/SwissYGO.html"
-
-      # Opcional: si sirves con nginx y quieres dejar también un index.html,
-      # descomenta. (Estático: no hace falta recargar nginx para un .html.)
-      # - name: Alias index.html
-      #   run: install -m 644 SwissYGO.html "${{ vars.DEPLOY_PATH }}/index.html"
+          install -D -m 644 SwissYGO.html "$DEST/index.html"
+          echo "Desplegado SwissYGO a las $(date +%H:%M:%S) → $DEST/index.html"
