@@ -3,6 +3,15 @@
 Todas las versiones notables de SwissYGO. El workflow de release inyecta la
 sección de la versión publicada como cuerpo de las notas en GitHub.
 
+## v2.7.1
+
+### ⚖️ Confirmar empates (incluido el orden aleatorio)
+Antes, un empate solo se marcaba como **fijado** si el TO arrastraba las filas; si
+decidía dejar el orden aleatorio tal cual, el grupo quedaba como *tentativo* para
+siempre. Ahora cada grupo empatado tiene un botón **✓ Dejar** que fija el orden
+actual (aleatorio o ya reordenado) como definitivo. El botón **↺** reabre el empate
+si el TO se arrepiente.
+
 ## v2.7.0
 
 ### ⚖️ Desempate de standings idénticos

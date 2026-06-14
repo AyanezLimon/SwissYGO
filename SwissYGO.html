@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app-version: 2.7.0 -->
+<!-- app-version: 2.7.1 -->
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
@@ -1014,6 +1014,16 @@ function setTieOrder(key, orderedIds){
   save(); render();
 }
 
+/* Confirma el orden ACTUAL del grupo como definitivo (sin reordenar). Sirve
+   cuando el TO decide que el orden aleatorio ofrecido está bien: lo fija tal
+   cual y el grupo pasa de "tentativo" a "fijado". */
+function confirmTieOrder(key){
+  const ordered = finalStandings();
+  const g = tieGroupsOf(ordered).find(gr => gr.key === key);
+  if(!g) return;
+  setTieOrder(key, ordered.slice(g.start, g.start + g.size).map(s => s.id));
+}
+
 /* Revierte un grupo al orden aleatorio (borra el desempate manual). */
 function clearTieOrder(key){
   if(state.tieBreaks){ delete state.tieBreaks[key]; save(); render(); }
@@ -1987,7 +1997,8 @@ function renderStandings(){
         <span class="tie-drag" title="Arrastra para reordenar">⠿</span>
         <button class="btn btn-sm btn-ghost tie-arrow" data-action="tie-up" data-id="${s.id}" title="Subir" ${isFirst?'disabled':''}>↑</button>
         <button class="btn btn-sm btn-ghost tie-arrow" data-action="tie-down" data-id="${s.id}" title="Bajar" ${isLast?'disabled':''}>↓</button>
-        ${isFirst && g.resolved ? `<button class="btn btn-sm btn-ghost" data-action="tie-reset" data-key="${g.key}" title="Volver al orden aleatorio">↺</button>` : ''}
+        ${isFirst && !g.resolved ? `<button class="btn btn-sm btn-gold" data-action="tie-confirm" data-key="${g.key}" title="Dejar este orden como definitivo">✓ Dejar</button>` : ''}
+        ${isFirst && g.resolved ? `<button class="btn btn-sm btn-ghost" data-action="tie-reset" data-key="${g.key}" title="Volver al orden aleatorio (reabrir empate)">↺</button>` : ''}
       </span>`;
     }
 
@@ -2012,7 +2023,8 @@ function renderStandings(){
     ? `<div class="banner tie-help" style="margin-bottom:12px;">
          ${hasPendingTie ? '⚖ <strong>Empate(s) exacto(s) detectado(s).</strong>' : '✓ <strong>Empate(s) resuelto(s) por el TO.</strong>'}
          Coinciden en MatchPoints, OMW%, OOMW% y DDD: el orden entre ellos es <em>aleatorio</em>.
-         Si realizas un método oficial de desempate (volado, dado, playoff…), <strong>arrastra</strong> las filas marcadas (o usa ↑/↓) para fijar el resultado.
+         Si realizas un método oficial (volado, dado, playoff…), <strong>arrastra</strong> las filas marcadas (o usa ↑/↓) para fijar el resultado;
+         si el orden aleatorio está bien, pulsa <strong>✓ Dejar</strong>. En ambos casos el empate queda <strong>fijado</strong> (con ↺ puedes reabrirlo).
        </div>`
     : '';
 
@@ -2529,6 +2541,7 @@ document.body.addEventListener('click', e => {
     case 'drop':   toggleDrop(id); break;
     case 'tie-up':    moveTie(id, -1); break;
     case 'tie-down':  moveTie(id,  1); break;
+    case 'tie-confirm': confirmTieOrder(btn.dataset.key); break;
     case 'tie-reset': clearTieOrder(btn.dataset.key); break;
     case 'tbinfo': {
       const leg = $('#tie-legend');
