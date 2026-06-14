@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- app-version: 2.6.1 -->
+<!-- app-version: 2.7.0 -->
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
@@ -443,6 +443,26 @@
   @media (prefers-reduced-motion: reduce){
     .tb-legend{ transition:none; }
   }
+  /* ---- Empate exacto: agrupación tipo bracket + controles del TO ---- */
+  .tie-help{ background:rgba(232,168,124,.10); border-color:rgba(232,168,124,.45); color:var(--ink); font-size:13px; line-height:1.45; }
+  .tie-row.tie-pending{ --tie-bar:#e8a87c; }
+  .tie-row.tie-resolved{ --tie-bar:#82d8eb; }
+  .tie-row > td{ background:color-mix(in srgb, var(--tie-bar) 8%, transparent); }
+  .tie-row > td:first-child{ position:relative; }
+  .tie-row > td:first-child::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--tie-bar); }
+  .tie-row.tie-first > td:first-child::before{ top:5px; border-radius:3px 3px 0 0; }
+  .tie-row.tie-last  > td:first-child::before{ bottom:5px; border-radius:0 0 3px 3px; }
+  .tie-row[draggable="true"]{ cursor:default; }
+  .tie-row.dragging > td{ opacity:.45; }
+  .tie-row.tie-over > td{ box-shadow:inset 0 2px 0 var(--gold); }
+  .tie-badge{ display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:999px;
+    background:rgba(232,168,124,.18); color:#e8a87c; border:1px solid rgba(232,168,124,.45); vertical-align:1px; white-space:nowrap; }
+  .tie-badge.ok{ background:rgba(130,216,235,.16); color:var(--gold); border-color:var(--gold-soft); }
+  .tie-ctl{ display:inline-flex; align-items:center; gap:4px; justify-content:flex-end; }
+  .tie-drag{ cursor:grab; color:var(--ink-faint); font-size:15px; padding:0 2px; user-select:none; touch-action:none; }
+  .tie-drag:active{ cursor:grabbing; }
+  .btn.tie-arrow{ padding:2px 7px; line-height:1; }
+  .btn.tie-arrow:disabled{ opacity:.3; cursor:default; }
 
   /* =========================================================
      RESPONSIVE / MOBILE-FIRST
@@ -528,7 +548,7 @@
     body::before, body::after{ display:none !important; }
     .theme-switch, nav.tabs, .toolbar, .timer-bar, .roundsel, .tb-legend,
     .tb-info-btn, .app-footer, .toast, .modal-overlay, .btn, .hint,
-    #standings-actions, .disclosure{ display:none !important; }
+    #standings-actions, .disclosure, .tie-ctl{ display:none !important; }
     .wrap{ padding:10px 0 0 !important; max-width:none !important; }
     .tab-stack{ height:auto !important; transform:none !important; overflow:visible !important; }
     .tab-panel{ display:none !important; }
@@ -578,7 +598,7 @@
         <button type="button" class="disc-summary" data-action="disclosure" data-target="bulk-body" aria-expanded="false" aria-controls="bulk-body">Pegar lista completa</button>
         <div class="disc-collapse" id="bulk-body">
           <div class="disc-inner disclosure-body">
-          <textarea id="player-bulk" rows="4" placeholder="Un jugador por línea" style="width:100%; min-height:84px; background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink); border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; resize:vertical; box-sizing:border-box; outline:none;"></textarea>
+          <textarea id="player-bulk" rows="4" placeholder="Un jugador por línea (la numeración 1. 2. 3. se descarta sola)" style="width:100%; min-height:84px; background:var(--field-bg); border:1px solid var(--border-2); color:var(--ink); border-radius:8px; padding:10px 12px; font-family:var(--sans); font-size:14px; resize:vertical; box-sizing:border-box; outline:none;"></textarea>
           <div class="row" style="margin-top:8px;">
             <button class="btn" id="add-bulk">Agregar lista</button>
           </div>
@@ -744,6 +764,7 @@ function emptyState(){
     note: '',         // comentario libre del torneo (premiación, observaciones…)
     excludeDrops: true, // si está activo, los DROP se relegan al fondo de los standings (no compiten por prizing)
     timer: { endsAt: null, pausedMs: null, durationMin: 50 }, // cronómetro de ronda
+    tieBreaks: {},    // desempates manuales del TO: { "idA|idB|...": [idGanador, ...] }
   };
 }
 
@@ -929,6 +950,89 @@ function computeStandings(){
 }
 
 /* ---------------------------------------------------------------------------
+   DESEMPATE MANUAL DEL TO (standings exactamente iguales)
+   Cuando varios jugadores comparten el MISMO tieString (idénticos en
+   MatchPoints·OMW·OOMW·DDD), el orden entre ellos lo decide hoy el uid
+   aleatorio. Al finalizar, el TO puede realizar un método oficial (volado,
+   dado, playoff…) y FIJAR el orden arrastrando. Ese orden se guarda en
+   state.tieBreaks, indexado por el CONJUNTO de ids empatados (clave estable):
+   sobrevive a recargas y solo aplica si el grupo conserva exactamente esos
+   integrantes (si cambia, vuelve al aleatorio).
+--------------------------------------------------------------------------- */
+function tieGroupKey(ids){ return [...ids].sort().join('|'); }
+
+/* Detecta los grupos de empate exacto en un arreglo YA ordenado de stats.
+   Devuelve [{ start, size, ids, key, resolved }] solo para grupos de 2+. */
+function tieGroupsOf(ordered){
+  const groups = [];
+  let i = 0;
+  while(i < ordered.length){
+    let j = i + 1;
+    while(j < ordered.length
+          && ordered[j].tieString === ordered[i].tieString
+          && !!ordered[j].dropped === !!ordered[i].dropped) j++;
+    if(j - i >= 2){
+      const ids = ordered.slice(i, j).map(s => s.id);
+      const key = tieGroupKey(ids);
+      groups.push({ start:i, size:j-i, ids, key, resolved: !!(state.tieBreaks && state.tieBreaks[key]) });
+    }
+    i = j;
+  }
+  return groups;
+}
+
+/* Reordena IN-PLACE cada grupo de empate según el orden manual del TO. */
+function applyTieBreaks(ordered){
+  const tb = state.tieBreaks || {};
+  for(const g of tieGroupsOf(ordered)){
+    const order = tb[g.key];
+    if(!order || order.length !== g.size) continue;
+    const byId = new Map(ordered.slice(g.start, g.start + g.size).map(s => [s.id, s]));
+    const reordered = order.map(id => byId.get(id)).filter(Boolean);
+    if(reordered.length === g.size){
+      for(let k = 0; k < g.size; k++) ordered[g.start + k] = reordered[k];
+    }
+  }
+  return ordered;
+}
+
+/* Orden final mostrado por la tabla y el PNG: orden oficial + relegado de DROPs
+   (modo premiación) + desempate manual del TO. Es la única fuente de verdad
+   para lo que se ve; el emparejador NO usa esto (usa sortByStandings). */
+function finalStandings(){
+  let ordered = computeStandings();
+  if(state.excludeDrops){
+    ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
+  }
+  return applyTieBreaks(ordered);
+}
+
+/* Fija/actualiza el orden manual de un grupo (lo invoca el drag & drop). */
+function setTieOrder(key, orderedIds){
+  if(!state.tieBreaks) state.tieBreaks = {};
+  state.tieBreaks[key] = orderedIds;
+  save(); render();
+}
+
+/* Revierte un grupo al orden aleatorio (borra el desempate manual). */
+function clearTieOrder(key){
+  if(state.tieBreaks){ delete state.tieBreaks[key]; save(); render(); }
+}
+
+/* Mueve un jugador una posición ↑/↓ dentro de su grupo de empate (respaldo
+   táctil del arrastre). dir = -1 (sube) | +1 (baja). */
+function moveTie(id, dir){
+  const ordered = finalStandings();
+  const g = tieGroupsOf(ordered).find(gr => gr.ids.includes(id));
+  if(!g) return;
+  const ids = ordered.slice(g.start, g.start + g.size).map(s => s.id);
+  const from = ids.indexOf(id), to = from + dir;
+  if(to < 0 || to >= ids.length) return;
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+  setTieOrder(g.key, ids);
+}
+
+/* ---------------------------------------------------------------------------
    4) ALGORITMO DE EMPAREJAMIENTO SUIZO (Greedy + Backtracking)
 --------------------------------------------------------------------------- */
 
@@ -1085,9 +1189,20 @@ function addPlayer(name){
   save(); render();
 }
 
+/* Parsea el textarea de "pegar lista": una línea por nombre, descartando la
+   numeración de listas (estilo WhatsApp "1. Mati", "10) Tavo", "11.") y las
+   líneas vacías que deja esa numeración. Solo se quita el prefijo cuando hay un
+   delimitador tras el número (. ) : -), para no mutilar nombres como "2 Pac". */
+function parseBulkNames(text){
+  return (text || '')
+    .split(/\r?\n/)
+    .map(s => s.replace(/^\s*\d{1,4}[.)\:\-]\s*/, '').trim())
+    .filter(Boolean);
+}
+
 function addPlayersBulk(text){
   if(state.started){ showToast('El registro está cerrado.', true); return; }
-  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const lines = parseBulkNames(text);
   if(lines.length === 0){ showToast('Pega al menos un nombre por línea.', true); return; }
   const existing = new Set(state.players.map(p => p.name.toLowerCase()));
   let added = 0, dupes = 0;
@@ -1140,7 +1255,7 @@ function addLateEntry(name){
 }
 function addLateEntriesBulk(text){
   if(!lateEntryOpen()){ showToast('El Late Entry sólo aplica con el torneo en curso y rondas por jugar.', true); return; }
-  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const lines = parseBulkNames(text);
   if(lines.length === 0){ showToast('Pega al menos un nombre por línea.', true); return; }
   const existing = new Set(state.players.map(p => p.name.toLowerCase()));
   let added = 0, dupes = 0;
@@ -1221,10 +1336,7 @@ function _pushTimerWin(){
       // enviamos los standings (con la misma partición de DROPs que la tabla).
       let standings = null;
       if(state.finished){
-        let ordered = computeStandings();
-        if(state.excludeDrops){
-          ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
-        }
+        const ordered = finalStandings();
         standings = ordered.map(s => ({
           name: s.name, pts: s.matchPoints, wl: s.wins + '-' + s.losses, dropped: !!s.dropped
         }));
@@ -1814,18 +1926,26 @@ function renderStandings(){
     list.innerHTML = '<div class="empty">No hay jugadores.</div>';
     return;
   }
-  let ordered = computeStandings();   // entradas de stats ya ordenadas
-  // Modo premiación: los DROP se relegan al fondo, manteniendo entre ellos su orden.
-  if(state.excludeDrops){
-    ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
-  }
+  const ordered = finalStandings();   // orden oficial + premiación + desempate manual
+
+  // Grupos de empate exacto: solo se activan al finalizar (durante el torneo
+  // los standings cambian cada ronda y marcarlos sería ruido).
+  const tieGroups = state.finished ? tieGroupsOf(ordered) : [];
+  const groupAt = idx => tieGroups.find(g => idx >= g.start && idx < g.start + g.size) || null;
+  const hasPendingTie = tieGroups.some(g => !g.resolved);
 
   // Banner de campeón cuando el torneo finaliza (primer NO-dropeado).
   let champBanner = '';
   if(state.finished){
     const champ = ordered.find(s => !s.dropped) || ordered[0];
     if(champ){
-      champBanner = `<div class="banner" style="background:rgba(130,216,235,.12); border-color:var(--gold-soft); color:var(--gold); margin-bottom:14px;">🏆 Campeón: <strong>${esc(champ.name)}</strong> — ${champ.matchPoints} pts tras ${state.maxRounds} ronda(s)</div>`;
+      const champIdx = ordered.indexOf(champ);
+      const champGroup = groupAt(champIdx);
+      const provisional = champGroup && !champGroup.resolved;
+      const tint = provisional ? 'rgba(232,168,124,.14)' : 'rgba(130,216,235,.12)';
+      const label = provisional ? '🏆 Campeón (provisional)' : '🏆 Campeón';
+      const note = provisional ? ' <span class="hint" style="margin:0; display:inline;">— empate en la cima sin resolver; arrastra abajo para fijar el orden</span>' : '';
+      champBanner = `<div class="banner" style="background:${tint}; border-color:var(--gold-soft); color:var(--gold); margin-bottom:14px;">${label}: <strong>${esc(champ.name)}</strong> — ${champ.matchPoints} pts tras ${state.maxRounds} ronda(s)${note}</div>`;
     }
   }
 
@@ -1848,9 +1968,32 @@ function renderStandings(){
           : `<span class="hint" style="margin:0; white-space:nowrap;">drop definitivo</span>`;
       }
     }
-    return `<tr class="${s.dropped?'dropped':''}">
+
+    // ---- Empate: marcado de grupo (bracket) + controles del TO ----
+    const g = groupAt(i);
+    let trClass = s.dropped ? 'dropped' : '';
+    let trAttrs = '';
+    let tieBadge = '';
+    if(g){
+      const isFirst = i === g.start, isLast = i === g.start + g.size - 1;
+      trClass += ' tie-row' + (isFirst ? ' tie-first' : '') + (isLast ? ' tie-last' : '')
+               + (g.resolved ? ' tie-resolved' : ' tie-pending');
+      trAttrs = ` draggable="true" data-tie-key="${g.key}" data-id="${s.id}"`;
+      tieBadge = g.resolved
+        ? ` <span class="tie-badge ok" title="Orden fijado por el TO">⚖ fijado</span>`
+        : ` <span class="tie-badge" title="Empate exacto: el orden es aleatorio hasta que el TO lo resuelva">⚖ empate</span>`;
+      // Controles en la última celda (libre al finalizar).
+      dropCell = `<span class="tie-ctl">
+        <span class="tie-drag" title="Arrastra para reordenar">⠿</span>
+        <button class="btn btn-sm btn-ghost tie-arrow" data-action="tie-up" data-id="${s.id}" title="Subir" ${isFirst?'disabled':''}>↑</button>
+        <button class="btn btn-sm btn-ghost tie-arrow" data-action="tie-down" data-id="${s.id}" title="Bajar" ${isLast?'disabled':''}>↓</button>
+        ${isFirst && g.resolved ? `<button class="btn btn-sm btn-ghost" data-action="tie-reset" data-key="${g.key}" title="Volver al orden aleatorio">↺</button>` : ''}
+      </span>`;
+    }
+
+    return `<tr class="${trClass}"${trAttrs}>
       <td class="pos ${rankCls}"><span class="rank-wrap">${!s.dropped?rankIcon(i):''}${i+1}</span></td>
-      <td>${esc(s.name)} ${s.dropped?'<span class="pill pill-drop">DROP</span>':''}</td>
+      <td>${esc(s.name)} ${s.dropped?'<span class="pill pill-drop">DROP</span>':''}${tieBadge}</td>
       <td class="num">${s.matchPoints}</td>
       <td class="num" style="color:var(--ink-soft)">${s.wins}-${s.losses}</td>
       ${dbg}
@@ -1864,13 +2007,52 @@ function renderStandings(){
   const dbgHead = SHOW_TIE_DEBUG
     ? '<th class="num">OMW%</th><th class="num">OOMW%</th>' : '';
 
-  list.innerHTML = champBanner + `<div class="table-scroll"><table>
+  // Aviso/ayuda cuando hay empates exactos por resolver.
+  const tieHelp = tieGroups.length
+    ? `<div class="banner tie-help" style="margin-bottom:12px;">
+         ${hasPendingTie ? '⚖ <strong>Empate(s) exacto(s) detectado(s).</strong>' : '✓ <strong>Empate(s) resuelto(s) por el TO.</strong>'}
+         Coinciden en MatchPoints, OMW%, OOMW% y DDD: el orden entre ellos es <em>aleatorio</em>.
+         Si realizas un método oficial de desempate (volado, dado, playoff…), <strong>arrastra</strong> las filas marcadas (o usa ↑/↓) para fijar el resultado.
+       </div>`
+    : '';
+
+  list.innerHTML = champBanner + tieHelp + `<div class="table-scroll"><table>
     <thead><tr>
       <th class="pos">#</th><th>Jugador</th>
       <th class="num">Pts</th><th class="num">W-L</th>${dbgHead}<th class="num">Desempate<button class="tb-info-btn" type="button" data-action="tbinfo" aria-expanded="false" aria-controls="tie-legend" title="¿Cómo se calcula?" aria-label="Explicar el número de desempate">ⓘ</button></th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
+
+  if(tieGroups.length) wireTieDnD(list);
+}
+
+/* Drag & drop para reordenar dentro de un grupo de empate (desktop/mouse).
+   En táctil HTML5-DnD no dispara: ahí se usan los botones ↑/↓. */
+function wireTieDnD(list){
+  let dragId = null, dragKey = null;
+  list.querySelectorAll('tr[data-tie-key]').forEach(tr => {
+    tr.addEventListener('dragstart', e => {
+      dragId = tr.dataset.id; dragKey = tr.dataset.tieKey;
+      tr.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move';
+    });
+    tr.addEventListener('dragend', () => {
+      tr.classList.remove('dragging');
+      list.querySelectorAll('tr.tie-over').forEach(r => r.classList.remove('tie-over'));
+    });
+    tr.addEventListener('dragover', e => {
+      if(tr.dataset.tieKey === dragKey && tr.dataset.id !== dragId){ e.preventDefault(); tr.classList.add('tie-over'); }
+    });
+    tr.addEventListener('dragleave', () => tr.classList.remove('tie-over'));
+    tr.addEventListener('drop', e => {
+      e.preventDefault(); tr.classList.remove('tie-over');
+      if(!dragId || tr.dataset.tieKey !== dragKey || tr.dataset.id === dragId) return;
+      const rows = [...list.querySelectorAll('tr[data-tie-key="' + dragKey + '"]')];
+      let ids = rows.map(r => r.dataset.id).filter(x => x !== dragId);
+      ids.splice(ids.indexOf(tr.dataset.id), 0, dragId);  // suelta ANTES del objetivo
+      setTieOrder(dragKey, ids);
+    });
+  });
 }
 
 /* ---------------------------------------------------------------------------
@@ -1921,11 +2103,8 @@ function _ellipsize(ctx, text, maxW){
   return t + '…';
 }
 async function buildStandingsImageBlob(){
-    /* --- Datos: misma partición de DROPs que la tabla en vivo --- */
-    let ordered = computeStandings();
-    if(state.excludeDrops){
-      ordered = ordered.filter(s => !s.dropped).concat(ordered.filter(s => s.dropped));
-    }
+    /* --- Datos: mismo orden que la tabla en vivo (incluye desempate del TO) --- */
+    const ordered = finalStandings();
     const finished = !!state.finished;
     const champ = finished ? (ordered.find(s => !s.dropped) || ordered[0]) : null;
     const listRows = finished ? ordered.filter(s => s !== champ) : ordered;
@@ -2348,6 +2527,9 @@ document.body.addEventListener('click', e => {
     case 'dl':     reportResult(id, 'doubleLoss'); break;
     case 'clear':  reportResult(id, null); break;
     case 'drop':   toggleDrop(id); break;
+    case 'tie-up':    moveTie(id, -1); break;
+    case 'tie-down':  moveTie(id,  1); break;
+    case 'tie-reset': clearTieOrder(btn.dataset.key); break;
     case 'tbinfo': {
       const leg = $('#tie-legend');
       if(leg){ const open = leg.classList.toggle('open'); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
