@@ -17,10 +17,13 @@ services:
     restart: unless-stopped
     ports:
       - "8787:8787"
+    # The Pi kernel doesn't enforce cgroup memory limits (a mem_limit would be
+    # discarded), so we cap Node's V8 heap directly — kernel-independent.
     environment:
       PORT: "8787"
       HOST: "0.0.0.0"
       DB_PATH: /data/swissygo.sqlite
+      NODE_OPTIONS: "--max-old-space-size=128"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in the environment or app/.env}
     volumes:
       # Kept OUTSIDE the Caddy web root (/DATA/AppData/swissygo-dev) so the SQLite

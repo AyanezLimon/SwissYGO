@@ -1,0 +1,26 @@
+/* Connected-mode layer — ONLY the bits styles.css doesn't already provide.
+   The gate itself reuses existing classes: .modal-overlay/.modal/.modal-title/
+   .modal-msg, nav.tabs, input[type=text], .btn/.btn-gold/.btn-ghost. */
+
+/* styles.css styles text/number inputs only — give password the identical look. */
+input[type=password] {
+  background: var(--field-bg); border: 1px solid var(--border-2); color: var(--ink);
+  border-radius: 8px; padding: 10px 12px; font-family: var(--sans); font-size: 14px;
+  outline: none; transition: .15s;
+}
+input[type=password]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(130, 216, 235, .18); }
+
+/* Gate fields: stack, full width (inputs are inline-width by default). */
+.gate-field { margin-bottom: 12px; }
+.gate-field label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
+.gate-field input { width: 100%; box-sizing: border-box; font-size: 16px; } /* 16px avoids iOS zoom */
+.gate-error { color: var(--crimson); font-size: 13px; min-height: 18px; margin: 6px 2px 2px; }
+
+/* Header account control, sitting just left of the theme switch. */
+.account-ctl { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.account-ctl + .theme-switch { margin-left: 10px; }
+.account-ctl .who { font-size: 13px; color: var(--ink-soft); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-ctl .who b { color: var(--ink); }
+
+/* Prevent a flash of the console before the gate decision (set by inline head script). */
+html.gate-pending .wrap { visibility: hidden; }
