@@ -6,6 +6,13 @@ name: Deploy API (dev)
 # on app/server/** if you want it automatic. The image is API-only (no SPA build),
 # so it's small and rarely rebuilt.
 on:
+  push:
+    branches: [develop]
+    paths:
+      - 'app/server/**'
+      - 'app/Dockerfile'
+      - 'app/docker-compose.yml'
+      - '.github/workflows/deploy-api.yml'
   workflow_dispatch: {}
 
 concurrency:
