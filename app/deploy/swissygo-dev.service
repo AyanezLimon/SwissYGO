@@ -1,0 +1,26 @@
+# systemd unit for the SwissYGO dev backend. Install on the Pi:
+#   sudo cp app/deploy/swissygo-dev.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now swissygo-dev
+# Adjust User/paths to match your Pi. Secrets live in /opt/swissygo-dev/.env
+# (copy from app/server/.env.example; chmod 600).
+
+[Unit]
+Description=SwissYGO dev backend (Fastify + SQLite)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/swissygo-dev
+EnvironmentFile=/opt/swissygo-dev/.env
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=3
+# Hardening (relax if it conflicts with your setup):
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/swissygo-dev/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+# SwissYGO dev environment — add this site block to your Caddyfile on the Pi.
+# Sits behind the existing Cloudflare tunnel that already routes the subdomain.
+# Production (torneo.elbunkers.com → the single SwissYGO.html) is untouched.
+#
+# Layout on the Pi:
+#   /var/www/swissygo-dev   built SPA (app/web/dist)
+#   /opt/swissygo-dev       Node backend (app/server), listening on 127.0.0.1:8787
+
+torneodev.elbunkers.com {
+	encode gzip
+
+	# API → Fastify (local only; Caddy is the sole public entry point).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	# SPA with history-mode fallback: unknown paths serve index.html.
+	handle {
+		root * /var/www/swissygo-dev
+		try_files {path} /index.html
+		file_server
+	}
+}

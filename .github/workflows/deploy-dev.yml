@@ -1,0 +1,57 @@
+name: Deploy Dev (overhaul)
+
+# Deploys the overhauled app (app/) to the Pi's DEV environment
+# (torneodev.elbunkers.com). Independent of the production workflow
+# (release-and-deploy.yml is path-filtered to SwissYGO.html), so production
+# is never touched by overhaul work.
+on:
+  push:
+    branches: [develop]
+    paths: ['app/**', '.github/workflows/deploy-dev.yml']
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy-dev:
+    runs-on: [self-hosted, swissygo-pi]
+    env:
+      WEB_DIST: ${{ vars.DEV_WEB_PATH || '/var/www/swissygo-dev' }}
+      SERVER_DIR: ${{ vars.DEV_SERVER_PATH || '/opt/swissygo-dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build SPA
+        working-directory: app/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish SPA
+        run: |
+          mkdir -p "$WEB_DIST"
+          rsync -a --delete app/web/dist/ "$WEB_DIST/"
+          echo "SPA → $WEB_DIST"
+
+      - name: Sync backend (preserve data/ and .env)
+        run: |
+          mkdir -p "$SERVER_DIR/data"
+          rsync -a --delete \
+            --exclude 'node_modules' --exclude 'data' --exclude '.env' \
+            app/server/ "$SERVER_DIR/"
+
+      - name: Install backend deps
+        working-directory: ${{ env.SERVER_DIR }}
+        run: npm ci --omit=dev
+
+      - name: Restart service
+        # Requires passwordless sudo for systemctl on the runner user, e.g. add to sudoers:
+        #   <runner-user> ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart swissygo-dev
+        run: sudo systemctl restart swissygo-dev
+
+      - name: Smoke test
+        run: |
+          sleep 2
+          curl -fsS http://127.0.0.1:8787/api/health && echo "  ✓ backend healthy"

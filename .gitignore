@@ -10,6 +10,11 @@ node_modules/
 *.log
 .DS_Store
 
+# Overhaul (app/) — build output, local DB y secrets
+app/web/dist/
+app/server/data/
+.env
+
 # Capturas/exportes temporales
 *.tmp
 Thumbs.db
