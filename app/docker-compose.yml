@@ -16,15 +16,19 @@ services:
     container_name: swissygo-api
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      - "8787:8787"   # public API (Caddy proxies /api here; in the tunnel)
+      - "8788:8788"   # admin — LAN-only; NOT added to the Cloudflare tunnel
     # The Pi kernel doesn't enforce cgroup memory limits (a mem_limit would be
     # discarded), so we cap Node's V8 heap directly — kernel-independent.
     environment:
       PORT: "8787"
+      ADMIN_PORT: "8788"
       HOST: "0.0.0.0"
       DB_PATH: /data/swissygo.sqlite
       NODE_OPTIONS: "--max-old-space-size=128"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in the environment or app/.env}
+      # Admin tool password (LAN-only). If empty, the admin API is disabled.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
       # Kept OUTSIDE the Caddy web root (/DATA/AppData/swissygo-dev) so the SQLite
       # DB is never served publicly.

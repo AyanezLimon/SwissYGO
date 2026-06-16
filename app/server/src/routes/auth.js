@@ -1,5 +1,6 @@
 /* Auth routes: register, login, me. Usernames are case-insensitive (COLLATE
- * NOCASE in schema). JWT carries { id, username }. */
+ * NOCASE in schema). JWT carries { id, username, role }. New accounts are always
+ * regular players; the TO role is granted only via the local admin tool. */
 import { hashPassword, verifyPassword, requireAuth } from '../auth.js';
 
 export default async function authRoutes(app) {
@@ -16,8 +17,8 @@ export default async function authRoutes(app) {
     const hash = await hashPassword(password);
     const info = db
       .prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
-      .run(username, email || null, hash);
-    const user = { id: info.lastInsertRowid, username };
+      .run(username, email || null, hash); // role defaults to 'player'
+    const user = { id: info.lastInsertRowid, username, role: 'player' };
     const token = await reply.jwtSign(user);
     return reply.code(201).send({ token, user });
   });
@@ -28,12 +29,16 @@ export default async function authRoutes(app) {
     if (!row || !(await verifyPassword(password || '', row.password_hash))) {
       return reply.code(401).send({ error: 'Credenciales inválidas.' });
     }
-    const user = { id: row.id, username: row.username };
+    if (row.disabled) return reply.code(403).send({ error: 'Esta cuenta está deshabilitada.' });
+    const user = { id: row.id, username: row.username, role: row.role };
     const token = await reply.jwtSign(user);
     return { token, user };
   });
 
-  app.get('/api/auth/me', { preHandler: requireAuth }, async (req) => {
-    return { user: { id: req.user.id, username: req.user.username } };
+  // Re-reads the role from the DB (so an admin change takes effect on next /me).
+  app.get('/api/auth/me', { preHandler: requireAuth }, async (req, reply) => {
+    const row = db.prepare('SELECT id, username, role, disabled FROM users WHERE id = ?').get(req.user.id);
+    if (!row || row.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
+    return { user: { id: row.id, username: row.username, role: row.role } };
   });
 }

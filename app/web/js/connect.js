@@ -5,12 +5,29 @@
 (function () {
   const LS_GUEST = 'ygo_guest';
   const LS_USER = 'ygo_username';
+  const LS_ROLE = 'ygo_role';
 
   const hasSession = () => !!API.token.get();
   const isGuest = () => { try { return localStorage.getItem(LS_GUEST) === '1'; } catch { return false; } };
   const username = () => { try { return localStorage.getItem(LS_USER) || ''; } catch { return ''; } };
+  const role = () => { try { return localStorage.getItem(LS_ROLE) || 'player'; } catch { return 'player'; } };
+  const isTO = () => hasSession() && role() === 'to';
   const setGuest = (v) => { try { v ? localStorage.setItem(LS_GUEST, '1') : localStorage.removeItem(LS_GUEST); } catch {} };
   const setUser = (u) => { try { u ? localStorage.setItem(LS_USER, u) : localStorage.removeItem(LS_USER); } catch {} };
+  const setRole = (r) => { try { r ? localStorage.setItem(LS_ROLE, r) : localStorage.removeItem(LS_ROLE); } catch {} };
+
+  // Re-read role/username from the server (so an admin role/disable change applies).
+  async function refreshMe() {
+    if (!hasSession()) return;
+    try {
+      const r = await API.me();
+      setUser(r.user.username); setRole(r.user.role);
+      renderAccount();
+      if (isCloud() && isTO() && !state.started) startRegPoll();
+    } catch (e) {
+      if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); showGate(); }
+    }
+  }
 
   // ---- header account control -------------------------------------------
   function renderAccount() {
@@ -24,12 +41,15 @@
       header.insertBefore(ctl, themeBtn || null);
     }
     if (hasSession()) {
-      const cloud = isCloud()
-        ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
-        : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+      let cloud = '';
+      if (isTO()) {
+        cloud = isCloud()
+          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
+          : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+      }
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
-      if (isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
+      if (isTO() && isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
     }
@@ -38,7 +58,7 @@
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-acc]');
     if (!b) return;
-    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setGuest(false); stopRegPoll(); renderAccount(); showGate(); }
+    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); showGate(); }
     if (b.dataset.acc === 'login') { setGuest(false); showGate(); }
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
@@ -223,6 +243,7 @@
       const r = mode === 'register' ? await API.register(user, pass, email || undefined) : await API.login(user, pass);
       API.token.set(r.token);
       setUser(r.user.username);
+      setRole(r.user.role);
       setGuest(false);
       closeGate();
       renderAccount();
@@ -243,7 +264,8 @@
   // ---- boot --------------------------------------------------------------
   wrapSave();
   renderAccount();
-  if (isCloud() && hasSession() && !state.started) startRegPoll();
+  if (isCloud() && isTO() && !state.started) startRegPoll();
   if (!hasSession() && !isGuest()) showGate();
   else document.documentElement.classList.remove('gate-pending');
+  refreshMe(); // confirm role/status with the server (admin changes apply)
 })();

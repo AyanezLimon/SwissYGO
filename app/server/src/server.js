@@ -1,39 +1,46 @@
-/* SwissYGO backend — a tiny Fastify + SQLite API. Does only what a static site
- * can't: accounts, tournament storage, join codes, history. The heavy pairing/
- * tiebreak math runs in the browser, so this is just CRUD + auth. The existing
- * Caddy serves the static SPA and reverse-proxies /api here. Not needed at all
- * for offline mode. */
+/* SwissYGO backend. Two Fastify apps sharing one SQLite db:
+ *  - PUBLIC API on PORT (8787): exposed via Caddy + Cloudflare tunnel (/api).
+ *  - ADMIN on ADMIN_PORT (8788): NOT in the tunnel → LAN-only personal admin tool.
+ * The heavy pairing/tiebreak math runs in the browser; this is just CRUD + auth. */
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import { openDb } from './db.js';
 import authRoutes from './routes/auth.js';
 import tournamentRoutes from './routes/tournaments.js';
+import adminRoutes from './routes/admin.js';
 
 const PORT = Number(process.env.PORT || 8787);
-const HOST = process.env.HOST || '0.0.0.0'; // container; Caddy proxies to it
+const ADMIN_PORT = Number(process.env.ADMIN_PORT || 8788);
+const HOST = process.env.HOST || '0.0.0.0';
 const DB_PATH = process.env.DB_PATH || './data/swissygo.sqlite';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me';
 
-export function buildApp() {
+export function buildApp(db = openDb(DB_PATH)) {
   const app = Fastify({ logger: true });
-  app.decorate('db', openDb(DB_PATH));
+  app.decorate('db', db);
   app.register(fastifyJwt, { secret: JWT_SECRET });
-
   app.get('/api/health', async () => ({ ok: true, name: 'swissygo', ts: Date.now() }));
   app.register(authRoutes);
   app.register(tournamentRoutes);
+  return app;
+}
 
-  app.addHook('onClose', (instance, done) => {
-    try { instance.db.close(); } catch {}
-    done();
-  });
+export function buildAdminApp(db) {
+  const app = Fastify({ logger: true });
+  app.decorate('db', db);
+  app.register(adminRoutes);
   return app;
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href) {
-  const app = buildApp();
-  app.listen({ port: PORT, host: HOST }).catch((err) => {
-    app.log.error(err);
+  const db = openDb(DB_PATH);
+  const api = buildApp(db);
+  const admin = buildAdminApp(db);
+  Promise.all([
+    api.listen({ port: PORT, host: HOST }),
+    admin.listen({ port: ADMIN_PORT, host: HOST }),
+  ]).catch((err) => {
+    api.log.error(err);
     process.exit(1);
   });
 }

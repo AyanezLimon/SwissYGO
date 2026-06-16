@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SwissYGO · Admin</title>
+<style>
+  :root { --bg:#14131f; --panel:#211f35; --panel2:#2b2942; --border:#34324a; --ink:#eef1f7; --soft:#a7adc2; --gold:#82d8eb; --crimson:#e5534b; --green:#57ab5a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 "Segoe UI",system-ui,sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:24px 18px; }
+  h1 { font-size:20px; margin:0 0 2px; } .sub { color:var(--soft); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; }
+  input { background:#1a1829; border:1px solid var(--border); color:var(--ink); border-radius:8px; padding:9px 11px; font:inherit; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--ink); padding:7px 12px; }
+  button:hover { border-color:var(--gold); }
+  .btn-gold { background:linear-gradient(180deg,var(--gold),#56b9d0); color:#16142a; border:0; font-weight:700; }
+  .btn-danger { color:var(--crimson); border-color:#5a2a28; background:transparent; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:14px; }
+  th,td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th { color:var(--soft); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); }
+  .tag.to { color:var(--gold); border-color:#56b9d0; } .tag.player { color:var(--soft); }
+  .tag.off { color:var(--crimson); border-color:#5a2a28; } .tag.on { color:var(--green); border-color:#2f5a32; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .err { color:var(--crimson); min-height:18px; margin-top:8px; }
+  .actions button { padding:5px 9px; font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SwissYGO · Administración</h1>
+  <div class="sub">Herramienta local. Gestión de usuarios, roles y estado.</div>
+
+  <div class="card" id="login">
+    <div class="row">
+      <input type="password" id="pw" placeholder="Contraseña de admin" style="flex:1;min-width:200px" />
+      <button class="btn-gold" id="enter">Entrar</button>
+    </div>
+    <div class="err" id="login-err"></div>
+  </div>
+
+  <div class="card" id="panel" hidden>
+    <div class="row" style="justify-content:space-between">
+      <strong id="count"></strong>
+      <button id="refresh">Recargar</button>
+    </div>
+    <div class="err" id="err"></div>
+    <table>
+      <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  let PW = '';
+  const $ = (s) => document.querySelector(s);
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-Admin-Password': PW, ...(opts.headers || {}) } });
+    const t = await res.text(); const d = t ? JSON.parse(t) : null;
+    if (!res.ok) throw new Error((d && d.error) || res.statusText);
+    return d;
+  }
+  function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  async function load() {
+    $('#err').textContent = '';
+    try {
+      const users = await api('/admin/users');
+      $('#count').textContent = users.length + ' usuario(s)';
+      $('#rows').innerHTML = users.map(u => `
+        <tr data-id="${u.id}">
+          <td>${esc(u.username)}${u.email ? `<div style="color:var(--soft);font-size:12px">${esc(u.email)}</div>` : ''}</td>
+          <td><span class="tag ${u.role}">${u.role === 'to' ? 'Organizador' : 'Jugador'}</span></td>
+          <td><span class="tag ${u.disabled ? 'off' : 'on'}">${u.disabled ? 'Deshabilitado' : 'Activo'}</span></td>
+          <td style="color:var(--soft);font-size:12.5px">${esc((u.created_at||'').replace('T',' ').slice(0,16))}</td>
+          <td class="actions row">
+            <button data-act="role">${u.role === 'to' ? '↓ Jugador' : '↑ Organizador'}</button>
+            <button data-act="disable">${u.disabled ? 'Activar' : 'Deshabilitar'}</button>
+            <button data-act="pw">Contraseña</button>
+            <button class="btn-danger" data-act="del">Eliminar</button>
+          </td>
+        </tr>`).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+
+  $('#enter').addEventListener('click', async () => {
+    PW = $('#pw').value;
+    try { await api('/admin/users'); $('#login').hidden = true; $('#panel').hidden = false; load(); }
+    catch (e) { $('#login-err').textContent = e.message; }
+  });
+  $('#pw').addEventListener('keyup', (e) => { if (e.key === 'Enter') $('#enter').click(); });
+  $('#refresh').addEventListener('click', load);
+
+  $('#rows').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]'); if (!btn) return;
+    const tr = btn.closest('tr'); const id = tr.dataset.id;
+    const roleNow = tr.querySelector('.tag').classList.contains('to') ? 'to' : 'player';
+    const isOff = tr.children[2].textContent.trim() === 'Deshabilitado';
+    try {
+      if (btn.dataset.act === 'role') await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ role: roleNow === 'to' ? 'player' : 'to' }) });
+      else if (btn.dataset.act === 'disable') await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ disabled: !isOff }) });
+      else if (btn.dataset.act === 'pw') { const p = prompt('Nueva contraseña (mín. 6):'); if (!p) return; await api('/admin/users/' + id + '/password', { method: 'POST', body: JSON.stringify({ password: p }) }); alert('Contraseña actualizada.'); return; }
+      else if (btn.dataset.act === 'del') { if (!confirm('¿Eliminar este usuario?')) return; await api('/admin/users/' + id, { method: 'DELETE' }); }
+      load();
+    } catch (err) { $('#err').textContent = err.message; }
+  });
+</script>
+</body>
+</html>

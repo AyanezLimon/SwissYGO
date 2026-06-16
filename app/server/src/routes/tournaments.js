@@ -2,7 +2,7 @@
  * endpoints are read-only except join. Live pairing = players poll
  * GET /api/tournaments/:id/me. Pairing/standings are computed client-side from
  * the same state blob, so the server just persists and serves it. */
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireTO } from '../auth.js';
 
 function genJoinCode() {
   // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
@@ -37,7 +37,7 @@ export default async function tournamentRoutes(app) {
   };
 
   // ---- TO (owner) ----
-  app.post('/api/tournaments', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/tournaments', { preHandler: requireTO }, async (req, reply) => {
     const name = (req.body?.name || '').trim() || 'Torneo';
     let code = genJoinCode();
     while (db.prepare('SELECT 1 FROM tournaments WHERE join_code = ?').get(code)) code = genJoinCode();

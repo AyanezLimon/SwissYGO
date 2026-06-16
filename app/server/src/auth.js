@@ -9,12 +9,24 @@ export async function verifyPassword(plain, hash) {
   return bcrypt.compare(plain, hash);
 }
 
-/* Use as a route `preHandler`. Populates req.user = { id, username } from the JWT
- * (verified by @fastify/jwt). Replies 401 when the token is missing/invalid. */
+/* Use as a route `preHandler`. Populates req.user = { id, username, role } from
+ * the JWT (verified by @fastify/jwt). Replies 401 when the token is missing/invalid. */
 export async function requireAuth(req, reply) {
   try {
     await req.jwtVerify();
   } catch {
     return reply.code(401).send({ error: 'Autenticación requerida.' });
+  }
+}
+
+/* TO-only routes (hosting). Requires a valid JWT AND role 'to'. */
+export async function requireTO(req, reply) {
+  try {
+    await req.jwtVerify();
+  } catch {
+    return reply.code(401).send({ error: 'Autenticación requerida.' });
+  }
+  if (req.user.role !== 'to') {
+    return reply.code(403).send({ error: 'Solo los organizadores pueden hacer esto.' });
   }
 }
