@@ -10,9 +10,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
+User=aries
 WorkingDirectory=/opt/swissygo-dev
 EnvironmentFile=/opt/swissygo-dev/.env
+# Path to the system Node on the Pi. Confirm with `command -v node` (e.g. it may
+# be /usr/bin/node, or an nvm path like /home/aries/.nvm/.../bin/node).
 ExecStart=/usr/bin/node src/server.js
 Restart=on-failure
 RestartSec=3

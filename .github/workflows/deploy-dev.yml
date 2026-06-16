@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The self-hosted runner has no Node on its PATH (the prod workflow never
+      # needed it). Provision it here so npm is available to every later step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Build SPA
         working-directory: app/web
         run: |
