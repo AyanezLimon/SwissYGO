@@ -19,14 +19,16 @@ export async function requireAuth(req, reply) {
   }
 }
 
-/* TO-only routes (hosting). Requires a valid JWT AND role 'to'. */
+/* TO-only routes (hosting). Requires a valid JWT AND role 'to'. Re-reads the role
+ * from the DB so an admin promote/demote/disable takes effect immediately (no
+ * re-login needed) and stale tokens can't outrank the current role. */
 export async function requireTO(req, reply) {
   try {
     await req.jwtVerify();
   } catch {
     return reply.code(401).send({ error: 'Autenticación requerida.' });
   }
-  if (req.user.role !== 'to') {
-    return reply.code(403).send({ error: 'Solo los organizadores pueden hacer esto.' });
-  }
+  const row = req.server.db.prepare('SELECT role, disabled FROM users WHERE id = ?').get(req.user.id);
+  if (!row || row.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
+  if (row.role !== 'to') return reply.code(403).send({ error: 'Solo los organizadores pueden hacer esto.' });
 }
