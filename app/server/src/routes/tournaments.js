@@ -4,6 +4,7 @@
  * the same state blob, so the server just persists and serves it. */
 import { randomBytes } from 'node:crypto';
 import { requireAuth, requireTO } from '../auth.js';
+import { finalStandings } from '../lib/tiebreak.js';
 
 function genJoinCode() {
   // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
@@ -63,11 +64,17 @@ export default async function tournamentRoutes(app) {
   app.put('/api/tournaments/:id', { preHandler: requireAuth }, async (req, reply) => {
     const row = ownedOr404(Number(req.params.id), req.user.id, reply);
     if (!row) return;
-    if (row.finished_at) return reply.code(409).send({ error: 'El torneo finalizado es inmutable.' });
     const state = req.body?.state;
     if (!state || typeof state !== 'object') return reply.code(400).send({ error: 'state inválido.' });
     const status = state.finished ? 'finished' : state.started ? 'running' : 'setup';
-    db.prepare('UPDATE tournaments SET state_json = ?, status = ? WHERE id = ?').run(JSON.stringify(state), status, row.id);
+    // Stamp finished_at the first time it finishes (for history); stay editable
+    // afterwards so the TO can still resolve ties post-finish.
+    if (state.finished && !row.finished_at) {
+      db.prepare("UPDATE tournaments SET state_json = ?, status = ?, finished_at = datetime('now') WHERE id = ?")
+        .run(JSON.stringify(state), status, row.id);
+    } else {
+      db.prepare('UPDATE tournaments SET state_json = ?, status = ? WHERE id = ?').run(JSON.stringify(state), status, row.id);
+    }
     return { ok: true, status };
   });
 
@@ -161,5 +168,33 @@ export default async function tournamentRoutes(app) {
                 FROM tournaments t JOIN registrations r ON r.tournament_id = t.id
                 WHERE r.user_id = ? ORDER BY t.created_at DESC`)
       .all(req.user.id);
+  });
+
+  // Read-only results: final standings + rounds (names resolved). Finished
+  // tournaments are public; ongoing ones only to the owner or a participant.
+  app.get('/api/tournaments/:id/public', async (req, reply) => {
+    const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(Number(req.params.id));
+    if (!t) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+
+    if (t.status !== 'finished') {
+      let allowed = false;
+      try { await req.jwtVerify(); if (req.user.id === t.to_user_id || db.prepare('SELECT 1 FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id)) allowed = true; } catch {}
+      if (!allowed) {
+        const gt = req.headers['x-guest-token'];
+        if (gt && db.prepare('SELECT 1 FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt)) allowed = true;
+      }
+      if (!allowed) return reply.code(403).send({ error: 'Los resultados aún no son públicos.' });
+    }
+
+    const state = JSON.parse(t.state_json);
+    const pname = (id) => { const p = state.players.find((x) => x.id === id); return p ? p.name : '—'; };
+    const standings = finalStandings(state).map((s, i) => ({
+      rank: i + 1, name: s.name, points: s.matchPoints, wins: s.wins, losses: s.losses, dropped: !!s.dropped,
+    }));
+    const rounds = (state.rounds || []).map((r) => ({
+      roundNumber: r.roundNumber,
+      matches: r.matches.map((m) => ({ bye: !!m.isBye, p1: pname(m.p1Id), p2: m.isBye ? null : pname(m.p2Id), result: m.result, reported: !!m.isReported })),
+    }));
+    return { name: t.name, status: t.status, finished_at: t.finished_at, currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
   });
 }

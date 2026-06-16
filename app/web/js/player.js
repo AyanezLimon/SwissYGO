@@ -6,7 +6,25 @@
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const randomName = () => 'Duelista-' + (1000 + Math.floor(Math.random() * 9000));
+  // Fun guest names: Sustantivo + Adjetivo + número (e.g. "JarronEsponjoso76").
+  // Semillas: Yu-Gi-Oh, videojuegos, objetos, lugares y cosas silly.
+  const NOUNS = [
+    'Kuriboh', 'MagoOscuro', 'OjosAzules', 'Exodia', 'Slifer', 'Obelisco', 'Jinzo', 'Pendulo',
+    'Kaiba', 'Yugi', 'Pegasus', 'Marik', 'DragonAlado', 'CartaTrampa', 'Polymerization',
+    'Pikachu', 'Kirby', 'Link', 'Bowser', 'Sonic', 'Yoshi', 'Goomba', 'Creeper', 'Chocobo',
+    'Tonberry', 'Moguri', 'Cactilio', 'Slime', 'Pacman', 'Samus', 'MasterChief', 'Vivi',
+    'Jarron', 'Tostadora', 'Calcetin', 'Cuchara', 'Almohada', 'Sarten', 'Croqueta', 'Waffle',
+    'Burrito', 'Pinata', 'Chancla', 'Aguacate', 'Pulpo', 'Capibara', 'Mapache',
+    'Hyrule', 'Termina', 'Kanto', 'Midgar', 'Zanarkand', 'Gerudo',
+  ];
+  const ADJS = [
+    'Esponjoso', 'Brillante', 'Furioso', 'Legendario', 'Cosmico', 'Picante', 'Turbo', 'Supremo',
+    'Magico', 'Oscuro', 'Veloz', 'Radiante', 'Salvaje', 'Mistico', 'Glorioso', 'Travieso',
+    'Imparable', 'Ardiente', 'Glaciar', 'Funky', 'Ninja', 'Pixelado', 'Epico', 'Dorado',
+    'Fugaz', 'Caotico', 'Sigiloso', 'Crujiente', 'Galactico', 'Rebelde',
+  ];
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const randomName = () => pick(NOUNS) + pick(ADJS) + (10 + Math.floor(Math.random() * 90));
 
   const joined = () => { try { return JSON.parse(localStorage.getItem(LS_JOINED) || 'null'); } catch { return null; } };
   const setJoined = (v) => { try { v ? localStorage.setItem(LS_JOINED, JSON.stringify(v)) : localStorage.removeItem(LS_JOINED); } catch {} };
@@ -43,6 +61,7 @@
         </div>
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" style="width:100%">Unirme</button>
+        ${loggedIn() ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mis torneos</button>' : ''}
       </div>`;
 
     $('#pmode').addEventListener('click', (e) => {
@@ -51,6 +70,7 @@
     const tg = $('#toggle-reg'); if (tg) tg.addEventListener('click', () => { reg = !reg; renderJoin(); });
     $('#join').addEventListener('click', doJoin);
     $('#code').addEventListener('keyup', (e) => { if (e.key === 'Enter') doJoin(); });
+    const h = $('#hist'); if (h) h.addEventListener('click', renderHistory);
   }
 
   async function doJoin() {
@@ -63,6 +83,7 @@
         if (!u || !p) { btn.disabled = false; return renderJoin('Usuario y contraseña requeridos.'); }
         const r = reg ? await API.register(u, p) : await API.login(u, p);
         API.token.set(r.token);
+        try { localStorage.setItem('ygo_username', r.user.username); } catch {}
       }
       let res;
       if (mode === 'guest') {
@@ -85,11 +106,63 @@
     const j = joined(); if (!j) return;
     try {
       const me = await API.req('/tournaments/' + j.id + '/me', { auth: !j.guestToken, guestToken: j.guestToken });
+      if (me.status === 'finished') { stopPoll(); showResults(j.id, j, () => { setJoined(null); renderJoin(); }); return; }
       renderPairing(j, me);
     } catch (e) {
       if (e.status === 403) renderJoin('Ya no estás inscrito en ese torneo.');
       // other errors: keep last view, retry next tick
     }
+  }
+
+  // ---- results & history -------------------------------------------------
+  const medal = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : r);
+
+  async function showResults(id, j, onBack) {
+    stopPoll();
+    try {
+      const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
+      const mine = (j && j.name) || (() => { try { return localStorage.getItem('ygo_username'); } catch { return null; } })();
+      renderResults(pub, mine, onBack);
+    } catch (e) {
+      root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
+      $('#back').addEventListener('click', onBack);
+    }
+  }
+
+  function renderResults(pub, highlightName, onBack) {
+    const rows = pub.standings.map((s) => `
+      <tr class="${highlightName && s.name === highlightName ? 'me' : ''}">
+        <td>${medal(s.rank)}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
+        <td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
+    root.innerHTML = `
+      <div class="card">
+        <h2 style="margin-top:0">${esc(pub.name)}</h2>
+        <div class="muted" style="margin-bottom:12px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
+        <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
+        <button class="btn btn-sm btn-ghost" id="back" style="margin-top:16px;width:100%">← Volver</button>
+      </div>
+      <style>#player tr.me{ background:rgba(130,216,235,.12); } #player tr.me td{ color:var(--ink); font-weight:700; }</style>`;
+    $('#back').addEventListener('click', onBack);
+  }
+
+  async function renderHistory() {
+    stopPoll();
+    root.innerHTML = `<div class="card"><h2 style="margin-top:0">Mis torneos</h2><div class="muted" id="hl">Cargando…</div>
+      <button class="btn btn-sm btn-ghost" id="back" style="margin-top:14px;width:100%">← Volver</button></div>`;
+    $('#back').addEventListener('click', () => renderJoin());
+    try {
+      const list = await API.req('/me/tournaments');
+      if (!list.length) { $('#hl').textContent = 'Aún no te has inscrito en torneos.'; return; }
+      const ul = document.createElement('ul'); ul.className = 'list';
+      ul.innerHTML = list.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
+        <span class="grow">${esc(t.name)}</span>
+        <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${t.status === 'finished' ? 'Finalizado' : 'En curso'}</span></li>`).join('');
+      $('#hl').replaceWith(ul);
+      ul.addEventListener('click', (e) => {
+        const li = e.target.closest('li[data-id]'); if (!li) return;
+        showResults(Number(li.dataset.id), null, () => renderHistory());
+      });
+    } catch (e) { const hl = $('#hl'); if (hl) hl.textContent = e.message; }
   }
 
   function renderPairing(j, me) {

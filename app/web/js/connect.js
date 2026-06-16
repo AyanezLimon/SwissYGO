@@ -46,6 +46,7 @@
         cloud = isCloud()
           ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
           : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+        cloud += `<button class="btn btn-sm" data-acc="mine" title="Historial de torneos">Mis torneos</button>`;
       }
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
@@ -62,7 +63,50 @@
     if (b.dataset.acc === 'login') { setGuest(false); showGate(); }
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
+    if (b.dataset.acc === 'mine') showMyTournaments();
   });
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function makeModal(maxW = 420) {
+    const o = document.createElement('div'); o.className = 'modal-overlay';
+    const body = document.createElement('div'); body.className = 'modal'; body.style.maxWidth = maxW + 'px';
+    o.appendChild(body); document.body.appendChild(o);
+    requestAnimationFrame(() => o.classList.add('open'));
+    const close = () => { o.classList.remove('open'); setTimeout(() => o.remove(), 200); };
+    o.addEventListener('click', (e) => { if (e.target === o || e.target.closest('[data-close]')) close(); });
+    return { body, close };
+  }
+
+  async function showMyTournaments() {
+    const m = makeModal();
+    m.body.innerHTML = '<h3 class="modal-title">Mis torneos</h3><p class="modal-msg" id="mt">Cargando…</p>';
+    try {
+      const list = await API.req('/tournaments');
+      if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no has creado torneos.'; return; }
+      const ul = document.createElement('ul'); ul.className = 'list';
+      const label = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
+      ul.innerHTML = list.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
+        <span class="grow">${esc(t.name)}</span>
+        <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${label(t.status)}</span></li>`).join('');
+      m.body.querySelector('#mt').replaceWith(ul);
+      ul.addEventListener('click', (e) => { const li = e.target.closest('li[data-id]'); if (li) { m.close(); showResultsModal(Number(li.dataset.id)); } });
+    } catch (e) { const el = m.body.querySelector('#mt'); if (el) el.textContent = e.message; }
+  }
+
+  async function showResultsModal(id) {
+    const m = makeModal();
+    m.body.innerHTML = '<p class="modal-msg">Cargando resultados…</p>';
+    try {
+      const pub = await API.req('/tournaments/' + id + '/public');
+      const rows = pub.standings.map((s) => `<tr><td>${s.rank}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td><td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
+      m.body.innerHTML = `<h3 class="modal-title">${esc(pub.name)}</h3>
+        <div class="modal-msg" style="margin-bottom:10px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
+        <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="modal-actions" style="margin-top:16px"><button class="btn" data-close>Cerrar</button></div>`;
+    } catch (e) {
+      m.body.innerHTML = `<p class="gate-error">${esc(e.message)}</p><div class="modal-actions"><button class="btn" data-close>Cerrar</button></div>`;
+    }
+  }
 
   // ---- cloud hosting (Phase B) ------------------------------------------
   let syncTimer = null, regPollTimer = null, saveWrapped = false;
