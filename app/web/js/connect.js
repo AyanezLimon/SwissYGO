@@ -51,6 +51,7 @@
         <h3 class="modal-title">SwissYGO</h3>
         <p class="modal-msg" style="margin-bottom:16px">Gestor de Torneos — Velvet Room</p>
         <nav class="tabs" id="gate-tabs" style="margin:0 0 16px">
+          <span class="tab-indicator"></span>
           <button type="button" class="active" data-gt="login">Iniciar sesión</button>
           <button type="button" data-gt="register">Crear cuenta</button>
         </nav>
@@ -69,21 +70,56 @@
     const tabs = g.querySelector('#gate-tabs');
     tabs.addEventListener('click', (e) => {
       const t = e.target.closest('[data-gt]'); if (!t) return;
-      setMode(t.dataset.gt, g);
+      setMode(t.dataset.gt, g, true);
     });
     g.querySelector('#gate-form').addEventListener('submit', (e) => { e.preventDefault(); submit(g); });
     g.querySelector('#gate-guest').addEventListener('click', () => { setGuest(true); closeGate(); renderAccount(); });
-    setMode('login', g);
+    setMode('login', g, false);
     setTimeout(() => g.querySelector('#gate-user').focus(), 60);
   }
 
-  function setMode(m, g) {
+  // Slide the pill (.tab-indicator) under the active tab — same mechanism as the
+  // main nav's moveTabIndicator(). animate=false places it instantly (first paint).
+  function positionGatePill(g, animate) {
+    const ind = g.querySelector('#gate-tabs .tab-indicator');
+    const btn = g.querySelector('#gate-tabs button.active');
+    if (!ind || !btn) return;
+    if (!animate) ind.style.transition = 'none';
+    ind.style.width = btn.offsetWidth + 'px';
+    ind.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
+    if (!animate) requestAnimationFrame(() => { ind.style.transition = ''; });
+  }
+
+  function setMode(m, g, animate) {
+    if (animate && m === mode) return; // clicking the active tab: nothing to do
+    const modal = g.querySelector('.modal');
+    const h0 = modal.offsetHeight; // height before the content change
+
     mode = m;
     g.querySelectorAll('#gate-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.gt === m));
     g.querySelector('#gate-email-wrap').hidden = m !== 'register';
     g.querySelector('#gate-submit').textContent = m === 'register' ? 'Crear cuenta' : 'Entrar';
     g.querySelector('#gate-pass').setAttribute('autocomplete', m === 'register' ? 'new-password' : 'current-password');
     g.querySelector('#gate-error').textContent = '';
+
+    positionGatePill(g, animate);
+
+    // Tween the box height between the two layouts (mirrors .tab-stack.h-anim).
+    modal.style.height = '';
+    const h1 = modal.offsetHeight;
+    if (animate && Math.abs(h1 - h0) > 1) {
+      modal.classList.add('h-anim');
+      modal.style.height = h0 + 'px';
+      void modal.offsetHeight; // reflow so the transition starts from h0
+      modal.style.height = h1 + 'px';
+      const settle = () => {
+        modal.style.height = '';
+        modal.classList.remove('h-anim');
+        modal.removeEventListener('transitionend', settle);
+      };
+      modal.addEventListener('transitionend', settle, { once: true });
+      setTimeout(settle, 600); // safety net
+    }
   }
 
   async function submit(g) {

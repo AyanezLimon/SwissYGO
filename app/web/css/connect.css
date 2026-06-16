@@ -24,3 +24,7 @@ input[type=password]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rg
 
 /* Prevent a flash of the console before the gate decision (set by inline head script). */
 html.gate-pending .wrap { visibility: hidden; }
+
+/* Animate the gate box height when switching login/register — mirrors
+   .tab-stack.h-anim so it "extends" instead of snapping to the new size. */
+#gate .modal.h-anim { transition: height .35s cubic-bezier(.33, 0, .2, 1); overflow: hidden; }
