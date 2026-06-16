@@ -1,0 +1,36 @@
+name: Deploy API (dev)
+
+# The backend container is only needed once you want accounts/registration. Until
+# then there's NO backend running — offline mode needs nothing. So this is MANUAL
+# (workflow_dispatch). When connected mode goes live, you can add a push trigger
+# on app/server/** if you want it automatic. The image is API-only (no SPA build),
+# so it's small and rarely rebuilt.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, swissygo-pi]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & (re)start API container
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          [ -n "$JWT_SECRET" ] || { echo "::error::Missing repo secret JWT_SECRET."; exit 1; }
+          docker compose -f app/docker-compose.yml up -d --build
+      - name: Smoke test
+        run: |
+          ok=
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null 2>&1; then ok=1; break; fi
+            echo "waiting for API... ($i)"; sleep 2
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::API did not become healthy. Logs:"; docker compose -f app/docker-compose.yml logs --tail=80 || true; exit 1
+          fi
+          echo "  ✓ API healthy"

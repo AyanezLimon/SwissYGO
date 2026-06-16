@@ -1,100 +1,98 @@
 # SwissYGO — Overhaul (`app/`)
 
 The modular, multi-user evolution of SwissYGO. Lives **alongside** the legacy single-file
-`SwissYGO.html` (production, untouched) and deploys independently to a **dev** environment at
+`SwissYGO.html` (production, untouched) and is published independently to a **dev** site at
 `torneodev.elbunkers.com`. Cutover to production happens later, by choice.
 
-Full design rationale and phased roadmap: see the approved plan
-(`.claude/plans/gentle-crunching-pizza.md`).
+Design principle: **stay lean.** It's still just a website — plain static files plus a tiny
+API for the things a static site can't do (accounts, shared data). No build step, no bundler,
+nothing heavy running idle on the Pi.
 
 ## What it is
 
-One **Vue 3 + Vite** SPA that runs in two modes against the **same ported core logic**:
+A plain **static SPA** (vanilla JS, no framework, no build) that runs in two modes against the
+**same core logic** (`js/lib/*`, ported near-verbatim from `SwissYGO.html`):
 
 - **Local mode** (default, no backend): persists to `localStorage` (`ygo_swiss_v1` — the same
-  key the legacy app uses). TO-only, register players by hand, works fully offline. Feature
-  parity with today is the goal of this mode.
-- **Connected mode** (logged in, backend reachable): state persists to the Pi backend; players
+  key the legacy app uses). TO-only, register players by hand, works fully offline.
+- **Connected mode** (logged in, API reachable): state persists to the tiny Pi API; players
   self-register via code/QR and poll for their pairing; finished tournaments become history.
 
-Networked features are **purely additive** — nothing about the offline experience requires them.
+The heavy pairing/tiebreak math runs in the **browser**; the server is just CRUD + auth.
+Networked features are **purely additive** — offline mode needs no backend at all.
 
 ## Layout
 
 ```
 app/
-  web/      Vue 3 + Vite SPA
-    src/
-      lib/        pure logic ported near-verbatim from SwissYGO.html (unit-tested)
-      stores/     Pinia: tournament (model/controller)
-      services/   api.js + storage adapters (local | api)
-      views/      Setup / Round / Standings (+ player/auth views in later phases)
-      assets/css/ brand theme ported from the legacy <style>
-  server/   Fastify + better-sqlite3 + JWT (auth, tournaments, registrations)
+  web/                 static SPA — served directly by Caddy, NO build
+    index.html
+    css/styles.css
+    js/
+      lib/             pure logic ported from SwissYGO.html (vanilla ESM, unit-tested)
+      store.js         state + persistence (localStorage / API)
+      api.js           fetch wrapper for connected mode
+      app.js           vanilla UI controller
+    package.json       dev-only (vitest); never shipped to the Pi
+  server/              tiny Fastify + better-sqlite3 + JWT API (only for connected mode)
     src/{server,db,auth,routes}/...
-    migrations/   SQL schema (hybrid: state_json blob + minimal relational tables)
-  Dockerfile          single image: Fastify serves the SPA + API
-  docker-compose.yml  dev stack for the Pi (CasaOS)
+    migrations/        SQL schema (state_json blob + minimal relational tables)
+  Dockerfile           API-only image (no SPA inside)
+  docker-compose.yml   backend container for the Pi (run only when you want accounts)
+  deploy/Caddyfile     two-site config for the EXISTING Caddy (torneo + torneodev)
 ```
 
 ## Local development
 
-**Frontend only (offline mode)** — no backend needed:
+**Frontend (offline mode)** — no backend, no build. Serve the static folder with anything:
 
 ```bash
 cd app/web
-npm install
-npm run dev        # http://localhost:5173
-npm test           # vitest: parity tests for the ported logic
+python3 -m http.server 5173      # or any static server → http://localhost:5173
+npm install && npm test          # vitest: parity tests for js/lib (dev-only)
 ```
 
-**With the backend (connected mode):**
+(ES modules need http, not `file://`.)
+
+**Backend (only for connected mode):**
 
 ```bash
 cd app/server
-npm install        # builds better-sqlite3 (native)
-JWT_SECRET=dev DB_PATH=./data/dev.sqlite npm run dev   # 127.0.0.1:8787
-```
-
-Vite proxies `/api` → `127.0.0.1:8787` (see `vite.config.js`), so the SPA and API share an
-origin in dev. In production the same Fastify process serves the built SPA too (one origin).
-
-**Run the whole stack like production (Docker):**
-
-```bash
-cp app/.env.example app/.env   # set a real JWT_SECRET
-docker compose -f app/docker-compose.yml up -d --build   # http://localhost:8787
+npm install                                   # better-sqlite3 (prebuilt on most arches)
+JWT_SECRET=dev DB_PATH=./data/dev.sqlite npm run dev   # API on :8787
 ```
 
 ## Deploy (Pi / CasaOS)
 
-The Pi runs CasaOS (Docker). The overhaul deploys as **one self-contained container** —
-Fastify serves both the built SPA and the `/api` — published on host port **8787**. The
-Cloudflare tunnel routes `torneodev.elbunkers.com` to it. The production Caddy container
-(`torneo.elbunkers.com`, serving the single `SwissYGO.html` from `/DATA/AppData/swissygo`) and
-its tunnel route are **completely untouched** — separate container, separate config.
+The Pi runs CasaOS (Docker) with one Caddy container already serving prod. The overhaul reuses
+that Caddy: a second site (`torneodev`) serves the static files and reverse-proxies `/api` to
+the backend container. **Prod (`torneo` → `SwissYGO.html`) is untouched.**
 
-Pushing `app/**` to the long-lived `develop` branch triggers
-[`.github/workflows/deploy-dev.yml`](../.github/workflows/deploy-dev.yml) on the self-hosted
-`swissygo-pi` runner: it runs `docker compose ... up -d --build` (the image build does the SPA
-build + native deps internally — the runner only needs Docker) and smoke-tests `/api/health`.
+- **Frontend** = plain file copy, no build, no Docker.
+  [`deploy-web.yml`](../.github/workflows/deploy-web.yml) (auto on `develop` when `app/web/**`
+  changes) rsyncs the static files to `/DATA/AppData/swissygo-dev` on the self-hosted runner.
+- **Backend** = [`deploy-api.yml`](../.github/workflows/deploy-api.yml), **manual**
+  (`workflow_dispatch`). Builds the small API image and starts the `swissygo-api` container.
+  Nothing runs idle until you choose to enable accounts.
 
-**One-time setup:**
+**One-time Pi setup:**
 
-1. Add a repo Actions **secret** `JWT_SECRET` (Settings → Secrets and variables → Actions).
-   Generate one: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
-2. In the **Cloudflare Zero Trust dashboard** → your tunnel → Public Hostnames, add
-   `torneodev.elbunkers.com` with the **same Service URL as the existing `torneo` hostname but
-   port `8787`** (e.g. if `torneo` → `http://<pi>:8090`, set `torneodev` → `http://<pi>:8787`).
-3. First deploy: push to `develop` (or run the workflow manually). SQLite persists in the
-   bind-mounted `/DATA/AppData/swissygo-dev/data` (override via `SWISSYGO_DATA_DIR`).
+1. **Reuse Caddy:** in the CasaOS Caddy app, mount `app/deploy/Caddyfile` → `/etc/caddy/Caddyfile`
+   and `/DATA/AppData/swissygo-dev` → `/srv/swissygo-dev`, then reload Caddy. (Prod's existing
+   `/DATA/AppData/swissygo` → `/usr/share/caddy` mount stays.)
+2. **Tunnel:** in the Cloudflare Zero Trust dashboard, add the `torneodev.elbunkers.com` public
+   hostname with the **same Service URL as `torneo`** (it routes to the same Caddy; Caddy splits
+   by hostname).
+3. **For connected mode only:** add the repo Actions secret `JWT_SECRET`
+   (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`), then run the
+   **Deploy API** workflow. SQLite persists in `/DATA/AppData/swissygo-dev/data`.
 
 ## Status
 
-- **Done:** ported & unit-tested core logic (pairing, tiebreaks, bulk-paste, timer math);
-  offline TO app (Setup/Round/Standings) wired through the Pinia store + localStorage adapter;
-  backend skeleton (Fastify + SQLite schema + JWT auth + tournament/registration routes);
-  dev deploy pipeline.
-- **Next (later PRs):** connected-mode UI (login, create/join, live pairing view, QR), TO &
-  player history, finished-tournament public results, share-image / projection-window port,
-  full visual parity polish.
+- **Done:** ported & unit-tested core logic (pairing, tiebreaks, bulk-paste, timer math, 13
+  tests); static offline TO app (Registro / Rondas / Standings + manual tie resolution) on
+  localStorage; tiny API skeleton (Fastify + SQLite + JWT, auth + tournament/registration
+  routes) ready for connected mode; lean deploy (static copy + manual API).
+- **Next:** connected-mode UI (register/login, create/join via code+QR, live pairing view),
+  TO & player history, finished-tournament public results, visual parity polish (timer,
+  champion screen, shareable image, print).

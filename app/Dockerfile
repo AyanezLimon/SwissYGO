@@ -1,33 +1,18 @@
-# SwissYGO dev — single self-contained image: Fastify serves the API (/api) AND
-# the built Vue SPA (static + history fallback). Build context is app/.
-# Multi-stage so the native better-sqlite3 build toolchain stays out of runtime.
-
-# 1) Build the SPA -----------------------------------------------------------
-FROM node:22-alpine AS web
-WORKDIR /web
-COPY web/package*.json ./
-RUN npm ci
-COPY web/ ./
-RUN npm run build            # → /web/dist
-
-# 2) Install backend deps (compiles better-sqlite3) --------------------------
+# SwissYGO backend image — API only (the static SPA is served by Caddy, not here).
+# Build context is app/server. Built rarely: only when the backend changes, never
+# for frontend edits. Multi-stage so the better-sqlite3 build toolchain (needed
+# only if no ARM prebuilt is fetched) stays out of the runtime image.
 FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
-COPY server/package*.json ./
+COPY package*.json ./
 RUN npm ci --omit=dev
 
-# 3) Runtime -----------------------------------------------------------------
 FROM node:22-alpine AS runtime
-RUN apk add --no-cache libstdc++   # better-sqlite3 runtime dep
+RUN apk add --no-cache libstdc++
 WORKDIR /app
-ENV NODE_ENV=production \
-    PORT=8787 \
-    HOST=0.0.0.0 \
-    DB_PATH=/data/swissygo.sqlite \
-    PUBLIC_DIR=/app/public
-COPY server/ ./
+ENV NODE_ENV=production PORT=8787 HOST=0.0.0.0 DB_PATH=/data/swissygo.sqlite
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=web /web/dist ./public
+COPY . ./
 EXPOSE 8787
 CMD ["node", "src/server.js"]

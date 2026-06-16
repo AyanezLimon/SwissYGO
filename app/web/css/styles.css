@@ -86,7 +86,10 @@ nav.tabs a {
   border-radius: var(--radius);
   font-size: 14px;
 }
-nav.tabs a.router-link-active { background: var(--panel-2); color: var(--ink); }
+nav.tabs a.active { background: var(--panel-2); color: var(--ink); }
+
+.theme-switch { margin-left: 6px; background: none; border: 0; cursor: pointer; font-size: 18px; padding: 4px 6px; }
+.theme-switch:hover { border: 0; }
 
 .panel {
   background: var(--panel);
