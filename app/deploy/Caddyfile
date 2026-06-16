@@ -1,34 +1,35 @@
 # SwissYGO — Caddyfile for your EXISTING Caddy container (reused, not a new one).
-# Two sites behind the Cloudflare tunnel (which terminates TLS, so plain http):
+# Behind the Cloudflare tunnel (TLS terminated by Cloudflare → plain http here).
 #
-#   torneo.elbunkers.com     prod — the single SwissYGO.html (unchanged)
-#   torneodev.elbunkers.com  dev  — the static overhaul + /api → backend container
+# Fail-safe by design: only torneodev is special-cased. EVERYTHING else (torneo
+# and any other host that reaches this Caddy) falls through to the catch-all and
+# is served exactly as the stock config does today — so prod can't break from a
+# hostname mismatch.
 #
-# One-time: in the CasaOS Caddy app, add two volume mounts and reload Caddy:
-#   <this file>            -> /etc/caddy/Caddyfile
-#   /DATA/AppData/swissygo-dev -> /srv/swissygo-dev   (the dev static files)
-# Prod's existing mount (/DATA/AppData/swissygo -> /usr/share/caddy) stays as is.
+# One-time: in the CasaOS Caddy app add two bind mounts and recreate:
+#   <host>/Caddyfile           -> /etc/caddy/Caddyfile
+#   /DATA/AppData/swissygo-dev -> /srv/swissygo-dev
+# Prod's existing mount (/DATA/AppData/swissygo -> /usr/share/caddy) stays.
 
 {
-	# Behind the tunnel; certs are handled by Cloudflare, not Caddy.
 	auto_https off
 }
 
-http://torneo.elbunkers.com {
-	root * /usr/share/caddy
-	file_server
-}
-
-http://torneodev.elbunkers.com {
-	# API → backend container (published on the host; reachable from Caddy on the
-	# default bridge via the docker0 gateway). Only needed once you run the API.
+torneodev.elbunkers.com:80 {
+	# API → backend container (only relevant once the API is running). Caddy is on
+	# the default docker bridge; the host is reachable at the bridge gateway.
 	handle /api/* {
 		reverse_proxy 172.17.0.1:8787
 	}
-	# Static SPA, with SPA-style fallback to index.html.
 	handle {
 		root * /srv/swissygo-dev
 		try_files {path} /index.html
 		file_server
 	}
+}
+
+# Catch-all: torneo.elbunkers.com and anything else → prod, unchanged.
+:80 {
+	root * /usr/share/caddy
+	file_server
 }
