@@ -16,6 +16,10 @@
 }
 
 torneodev.elbunkers.com:80 {
+	# Dev site: never let Cloudflare/edge cache assets (avoids stale CSS/JS while
+	# iterating). Cloudflare honors no-store and won't cache.
+	header Cache-Control "no-store"
+
 	# API → backend container (only relevant once the API is running). Caddy is on
 	# the default docker bridge; the host is reachable at the bridge gateway.
 	handle /api/* {
