@@ -23,4 +23,6 @@ services:
       DB_PATH: /data/swissygo.sqlite
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in the environment or app/.env}
     volumes:
-      - ${SWISSYGO_DATA_DIR:-/DATA/AppData/swissygo-dev/data}:/data
+      # Kept OUTSIDE the Caddy web root (/DATA/AppData/swissygo-dev) so the SQLite
+      # DB is never served publicly.
+      - ${SWISSYGO_DATA_DIR:-/DATA/AppData/swissygo-api/data}:/data
