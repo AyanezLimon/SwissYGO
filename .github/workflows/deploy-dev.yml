@@ -35,6 +35,16 @@ jobs:
 
       - name: Smoke test
         run: |
-          sleep 3
-          curl -fsS http://127.0.0.1:8787/api/health && echo "  ✓ backend healthy"
+          ok=
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8787/api/health >/dev/null 2>&1; then ok=1; break; fi
+            echo "waiting for backend... ($i)"; sleep 2
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Backend did not become healthy in ~40s. Container state + logs below:"
+            docker ps -a --filter name=swissygo-dev
+            docker compose -f app/docker-compose.yml logs --tail=80 || true
+            exit 1
+          fi
+          echo "  ✓ backend healthy"
           curl -fsS -o /dev/null http://127.0.0.1:8787/ && echo "  ✓ SPA served"
