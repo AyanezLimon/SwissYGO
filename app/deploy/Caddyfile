@@ -25,9 +25,15 @@ torneodev.elbunkers.com:80 {
 	handle /api/* {
 		reverse_proxy 172.17.0.1:8787
 	}
+	# /u → /u/ so the player page's directory index resolves.
+	handle /u {
+		redir * /u/ permanent
+	}
 	handle {
 		root * /srv/swissygo-dev
-		try_files {path} /index.html
+		# Resolve real files and directory indexes (e.g. /u/ → /u/index.html);
+		# only unknown paths fall back to the console SPA at /index.html.
+		try_files {path} {path}index.html /index.html
 		file_server
 	}
 }
