@@ -1,9 +1,10 @@
 name: Deploy Dev (overhaul)
 
-# Deploys the overhauled app (app/) to the Pi's DEV environment
-# (torneodev.elbunkers.com). Independent of the production workflow
-# (release-and-deploy.yml is path-filtered to SwissYGO.html), so production
-# is never touched by overhaul work.
+# Deploys the overhauled app to the Pi's DEV environment as a single Docker
+# container (Fastify serves the SPA + API). The Cloudflare tunnel routes
+# torneodev.elbunkers.com → host :8787. Independent of production: the prod
+# workflow (release-and-deploy.yml) is path-filtered to SwissYGO.html and the
+# prod Caddy container is untouched.
 on:
   push:
     branches: [develop]
@@ -17,47 +18,23 @@ concurrency:
 jobs:
   deploy-dev:
     runs-on: [self-hosted, swissygo-pi]
-    env:
-      WEB_DIST: ${{ vars.DEV_WEB_PATH || '/var/www/swissygo-dev' }}
-      SERVER_DIR: ${{ vars.DEV_SERVER_PATH || '/opt/swissygo-dev' }}
     steps:
       - uses: actions/checkout@v4
 
-      # The self-hosted runner has no Node on its PATH (the prod workflow never
-      # needed it). Provision it here so npm is available to every later step.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Build SPA
-        working-directory: app/web
+      # The runner builds nothing locally — the image build (SPA + native deps)
+      # happens inside Docker. The 'aries' runner user is in the docker group.
+      - name: Build & (re)start container
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          npm ci
-          npm run build
-
-      - name: Publish SPA
-        run: |
-          mkdir -p "$WEB_DIST"
-          rsync -a --delete app/web/dist/ "$WEB_DIST/"
-          echo "SPA → $WEB_DIST"
-
-      - name: Sync backend (preserve data/ and .env)
-        run: |
-          mkdir -p "$SERVER_DIR/data"
-          rsync -a --delete \
-            --exclude 'node_modules' --exclude 'data' --exclude '.env' \
-            app/server/ "$SERVER_DIR/"
-
-      - name: Install backend deps
-        working-directory: ${{ env.SERVER_DIR }}
-        run: npm ci --omit=dev
-
-      - name: Restart service
-        # Requires passwordless sudo for systemctl on the runner user, e.g. add to sudoers:
-        #   <runner-user> ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart swissygo-dev
-        run: sudo systemctl restart swissygo-dev
+          if [ -z "$JWT_SECRET" ]; then
+            echo "::error::Missing repo secret JWT_SECRET (Settings → Secrets and variables → Actions → Secrets)."
+            exit 1
+          fi
+          docker compose -f app/docker-compose.yml up -d --build
 
       - name: Smoke test
         run: |
-          sleep 2
+          sleep 3
           curl -fsS http://127.0.0.1:8787/api/health && echo "  ✓ backend healthy"
+          curl -fsS -o /dev/null http://127.0.0.1:8787/ && echo "  ✓ SPA served"

@@ -1,0 +1,26 @@
+# SwissYGO dev environment for the Pi (CasaOS). One container; Fastify serves the
+# SPA + API. The Cloudflare tunnel routes torneodev.elbunkers.com → host :8787
+# (add that public hostname in the Cloudflare Zero Trust dashboard, mirroring the
+# torneo hostname's service URL but with port 8787). Prod (Caddy :8090) untouched.
+#
+#   JWT_SECRET=<long-random> docker compose -f app/docker-compose.yml up -d --build
+#
+# Data (SQLite) is bind-mounted under /DATA/AppData so it's visible/backed-up like
+# other CasaOS apps and survives image rebuilds.
+services:
+  swissygo-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: swissygo-dev:latest
+    container_name: swissygo-dev
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: "8787"
+      HOST: "0.0.0.0"
+      DB_PATH: /data/swissygo.sqlite
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in the environment or app/.env}
+    volumes:
+      - ${SWISSYGO_DATA_DIR:-/DATA/AppData/swissygo-dev/data}:/data

@@ -33,7 +33,8 @@ app/
   server/   Fastify + better-sqlite3 + JWT (auth, tournaments, registrations)
     src/{server,db,auth,routes}/...
     migrations/   SQL schema (hybrid: state_json blob + minimal relational tables)
-  deploy/   Caddyfile snippet, systemd unit, notes
+  Dockerfile          single image: Fastify serves the SPA + API
+  docker-compose.yml  dev stack for the Pi (CasaOS)
 ```
 
 ## Local development
@@ -56,25 +57,37 @@ JWT_SECRET=dev DB_PATH=./data/dev.sqlite npm run dev   # 127.0.0.1:8787
 ```
 
 Vite proxies `/api` → `127.0.0.1:8787` (see `vite.config.js`), so the SPA and API share an
-origin in dev, mirroring the Caddy reverse-proxy in production.
+origin in dev. In production the same Fastify process serves the built SPA too (one origin).
 
-## Deploy (Pi dev environment)
+**Run the whole stack like production (Docker):**
 
-The overhaul lives on the long-lived `develop` branch. Pushing `app/**` to `develop` triggers
+```bash
+cp app/.env.example app/.env   # set a real JWT_SECRET
+docker compose -f app/docker-compose.yml up -d --build   # http://localhost:8787
+```
+
+## Deploy (Pi / CasaOS)
+
+The Pi runs CasaOS (Docker). The overhaul deploys as **one self-contained container** —
+Fastify serves both the built SPA and the `/api` — published on host port **8787**. The
+Cloudflare tunnel routes `torneodev.elbunkers.com` to it. The production Caddy container
+(`torneo.elbunkers.com`, serving the single `SwissYGO.html` from `/DATA/AppData/swissygo`) and
+its tunnel route are **completely untouched** — separate container, separate config.
+
+Pushing `app/**` to the long-lived `develop` branch triggers
 [`.github/workflows/deploy-dev.yml`](../.github/workflows/deploy-dev.yml) on the self-hosted
-`swissygo-pi` runner: it builds the SPA → `/var/www/swissygo-dev`, syncs the backend →
-`/opt/swissygo-dev`, installs deps, and restarts the `swissygo-dev` systemd service.
+`swissygo-pi` runner: it runs `docker compose ... up -d --build` (the image build does the SPA
+build + native deps internally — the runner only needs Docker) and smoke-tests `/api/health`.
 
-One-time Pi setup:
+**One-time setup:**
 
-1. `app/deploy/Caddyfile.snippet` → add the `torneodev.elbunkers.com` block to your Caddyfile
-   (behind the existing Cloudflare tunnel) and reload Caddy.
-2. `app/deploy/swissygo-dev.service` → install the systemd unit; create
-   `/opt/swissygo-dev/.env` from `app/server/.env.example` (set a strong `JWT_SECRET`).
-3. Optionally set repo Actions **variables** `DEV_WEB_PATH` / `DEV_SERVER_PATH` to override the
-   default paths.
-
-Production (`torneo.elbunkers.com`, the single file) and its workflow are entirely separate.
+1. Add a repo Actions **secret** `JWT_SECRET` (Settings → Secrets and variables → Actions).
+   Generate one: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
+2. In the **Cloudflare Zero Trust dashboard** → your tunnel → Public Hostnames, add
+   `torneodev.elbunkers.com` with the **same Service URL as the existing `torneo` hostname but
+   port `8787`** (e.g. if `torneo` → `http://<pi>:8090`, set `torneodev` → `http://<pi>:8787`).
+3. First deploy: push to `develop` (or run the workflow manually). SQLite persists in the
+   bind-mounted `/DATA/AppData/swissygo-dev/data` (override via `SWISSYGO_DATA_DIR`).
 
 ## Status
 

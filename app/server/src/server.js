@@ -1,16 +1,26 @@
-/* SwissYGO backend — Fastify on the Pi, behind Caddy + Cloudflare tunnel.
- * Serves the API under /api; Caddy serves the built SPA and reverse-proxies
- * /api here. Binds to 127.0.0.1 by default (only Caddy talks to it). */
+/* SwissYGO backend — Fastify, runs as a self-contained Docker container on the
+ * Pi (CasaOS). Serves the API under /api AND the built SPA (static + history
+ * fallback) from PUBLIC_DIR, so a single container is all the tunnel points at.
+ * In container mode it binds 0.0.0.0 (Docker maps the host port); for API-only
+ * local dev it defaults to 127.0.0.1 and just skips static serving if there's
+ * no build. */
 import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
+import fastifyStatic from '@fastify/static';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import authRoutes from './routes/auth.js';
 import tournamentRoutes from './routes/tournaments.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const DB_PATH = process.env.DB_PATH || './data/swissygo.sqlite';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-insecure-secret-change-me';
+const PUBLIC_DIR = process.env.PUBLIC_DIR || join(__dirname, '..', 'public');
 
 export function buildApp() {
   const app = Fastify({ logger: true });
@@ -22,6 +32,18 @@ export function buildApp() {
 
   app.register(authRoutes);
   app.register(tournamentRoutes);
+
+  // Serve the built SPA when present (production container). Unknown non-/api
+  // GET routes fall back to index.html for client-side (history-mode) routing.
+  if (existsSync(join(PUBLIC_DIR, 'index.html'))) {
+    app.register(fastifyStatic, { root: PUBLIC_DIR });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.method === 'GET' && !req.raw.url.startsWith('/api')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'No encontrado.' });
+    });
+  }
 
   app.addHook('onClose', (instance, done) => {
     try { instance.db.close(); } catch {}
