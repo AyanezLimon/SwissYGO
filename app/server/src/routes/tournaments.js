@@ -5,10 +5,10 @@
 import { requireAuth } from '../auth.js';
 
 function genJoinCode() {
-  // 6 chars, unambiguous alphabet (no 0/O/1/I).
+  // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let c = '';
-  for (let i = 0; i < 6; i++) c += A[Math.floor(Math.random() * A.length)];
+  for (let i = 0; i < 5; i++) c += A[Math.floor(Math.random() * A.length)];
   return c;
 }
 
@@ -98,14 +98,11 @@ export default async function tournamentRoutes(app) {
     const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id);
     if (existing) return { id: t.id, name: t.name, player_id: existing.player_id };
 
-    const state = JSON.parse(t.state_json);
+    // Single-writer rule: only insert the registration. The TO (sole writer of
+    // state_json) absorbs new registrations into state.players, so a join can
+    // never clobber the tournament state.
     const playerId = 'u' + req.user.id + '-' + Date.now().toString(36);
-    state.players.push({ id: playerId, name: req.user.username, dropped: false, hasReceivedBye: false, userId: req.user.id });
-    const tx = db.transaction(() => {
-      db.prepare('UPDATE tournaments SET state_json = ? WHERE id = ?').run(JSON.stringify(state), t.id);
-      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id) VALUES (?, ?, ?)').run(t.id, req.user.id, playerId);
-    });
-    tx();
+    db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id) VALUES (?, ?, ?)').run(t.id, req.user.id, playerId);
     return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId });
   });
 

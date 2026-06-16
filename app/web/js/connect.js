@@ -24,8 +24,12 @@
       header.insertBefore(ctl, themeBtn || null);
     }
     if (hasSession()) {
-      ctl.innerHTML = `<span class="who">Hola, <b></b></span><button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
-      ctl.querySelector('b').textContent = username() || 'usuario';
+      const cloud = isCloud()
+        ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
+        : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+      ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
+      ctl.querySelector('.uname').textContent = username() || 'usuario';
+      if (isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
     }
@@ -34,9 +38,92 @@
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-acc]');
     if (!b) return;
-    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setGuest(false); renderAccount(); showGate(); }
+    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setGuest(false); stopRegPoll(); renderAccount(); showGate(); }
     if (b.dataset.acc === 'login') { setGuest(false); showGate(); }
+    if (b.dataset.acc === 'publish') publish();
+    if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
   });
+
+  // ---- cloud hosting (Phase B) ------------------------------------------
+  let syncTimer = null, regPollTimer = null, saveWrapped = false;
+  const isCloud = () => !!(typeof state !== 'undefined' && state && state.cloud && state.cloud.id);
+
+  // Wrap the global save() once: keep localStorage, and (when cloud-linked) push
+  // state to the server (debounced, fail-soft). Function declarations are window
+  // properties, so app.js's internal save() calls use the wrapped one too.
+  function wrapSave() {
+    if (saveWrapped || typeof window.save !== 'function') return;
+    const orig = window.save;
+    window.save = function () { orig.apply(this, arguments); if (isCloud()) scheduleSync(); };
+    saveWrapped = true;
+  }
+  function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(cloudSync, 400); }
+  async function cloudSync() {
+    if (!isCloud()) return;
+    try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state } }); }
+    catch (e) { /* fail-soft: localStorage remains the cache; retry on next save */ }
+  }
+
+  async function publish() {
+    if (!hasSession()) { showGate(); return; }
+    const name = (state.note && state.note.trim()) || ('Torneo ' + new Date().toLocaleDateString());
+    try {
+      const r = await API.req('/tournaments', { method: 'POST', body: { name } });
+      state.cloud = { id: r.id, code: r.join_code };
+      save();              // persists locally + first cloud push (wrapped)
+      startRegPoll();
+      renderAccount();
+      showCodeModal(r.join_code);
+    } catch (e) {
+      if (window.showToast) showToast('No se pudo publicar: ' + e.message, true);
+    }
+  }
+
+  // While registration is open, pull self-registrations and absorb them into the
+  // TO's player list (single-writer: the TO writes state, players only register).
+  function startRegPoll() {
+    stopRegPoll();
+    if (!isCloud() || state.started) return;
+    regPollTimer = setInterval(absorbRegistrations, 4000);
+    absorbRegistrations();
+  }
+  function stopRegPoll() { if (regPollTimer) { clearInterval(regPollTimer); regPollTimer = null; } }
+  async function absorbRegistrations() {
+    if (!isCloud() || state.started) { stopRegPoll(); return; }
+    try {
+      const regs = await API.req('/tournaments/' + state.cloud.id + '/registrations');
+      let added = 0;
+      for (const r of regs) {
+        if (!state.players.some((p) => p.id === r.player_id)) {
+          state.players.push({ id: r.player_id, name: r.username, dropped: false, hasReceivedBye: false, userId: r.user_id });
+          added++;
+        }
+      }
+      if (added) {
+        save();
+        if (window.render) render();
+        if (window.showToast) showToast(added + (added === 1 ? ' jugador se inscribió.' : ' jugadores se inscribieron.'));
+      }
+    } catch (e) { /* ignore transient poll errors */ }
+  }
+
+  function showCodeModal(code) {
+    if (document.getElementById('code-modal')) return;
+    const m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'code-modal';
+    m.innerHTML = `
+      <div class="modal" style="max-width:380px;text-align:center">
+        <h3 class="modal-title">Torneo publicado</h3>
+        <p class="modal-msg" style="margin-bottom:8px">Los jugadores entran a <b>torneodev.elbunkers.com/u</b> e ingresan este código:</p>
+        <div style="font-family:var(--mono);font-size:42px;font-weight:800;letter-spacing:8px;color:var(--gold);margin:4px 0 18px">${code}</div>
+        <div class="modal-actions" style="justify-content:center"><button class="btn btn-gold" data-close>Listo</button></div>
+      </div>`;
+    document.body.appendChild(m);
+    requestAnimationFrame(() => m.classList.add('open'));
+    m.addEventListener('click', (e) => {
+      if (e.target === m || e.target.closest('[data-close]')) { m.classList.remove('open'); setTimeout(() => m.remove(), 200); }
+    });
+  }
 
   // ---- landing gate ------------------------------------------------------
   let mode = 'login'; // 'login' | 'register'
@@ -154,7 +241,9 @@
   }
 
   // ---- boot --------------------------------------------------------------
+  wrapSave();
   renderAccount();
+  if (isCloud() && hasSession() && !state.started) startRegPoll();
   if (!hasSession() && !isGuest()) showGate();
   else document.documentElement.classList.remove('gate-pending');
 })();
