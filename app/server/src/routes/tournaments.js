@@ -2,6 +2,7 @@
  * endpoints are read-only except join. Live pairing = players poll
  * GET /api/tournaments/:id/me. Pairing/standings are computed client-side from
  * the same state blob, so the server just persists and serves it. */
+import { randomBytes } from 'node:crypto';
 import { requireAuth, requireTO } from '../auth.js';
 
 function genJoinCode() {
@@ -83,34 +84,54 @@ export default async function tournamentRoutes(app) {
   app.get('/api/tournaments/:id/registrations', { preHandler: requireAuth }, async (req, reply) => {
     const row = ownedOr404(Number(req.params.id), req.user.id, reply);
     if (!row) return;
+    // display_name covers both accounts and guests; guest_token is never exposed.
     return db
-      .prepare('SELECT r.user_id, r.player_id, r.joined_at, u.username FROM registrations r JOIN users u ON u.id = r.user_id WHERE r.tournament_id = ?')
+      .prepare('SELECT player_id, display_name, user_id, joined_at FROM registrations WHERE tournament_id = ? ORDER BY joined_at')
       .all(row.id);
   });
 
   // ---- Player ----
-  app.post('/api/tournaments/join', { preHandler: requireAuth }, async (req, reply) => {
+  // No requireAuth: accounts join with a JWT, guests join with a typed name and
+  // receive a per-tournament guest_token (stored only in their browser).
+  app.post('/api/tournaments/join', async (req, reply) => {
     const code = (req.body?.code || '').trim().toUpperCase();
     const t = db.prepare('SELECT * FROM tournaments WHERE join_code = ?').get(code);
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
     if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
 
-    const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id);
-    if (existing) return { id: t.id, name: t.name, player_id: existing.player_id };
+    let userId = null, uname = null;
+    try { await req.jwtVerify(); userId = req.user.id; uname = req.user.username; } catch { /* guest */ }
 
-    // Single-writer rule: only insert the registration. The TO (sole writer of
-    // state_json) absorbs new registrations into state.players, so a join can
-    // never clobber the tournament state.
-    const playerId = 'u' + req.user.id + '-' + Date.now().toString(36);
-    db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id) VALUES (?, ?, ?)').run(t.id, req.user.id, playerId);
-    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId });
+    if (userId) {
+      const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
+      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id };
+      const playerId = 'u' + userId + '-' + Date.now().toString(36);
+      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name) VALUES (?, ?, ?, ?)')
+        .run(t.id, userId, playerId, uname);
+      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId });
+    }
+
+    // Guest: requires a display name; issue a guest_token for /me identification.
+    const name = (req.body?.name || '').trim().slice(0, 40);
+    if (!name) return reply.code(400).send({ error: 'Indica un nombre para inscribirte como invitado.' });
+    const guestToken = randomBytes(16).toString('hex');
+    const playerId = 'g-' + guestToken.slice(0, 8) + '-' + Date.now().toString(36);
+    db.prepare('INSERT INTO registrations (tournament_id, guest_token, player_id, display_name) VALUES (?, ?, ?, ?)')
+      .run(t.id, guestToken, playerId, name);
+    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, guest_token: guestToken });
   });
 
-  // Polled by the player view (~every 4s) for their current-round pairing.
-  app.get('/api/tournaments/:id/me', { preHandler: requireAuth }, async (req, reply) => {
+  // Polled by the player view (~every 4s). Identify by JWT (account) or
+  // X-Guest-Token header (guest).
+  app.get('/api/tournaments/:id/me', async (req, reply) => {
     const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(Number(req.params.id));
     if (!t) return reply.code(404).send({ error: 'Torneo no encontrado.' });
-    const reg = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id);
+    let reg = null;
+    try { await req.jwtVerify(); reg = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id); } catch { /* guest */ }
+    if (!reg) {
+      const gt = req.headers['x-guest-token'];
+      if (gt) reg = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt);
+    }
     if (!reg) return reply.code(403).send({ error: 'No estás inscrito en este torneo.' });
 
     const state = JSON.parse(t.state_json);

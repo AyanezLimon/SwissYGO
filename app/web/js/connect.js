@@ -115,7 +115,7 @@
       let added = 0;
       for (const r of regs) {
         if (!state.players.some((p) => p.id === r.player_id)) {
-          state.players.push({ id: r.player_id, name: r.username, dropped: false, hasReceivedBye: false, userId: r.user_id });
+          state.players.push({ id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, userId: r.user_id || null });
           added++;
         }
       }

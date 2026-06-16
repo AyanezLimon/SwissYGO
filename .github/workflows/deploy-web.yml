@@ -6,7 +6,7 @@ name: Deploy Web (dev)
 on:
   push:
     branches: [develop]
-    paths: ['app/web/index.html', 'app/web/css/**', 'app/web/js/**']
+    paths: ['app/web/index.html', 'app/web/css/**', 'app/web/js/**', 'app/web/u/**']
   workflow_dispatch: {}
 
 concurrency:
@@ -25,5 +25,5 @@ jobs:
           mkdir -p "$DEST"
           rsync -a --delete \
             --exclude 'node_modules' --exclude 'package*.json' --exclude '*.test.js' \
-            app/web/index.html app/web/css app/web/js "$DEST/"
+            app/web/index.html app/web/css app/web/js app/web/u "$DEST/"
           echo "Static SPA → $DEST"
