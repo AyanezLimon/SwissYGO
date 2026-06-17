@@ -260,7 +260,8 @@ export default async function tournamentRoutes(app) {
       let s = {}; try { s = JSON.parse(r.state_json); } catch {}
       return {
         id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
-        players: (s.players || []).length, note: s.note || '', maxRounds: s.maxRounds || 0,
+        date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
+        currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
       };
     });
   });

@@ -93,7 +93,7 @@
             <b>${esc(t.name)}</b>
             <span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span>
           </div>
-          <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
+          <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
         </div>`).join('');
       el.querySelectorAll('.tcard').forEach((c) => c.addEventListener('click', () => {
@@ -350,7 +350,8 @@
   // ---- boot --------------------------------------------------------------
   mountThemeToggle();
   // Allow ?code=XXXX / #XXXX prefill from a shared link.
-  const pre = (new URLSearchParams(location.search).get('code') || location.hash.replace('#', '')).toUpperCase();
+  const _sp = new URLSearchParams(location.search);
+  const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
   if (joined()) startPoll();
   else renderJoin(null, pre);
 })();

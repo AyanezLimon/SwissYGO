@@ -45,9 +45,11 @@
     if (hasSession()) {
       let cloud = '';
       if (isTO()) {
+        // ☁ Publicar lives in the file toolbar now (see mountToolbarPublish); the
+        // header keeps the code/link button (reachable from any tab while running).
         cloud = isCloud()
-          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
-          : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y enlace">Código <b></b></button>`
+          : '';
         cloud += `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>`;
       }
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
@@ -55,6 +57,24 @@
       if (isTO() && isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
+    }
+    mountToolbarPublish();
+  }
+
+  // ☁ Publicar in the file toolbar (with Exportar/Importar/Nuevo torneo), shown
+  // only to a TO that hasn't cloud-linked a tournament yet.
+  function mountToolbarPublish() {
+    const tb = document.querySelector('.toolbar');
+    if (!tb || !tb.querySelector('#reset-all')) return; // only the file toolbar
+    let btn = document.getElementById('toolbar-publish');
+    if (!(hasSession() && isTO() && !isCloud())) { if (btn) btn.remove(); return; }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'btn btn-sm btn-gold'; btn.id = 'toolbar-publish'; btn.type = 'button';
+      btn.textContent = '☁ Publicar';
+      btn.title = 'Publicar para que jugadores se inscriban';
+      btn.addEventListener('click', publish);
+      tb.insertBefore(btn, tb.querySelector('#reset-all'));
     }
   }
 
@@ -291,18 +311,44 @@
   window.addEventListener('pagehide', flushSync);
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
 
-  async function publish() {
+  const ddmmyyyy = (iso) => { const p = String(iso).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; };
+
+  // Publish opens a small form: the TO names the tournament and picks a date
+  // (defaults to today; a tournament can be planned ahead). Empty name →
+  // "Torneo - DD/MM/YYYY". The date is the EVENT date (kept in state_json), not
+  // the creation timestamp.
+  function publish() {
     if (!hasSession()) { showGate(); return; }
-    const name = (state.note && state.note.trim()) || ('Torneo ' + new Date().toLocaleDateString());
+    const m = makeModal(400);
+    const iso = new Date().toISOString().slice(0, 10);
+    m.body.innerHTML = `<h3 class="modal-title">Publicar torneo</h3>
+      <div class="gate-field"><label>Nombre del torneo</label>
+        <input type="text" id="pub-name" maxlength="80" placeholder="Torneo - ${ddmmyyyy(iso)}" autocomplete="off"></div>
+      <div class="gate-field"><label>Fecha</label>
+        <input type="date" id="pub-date" value="${iso}"></div>
+      <div class="gate-error" id="pub-err"></div>
+      <div class="modal-actions" style="justify-content:flex-end;gap:8px;margin-top:8px">
+        <button class="btn btn-sm btn-ghost" data-close>Cancelar</button>
+        <button class="btn btn-gold btn-sm" id="pub-go">Publicar</button></div>`;
+    m.body.querySelector('#pub-go').addEventListener('click', () => doPublish(m));
+    setTimeout(() => { const n = m.body.querySelector('#pub-name'); if (n) n.focus(); }, 60);
+  }
+  async function doPublish(m) {
+    const date = m.body.querySelector('#pub-date').value || new Date().toISOString().slice(0, 10);
+    const name = m.body.querySelector('#pub-name').value.trim() || ('Torneo - ' + ddmmyyyy(date));
+    const go = m.body.querySelector('#pub-go'); go.disabled = true;
     try {
       const r = await API.req('/tournaments', { method: 'POST', body: { name } });
       state.cloud = { id: r.id, code: r.join_code };
-      save();              // persists locally + first cloud push (wrapped)
+      state.eventDate = date;          // planned event date, travels in state_json
+      save();                          // local + first cloud push (wrapped), incl. eventDate
       startRegPoll();
       renderAccount();
+      m.close();
       showCodeModal(r.join_code);
     } catch (e) {
-      if (window.showToast) showToast('No se pudo publicar: ' + e.message, true);
+      const el = m.body.querySelector('#pub-err'); if (el) el.textContent = e.message;
+      go.disabled = false;
     }
   }
 
@@ -340,17 +386,24 @@
 
   function showCodeModal(code) {
     if (document.getElementById('code-modal')) return;
+    const url = location.origin + '/u/?torneo=' + code;
     const m = document.createElement('div');
     m.className = 'modal-overlay'; m.id = 'code-modal';
     m.innerHTML = `
-      <div class="modal" style="max-width:380px;text-align:center">
+      <div class="modal" style="max-width:400px;text-align:center">
         <h3 class="modal-title">Torneo publicado</h3>
-        <p class="modal-msg" style="margin-bottom:8px">Los jugadores entran a <b>torneodev.elbunkers.com/u</b> e ingresan este código:</p>
-        <div style="font-family:var(--mono);font-size:42px;font-weight:800;letter-spacing:8px;color:var(--gold);margin:4px 0 18px">${code}</div>
-        <div class="modal-actions" style="justify-content:center"><button class="btn btn-gold" data-close>Listo</button></div>
+        <p class="modal-msg" style="margin-bottom:8px">Comparte el enlace, o el código para entrar en <b>${location.host}/u</b>:</p>
+        <div style="font-family:var(--mono);font-size:42px;font-weight:800;letter-spacing:8px;color:var(--gold);margin:4px 0 14px">${code}</div>
+        <div class="modal-actions" style="justify-content:center;gap:8px">
+          <button class="btn btn-gold" id="code-copy">📋 Copiar enlace</button>
+          <button class="btn btn-ghost" data-close>Listo</button></div>
       </div>`;
     document.body.appendChild(m);
     requestAnimationFrame(() => m.classList.add('open'));
+    m.querySelector('#code-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(url); if (window.showToast) showToast('Enlace copiado'); }
+      catch { if (window.showToast) showToast(url); }
+    });
     m.addEventListener('click', (e) => {
       if (e.target === m || e.target.closest('[data-close]')) { m.classList.remove('open'); setTimeout(() => m.remove(), 200); }
     });
@@ -559,6 +612,7 @@
       return StandingsImage.build({
         standings: ordered.map((s) => ({ name: s.name, matchPoints: s.matchPoints, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
         finished: !!state.finished, maxRounds: state.maxRounds, currentRound: state.currentRound, note: state.note || '',
+        date: state.eventDate ? new Date(state.eventDate + 'T00:00:00') : undefined,
       });
     };
   }
