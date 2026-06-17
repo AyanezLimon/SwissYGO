@@ -116,11 +116,29 @@ export default async function tournamentRoutes(app) {
   // ---- Player ----
   // No requireAuth: accounts join with a JWT, guests join with a typed name and
   // receive a per-tournament guest_token (stored only in their browser).
+  // Disambiguate a display name against everyone already in the tournament
+  // (registrations + manually-added players in state_json), so name-based
+  // pairing/highlighting/history can't point at the wrong person. Appends
+  // " (2)", " (3)", … on collision (case-insensitive). The offline add path
+  // already rejects dup names; self-registration goes through here instead.
+  const uniqueName = (t, base) => {
+    const taken = new Set();
+    for (const r of db.prepare('SELECT display_name FROM registrations WHERE tournament_id = ?').all(t.id)) {
+      if (r.display_name) taken.add(r.display_name.toLowerCase());
+    }
+    try { for (const p of (JSON.parse(t.state_json).players || [])) if (p.name) taken.add(p.name.toLowerCase()); } catch {}
+    if (!taken.has(base.toLowerCase())) return base;
+    for (let n = 2; n < 1000; n++) {
+      const cand = `${base} (${n})`.slice(0, 40);
+      if (!taken.has(cand.toLowerCase())) return cand;
+    }
+    return base;
+  };
+
   app.post('/api/tournaments/join', async (req, reply) => {
     const code = (req.body?.code || '').trim().toUpperCase();
     const t = db.prepare('SELECT * FROM tournaments WHERE join_code = ?').get(code);
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
-    if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
 
     let userId = null;
     try { await req.jwtVerify(); userId = req.user.id; } catch { /* guest */ }
@@ -130,22 +148,29 @@ export default async function tournamentRoutes(app) {
       const u = db.prepare('SELECT username, disabled FROM users WHERE id = ?').get(userId);
       if (!u || u.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
       const uname = u.username; // authoritative display name (case as stored)
+      // Resume: if already registered, return that BEFORE the open-registration
+      // gate, so a player who lost localStorage / switched devices can recover
+      // their pairing even after the TO started the event.
       const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
       if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: uname };
+      if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
+      const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
       db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name) VALUES (?, ?, ?, ?)')
-        .run(t.id, userId, playerId, uname);
-      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: uname });
+        .run(t.id, userId, playerId, dn);
+      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn });
     }
 
-    // Guest: requires a display name; issue a guest_token for /me identification.
+    // Guest: no persistent identity, so no resume — registration must be open.
+    if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
     const name = (req.body?.name || '').trim().slice(0, 40);
     if (!name) return reply.code(400).send({ error: 'Indica un nombre para inscribirte como invitado.' });
+    const dn = uniqueName(t, name);
     const guestToken = randomBytes(16).toString('hex');
     const playerId = 'g-' + guestToken.slice(0, 8) + '-' + Date.now().toString(36);
     db.prepare('INSERT INTO registrations (tournament_id, guest_token, player_id, display_name) VALUES (?, ?, ?, ?)')
-      .run(t.id, guestToken, playerId, name);
-    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: name, guest_token: guestToken });
+      .run(t.id, guestToken, playerId, dn);
+    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, guest_token: guestToken });
   });
 
   // Polled by the player view (~every 4s). Identify by JWT (account) or

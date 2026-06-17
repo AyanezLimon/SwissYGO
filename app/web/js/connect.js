@@ -58,10 +58,10 @@
     }
   }
 
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-acc]');
     if (!b) return;
-    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
+    if (b.dataset.acc === 'logout') { await flushSync(); API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
     if (b.dataset.acc === 'login') { setGuest(false); applyView(); }
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
@@ -179,6 +179,24 @@
     try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state } }); }
     catch (e) { /* fail-soft: localStorage remains the cache; retry on next save */ }
   }
+  // Push any debounced-but-unsent state before the page goes away, so closing the
+  // tab / navigating right after a report/start/finish doesn't leave the server
+  // stale (players would keep polling old pairings). keepalive lets it outlive
+  // the page. `await flushSync()` is also used before logout (token still valid).
+  async function flushSync() {
+    if (!isCloud() || !syncTimer) return;
+    clearTimeout(syncTimer); syncTimer = null;
+    const t = API.token.get();
+    try {
+      await fetch('/api/tournaments/' + state.cloud.id, {
+        method: 'PUT', keepalive: true,
+        headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}) },
+        body: JSON.stringify({ state }),
+      });
+    } catch { /* best-effort */ }
+  }
+  window.addEventListener('pagehide', flushSync);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
 
   async function publish() {
     if (!hasSession()) { showGate(); return; }
@@ -208,8 +226,12 @@
     if (!isCloud() || state.started) { stopRegPoll(); return; }
     try {
       const regs = await API.req('/tournaments/' + state.cloud.id + '/registrations');
+      const removed = (state.cloud && state.cloud.removed) || [];
       let added = 0;
       for (const r of regs) {
+        // Skip registrations the TO removed via "Eliminar": absorbing them again
+        // would resurrect a no-show right after the TO took them out.
+        if (removed.includes(r.player_id)) continue;
         if (!state.players.some((p) => p.id === r.player_id)) {
           state.players.push({ id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, userId: r.user_id || null });
           added++;
@@ -390,6 +412,47 @@
     try { await absorbRegistrations(); } catch { /* fall through: start with what we have */ }
     draining = false; btn.disabled = false;
     if (window.startTournament) startTournament();
+  }, true);
+
+  // When the TO removes a self-registered player ("Eliminar"), tombstone that
+  // player_id so the absorb poll / pre-start drain don't add them back. We record
+  // in the capture phase (before app.js's delegated handler removes them) and let
+  // app.js's removePlayer + save() run normally (the tombstone rides along in state).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="remove"]');
+    if (!btn || !isCloud()) return;
+    const id = btn.dataset.id;
+    if (!id) return;
+    state.cloud.removed = state.cloud.removed || [];
+    if (!state.cloud.removed.includes(id)) state.cloud.removed.push(id);
+  }, true);
+
+  // "Nuevo Torneo" (#reset-all) on a cloud-linked, not-yet-finished event must
+  // CLOSE it on the server first — otherwise resetAll drops state.cloud and the
+  // wrapped save() no longer PUTs, leaving an orphan tournament that players can
+  // still join/poll in /u/. We intercept (capture) and run our own confirm+reset.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('#reset-all');
+    if (!btn || !isCloud()) return; // offline / unpublished: let app.js handle it
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const id = state.cloud.id;
+    const active = !state.finished;
+    const msg = active
+      ? 'Se borrarán los jugadores y rondas. Este torneo está PUBLICADO: se cerrará para los jugadores (ya no podrán inscribirse ni ver emparejamientos).'
+      : 'Se borrarán todos los jugadores y rondas actuales. Esta acción no se puede deshacer.';
+    const reset = async () => {
+      if (active) { try { await API.req('/tournaments/' + id + '/finish', { method: 'POST' }); } catch { /* best-effort close */ } }
+      stopRegPoll();
+      state = window.emptyState ? window.emptyState() : {};
+      roundsManuallySet = false;
+      save(); // no cloud now → local only, which is correct
+      if (window.switchTab) switchTab('registro');
+      if (window.render) render();
+      renderAccount();
+    };
+    if (window.openConfirm) openConfirm(msg, reset, { title: 'Nuevo Torneo', confirmText: 'Sí, reiniciar', danger: true });
+    else reset();
   }, true);
 
   // ---- boot --------------------------------------------------------------
