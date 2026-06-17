@@ -29,9 +29,17 @@
   const NAMES = (window.NAMES && window.NAMES.NOUNS && window.NAMES.NOUNS.length) ? window.NAMES : { NOUNS: FB_NOUNS, ADJS: FB_ADJS };
   const randomName = () => pick(NAMES.NOUNS) + pick(NAMES.ADJS) + (10 + Math.floor(Math.random() * 90));
 
-  const joined = () => { try { return JSON.parse(localStorage.getItem(LS_JOINED) || 'null'); } catch { return null; } };
-  const setJoined = (v) => { try { v ? localStorage.setItem(LS_JOINED, JSON.stringify(v)) : localStorage.removeItem(LS_JOINED); } catch {} };
   const loggedIn = () => !!API.token.get();
+  // Account data lives in localStorage (survives a browser close); guest data in
+  // sessionStorage (persists across reloads, dies when the browser closes).
+  const store = () => (loggedIn() ? localStorage : sessionStorage);
+  const joined = () => { try { return JSON.parse(store().getItem(LS_JOINED) || 'null'); } catch { return null; } };
+  const setJoined = (v) => { try { v ? store().setItem(LS_JOINED, JSON.stringify(v)) : store().removeItem(LS_JOINED); } catch {} };
+  // A guest's display name: auto-generated once, kept for the whole session.
+  const guestName = () => {
+    try { let n = sessionStorage.getItem('ygo_guest_name'); if (!n) { n = randomName(); sessionStorage.setItem('ygo_guest_name', n); } return n; }
+    catch { return randomName(); }
+  };
 
   let pollTimer = null;
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
@@ -52,7 +60,7 @@
         <div class="muted" style="font-size:12.5px;margin:4px 0 14px">
           ${logged ? `Tu cuenta: <b>${esc(uname() || 'usuario')}</b>` : 'Jugando como invitado — tus resultados no se guardan.'}
         </div>
-        ${logged ? '' : `<div class="gate-field"><label>Tu nombre</label><input type="text" id="gname" maxlength="40" value="${esc(randomName())}"></div>`}
+        ${logged ? '' : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`}
         <div id="active"><p class="muted" style="font-size:13px">Cargando torneos…</p></div>
         <div class="gate-field" style="margin-top:14px">
           <label>¿Tienes un código?</label>
@@ -66,8 +74,9 @@
 
     $('#join').addEventListener('click', () => doJoin($('#code').value));
     $('#code').addEventListener('keyup', (e) => { if (e.key === 'Enter') doJoin($('#code').value); });
-    const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); } catch {} location.href = '/'; });
-    const si = $('#signin'); if (si) si.addEventListener('click', () => { try { localStorage.removeItem('ygo_guest'); } catch {} location.href = '/'; });
+    const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); localStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
+    const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
+    const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
     loadActive();
   }
@@ -104,7 +113,8 @@
         res = await API.req('/tournaments/join', { method: 'POST', body: { code } });
         setJoined({ id: res.id, name: res.name });
       } else {
-        const name = ($('#gname') && $('#gname').value.trim()) || randomName();
+        const name = ($('#gname') && $('#gname').value.trim()) || guestName();
+        try { sessionStorage.setItem('ygo_guest_name', name); } catch {}
         res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
         setJoined({ id: res.id, name: res.name, guestToken: res.guest_token });
       }

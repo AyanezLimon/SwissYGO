@@ -8,11 +8,11 @@
   const LS_ROLE = 'ygo_role';
 
   const hasSession = () => !!API.token.get();
-  const isGuest = () => { try { return localStorage.getItem(LS_GUEST) === '1'; } catch { return false; } };
+  const isGuest = () => { try { return sessionStorage.getItem(LS_GUEST) === '1'; } catch { return false; } };
   const username = () => { try { return localStorage.getItem(LS_USER) || ''; } catch { return ''; } };
   const role = () => { try { return localStorage.getItem(LS_ROLE) || 'player'; } catch { return 'player'; } };
   const isTO = () => hasSession() && role() === 'to';
-  const setGuest = (v) => { try { v ? localStorage.setItem(LS_GUEST, '1') : localStorage.removeItem(LS_GUEST); } catch {} };
+  const setGuest = (v) => { try { v ? sessionStorage.setItem(LS_GUEST, '1') : sessionStorage.removeItem(LS_GUEST); } catch {} };
   const setUser = (u) => { try { u ? localStorage.setItem(LS_USER, u) : localStorage.removeItem(LS_USER); } catch {} };
   const setRole = (r) => { try { r ? localStorage.setItem(LS_ROLE, r) : localStorage.removeItem(LS_ROLE); } catch {} };
 
