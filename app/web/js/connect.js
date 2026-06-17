@@ -48,7 +48,7 @@
         cloud = isCloud()
           ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
           : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
-        cloud += `<button class="btn btn-sm" data-acc="mine" title="Historial de torneos">Mis torneos</button>`;
+        cloud += `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>`;
       }
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
@@ -65,7 +65,7 @@
     if (b.dataset.acc === 'login') { setGuest(false); applyView(); }
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
-    if (b.dataset.acc === 'mine') showMyTournaments();
+    if (b.dataset.acc === 'panel') showTournamentsPanel();
   });
 
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -79,21 +79,40 @@
     return { body, close };
   }
 
-  async function showMyTournaments() {
-    const m = makeModal();
-    m.body.innerHTML = '<h3 class="modal-title">Mis torneos</h3><p class="modal-msg" id="mt">Cargando…</p>';
+  // Admin panel: EVERY tournament (a TO can administer any event, not just its own
+  // or the ones it joined as a player). Shows round progress + timer state so the
+  // TO can resume one mid-round. "Abrir" loads it into the console.
+  async function showTournamentsPanel() {
+    const m = makeModal(520);
+    m.body.innerHTML = '<h3 class="modal-title">Torneos</h3><p class="modal-msg" id="mt">Cargando…</p>';
     try {
       const list = await API.req('/tournaments');
-      if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no has creado torneos.'; return; }
-      const ul = document.createElement('ul'); ul.className = 'list';
-      const label = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
-      ul.innerHTML = list.map((t) => `<li>
-        <span class="grow">${esc(t.name)} <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${label(t.status)}</span></span>
-        <button class="btn btn-sm" data-act="open" data-id="${t.id}">Abrir</button>
-        <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button></li>`).join('');
+      if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no hay torneos.'; return; }
+      const statusLabel = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
+      const timerLabel = { running: '⏱ corriendo', paused: '⏱ en pausa', ended: '⏱ terminado' };
+      const day = (s) => { const d = String(s || '').slice(0, 10); return d || '—'; };
+      const curId = isCloud() ? state.cloud.id : null;
+      const ul = document.createElement('ul'); ul.className = 'list tlist';
+      ul.innerHTML = list.map((t) => {
+        const here = t.id === curId;
+        const progress = t.status === 'setup'
+          ? `${t.players} jugador${t.players === 1 ? '' : 'es'}`
+          : `Ronda ${t.currentRound}/${t.maxRounds} · ${t.players} jug.`;
+        const timer = timerLabel[t.timer] ? ` · ${timerLabel[t.timer]}` : '';
+        const code = `<code class="tcode">${esc(t.join_code)}</code>`;
+        return `<li class="trow">
+          <div class="grow">
+            <div class="tname">${esc(t.name)} <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${statusLabel(t.status)}</span>${here ? ' <span class="pill pill-ok">Abierto</span>' : ''}</div>
+            <div class="tmeta">${code} · ${progress}${timer} · ${day(t.created_at)}${t.owner ? ' · por ' + esc(t.owner) : ''}</div>
+          </div>
+          <div class="tacts">
+            <button class="btn btn-sm" data-act="open" data-id="${t.id}"${here ? ' disabled' : ''}>${here ? 'Actual' : 'Abrir'}</button>
+            <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button>
+          </div></li>`;
+      }).join('');
       m.body.querySelector('#mt').replaceWith(ul);
       ul.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-act]'); if (!btn) return;
+        const btn = e.target.closest('[data-act]'); if (!btn || btn.disabled) return;
         const id = Number(btn.dataset.id);
         m.close();
         if (btn.dataset.act === 'open') loadTournament(id);

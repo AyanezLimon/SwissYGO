@@ -25,16 +25,12 @@ function emptyStateJson() {
 export default async function tournamentRoutes(app) {
   const db = app.db;
 
-  const ownedOr404 = (id, userId, reply) => {
+  // Any TO can administer ANY tournament (the TO role is system-wide, not per-event),
+  // so console endpoints gate on the `to` role (requireTO) and only 404 here.
+  // `to_user_id` is kept purely as "who created it" metadata.
+  const findOr404 = (id, reply) => {
     const row = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
-    if (!row) {
-      reply.code(404).send({ error: 'Torneo no encontrado.' });
-      return null;
-    }
-    if (row.to_user_id !== userId) {
-      reply.code(403).send({ error: 'No eres el organizador de este torneo.' });
-      return null;
-    }
+    if (!row) { reply.code(404).send({ error: 'Torneo no encontrado.' }); return null; }
     return row;
   };
 
@@ -49,20 +45,40 @@ export default async function tournamentRoutes(app) {
     return reply.code(201).send({ id: info.lastInsertRowid, name, join_code: code, status: 'setup' });
   });
 
-  app.get('/api/tournaments', { preHandler: requireAuth }, async (req) => {
-    return db
-      .prepare('SELECT id, name, join_code, status, created_at, finished_at FROM tournaments WHERE to_user_id = ? ORDER BY created_at DESC')
-      .all(req.user.id);
+  // Admin panel: EVERY tournament (any TO administers any event), newest-active
+  // first. Includes round progress, timer state and creator so the TO can pick.
+  app.get('/api/tournaments', { preHandler: requireTO }, async () => {
+    const rows = db
+      .prepare(`SELECT t.id, t.name, t.join_code, t.status, t.created_at, t.finished_at, t.state_json, u.username AS owner
+                FROM tournaments t LEFT JOIN users u ON u.id = t.to_user_id
+                ORDER BY (t.status = 'finished') ASC, t.created_at DESC`)
+      .all();
+    const now = Date.now();
+    return rows.map((r) => {
+      let s = {}; try { s = JSON.parse(r.state_json); } catch {}
+      const tm = s.timer || {};
+      let timer = 'none';
+      if (s.started && !s.finished) {
+        if (tm.pausedMs != null) timer = 'paused';
+        else if (tm.endsAt) timer = tm.endsAt > now ? 'running' : 'ended';
+      }
+      return {
+        id: r.id, name: r.name, join_code: r.join_code, status: r.status, owner: r.owner || null,
+        created_at: r.created_at, finished_at: r.finished_at,
+        players: (s.players || []).length, currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
+        timer,
+      };
+    });
   });
 
-  app.get('/api/tournaments/:id', { preHandler: requireAuth }, async (req, reply) => {
-    const row = ownedOr404(Number(req.params.id), req.user.id, reply);
+  app.get('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
     return { id: row.id, name: row.name, join_code: row.join_code, status: row.status, state: JSON.parse(row.state_json) };
   });
 
-  app.put('/api/tournaments/:id', { preHandler: requireAuth }, async (req, reply) => {
-    const row = ownedOr404(Number(req.params.id), req.user.id, reply);
+  app.put('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
     const state = req.body?.state;
     if (!state || typeof state !== 'object') return reply.code(400).send({ error: 'state inválido.' });
@@ -78,8 +94,8 @@ export default async function tournamentRoutes(app) {
     return { ok: true, status };
   });
 
-  app.post('/api/tournaments/:id/finish', { preHandler: requireAuth }, async (req, reply) => {
-    const row = ownedOr404(Number(req.params.id), req.user.id, reply);
+  app.post('/api/tournaments/:id/finish', { preHandler: requireTO }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
     const state = JSON.parse(row.state_json);
     state.finished = true;
@@ -88,8 +104,8 @@ export default async function tournamentRoutes(app) {
     return { ok: true };
   });
 
-  app.get('/api/tournaments/:id/registrations', { preHandler: requireAuth }, async (req, reply) => {
-    const row = ownedOr404(Number(req.params.id), req.user.id, reply);
+  app.get('/api/tournaments/:id/registrations', { preHandler: requireTO }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
     // display_name covers both accounts and guests; guest_token is never exposed.
     return db
