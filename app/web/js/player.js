@@ -1,6 +1,7 @@
-/* SwissYGO player page (/u/). Phone-first: join a tournament by 5-char code as an
- * account or a guest (typed/random name), then live-poll /me for the pairing.
- * Standalone — does not touch the organizer console. Reuses existing styles. */
+/* SwissYGO player page (/u/). Phone-first. Logged-in users join with their
+ * account; everyone else joins as a guest (typed/random name, no saved stats).
+ * Lists active tournaments to pick from, then live-polls /me for the pairing.
+ * Standalone — does not touch the organizer console. */
 (function () {
   const root = document.getElementById('player');
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
@@ -32,74 +33,85 @@
   const setJoined = (v) => { try { v ? localStorage.setItem(LS_JOINED, JSON.stringify(v)) : localStorage.removeItem(LS_JOINED); } catch {} };
   const loggedIn = () => !!API.token.get();
 
-  let mode = 'guest';   // 'guest' | 'account'
-  let reg = false;      // account sub-mode: register vs login
   let pollTimer = null;
+  const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
+  const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
   // ---- join screen -------------------------------------------------------
-  function renderJoin(err) {
+  function renderJoin(err, codePrefill) {
     stopPoll();
-    const acct = loggedIn()
-      ? `<p class="muted" style="margin:4px 0 0">Entrarás con tu cuenta.</p>`
-      : `<div class="gate-field"><label>Usuario</label><input type="text" id="u" autocapitalize="none" spellcheck="false"></div>
-         <div class="gate-field"><label>Contraseña</label><input type="password" id="p"></div>
-         <button class="btn btn-sm btn-ghost" id="toggle-reg" type="button" style="width:100%">${reg ? '¿Ya tienes cuenta? Inicia sesión' : 'Crear una cuenta nueva'}</button>`;
+    const logged = loggedIn();
     root.innerHTML = `
       <div class="card">
-        <h2 style="margin-top:0">Unirse a un torneo</h2>
-        <div class="gate-field">
-          <label>Código del torneo</label>
-          <input type="text" id="code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false"
-                 style="text-transform:uppercase;font-family:var(--mono);font-size:22px;letter-spacing:4px;text-align:center">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Unirse a un torneo</h2>
+          ${logged
+            ? '<button class="btn btn-sm btn-ghost" id="logout" type="button">Salir</button>'
+            : '<button class="btn btn-sm btn-ghost" id="signin" type="button">Iniciar sesión</button>'}
         </div>
-        <nav class="tabs" id="pmode" style="margin:6px 0 14px">
-          <button type="button" class="${mode === 'guest' ? 'active' : ''}" data-m="guest">Invitado</button>
-          <button type="button" class="${mode === 'account' ? 'active' : ''}" data-m="account">Con cuenta</button>
-        </nav>
-        <div id="mode-body">
-          ${mode === 'guest'
-            ? `<div class="gate-field"><label>Tu nombre</label><input type="text" id="gname" maxlength="40" value="${esc(randomName())}"></div>`
-            : acct}
+        <div class="muted" style="font-size:12.5px;margin:4px 0 14px">
+          ${logged ? `Tu cuenta: <b>${esc(uname() || 'usuario')}</b>` : 'Jugando como invitado — tus resultados no se guardan.'}
+        </div>
+        ${logged ? '' : `<div class="gate-field"><label>Tu nombre</label><input type="text" id="gname" maxlength="40" value="${esc(randomName())}"></div>`}
+        <div id="active"><p class="muted" style="font-size:13px">Cargando torneos…</p></div>
+        <div class="gate-field" style="margin-top:14px">
+          <label>¿Tienes un código?</label>
+          <input type="text" id="code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false"
+                 value="${esc(codePrefill || '')}" style="text-transform:uppercase;font-family:var(--mono);font-size:20px;letter-spacing:4px;text-align:center">
         </div>
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
-        <button class="btn btn-gold" id="join" style="width:100%">Unirme</button>
-        ${loggedIn() ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mis torneos</button>' : ''}
+        <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mis torneos</button>' : ''}
       </div>`;
 
-    $('#pmode').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-m]'); if (!b) return; mode = b.dataset.m; renderJoin();
-    });
-    const tg = $('#toggle-reg'); if (tg) tg.addEventListener('click', () => { reg = !reg; renderJoin(); });
-    $('#join').addEventListener('click', doJoin);
-    $('#code').addEventListener('keyup', (e) => { if (e.key === 'Enter') doJoin(); });
+    $('#join').addEventListener('click', () => doJoin($('#code').value));
+    $('#code').addEventListener('keyup', (e) => { if (e.key === 'Enter') doJoin($('#code').value); });
+    const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); } catch {} location.href = '/'; });
+    const si = $('#signin'); if (si) si.addEventListener('click', () => { try { localStorage.removeItem('ygo_guest'); } catch {} location.href = '/'; });
     const h = $('#hist'); if (h) h.addEventListener('click', renderHistory);
+    loadActive();
   }
 
-  async function doJoin() {
-    const code = ($('#code').value || '').trim().toUpperCase();
-    if (code.length !== 5) return renderJoin('El código tiene 5 caracteres.');
-    const btn = $('#join'); btn.disabled = true;
+  async function loadActive() {
+    const el = $('#active'); if (!el) return;
     try {
-      if (mode === 'account' && !loggedIn()) {
-        const u = $('#u').value.trim(), p = $('#p').value;
-        if (!u || !p) { btn.disabled = false; return renderJoin('Usuario y contraseña requeridos.'); }
-        const r = reg ? await API.register(u, p) : await API.login(u, p);
-        API.token.set(r.token);
-        try { localStorage.setItem('ygo_username', r.user.username); } catch {}
-      }
+      const list = await API.req('/tournaments/active', { auth: false });
+      if (!list.length) { el.innerHTML = '<p class="muted" style="font-size:13px">No hay torneos activos ahora. Usa un código si tienes uno.</p>'; return; }
+      el.innerHTML = '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Torneos activos</div>' +
+        list.map((t) => `<div class="tcard" data-code="${esc(t.code)}" data-open="${t.status === 'setup' ? '1' : '0'}">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <b>${esc(t.name)}</b>
+            <span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span>
+          </div>
+          <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
+          ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
+        </div>`).join('');
+      el.querySelectorAll('.tcard').forEach((c) => c.addEventListener('click', () => {
+        if (c.dataset.open !== '1') { const pe = $('#perr'); if (pe) pe.textContent = 'Ese torneo ya cerró el registro.'; return; }
+        doJoin(c.dataset.code);
+      }));
+    } catch (e) { el.innerHTML = '<p class="muted" style="font-size:13px">No se pudo cargar la lista de torneos.</p>'; }
+  }
+
+  async function doJoin(code) {
+    code = (code || '').trim().toUpperCase();
+    const errEl = $('#perr');
+    if (code.length !== 5) { if (errEl) errEl.textContent = 'El código tiene 5 caracteres.'; return; }
+    const btn = $('#join'); if (btn) btn.disabled = true;
+    try {
       let res;
-      if (mode === 'guest') {
-        const name = ($('#gname').value || '').trim() || randomName();
-        res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
-        setJoined({ id: res.id, name: res.name, guestToken: res.guest_token });
-      } else {
+      if (loggedIn()) {
         res = await API.req('/tournaments/join', { method: 'POST', body: { code } });
         setJoined({ id: res.id, name: res.name });
+      } else {
+        const name = ($('#gname') && $('#gname').value.trim()) || randomName();
+        res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
+        setJoined({ id: res.id, name: res.name, guestToken: res.guest_token });
       }
       startPoll();
     } catch (e) {
-      btn.disabled = false;
-      renderJoin(e.message || 'No se pudo unir.');
+      if (btn) btn.disabled = false;
+      if (errEl) errEl.textContent = e.message || 'No se pudo unir.';
     }
   }
 
@@ -208,5 +220,5 @@
   // Allow ?code=XXXX / #XXXX prefill from a shared link.
   const pre = (new URLSearchParams(location.search).get('code') || location.hash.replace('#', '')).toUpperCase();
   if (joined()) startPoll();
-  else { renderJoin(); if (pre && $('#code')) $('#code').value = pre; }
+  else renderJoin(null, pre);
 })();

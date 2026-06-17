@@ -18,7 +18,7 @@
 
   // Re-read role/username from the server (so an admin role/disable change applies).
   async function refreshMe() {
-    if (!hasSession()) return;
+    if (!hasSession()) { applyView(); return; }
     try {
       const r = await API.me();
       setUser(r.user.username); setRole(r.user.role);
@@ -26,7 +26,8 @@
       applyView();
       if (isCloud() && isTO() && !state.started) startRegPoll();
     } catch (e) {
-      if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); applyView(); }
+      if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); }
+      applyView(); // fall back to stored role when offline
     }
   }
 
@@ -58,12 +59,6 @@
   }
 
   document.addEventListener('click', (e) => {
-    const ph = e.target.closest('[data-ph]');
-    if (ph) {
-      if (ph.dataset.ph === 'join') location.href = '/u/';
-      if (ph.dataset.ph === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
-      return;
-    }
     const b = e.target.closest('[data-acc]');
     if (!b) return;
     if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
@@ -312,53 +307,24 @@
     setTimeout(() => g.remove(), 220);
   }
 
-  // ---- view routing by role ---------------------------------------------
-  function showPlayerHome() {
-    if (document.getElementById('player-home-ov')) return;
-    const o = document.createElement('div');
-    o.className = 'modal-overlay'; o.id = 'player-home-ov';
-    o.innerHTML = `
-      <div class="modal" style="max-width:400px;text-align:center">
-        <h3 class="modal-title">Hola, ${esc(username() || 'jugador')}</h3>
-        <p class="modal-msg">Esta es la consola del organizador. Para unirte a un torneo como jugador, entra a la página de jugador.</p>
-        <div class="modal-actions" style="justify-content:center;flex-direction:column;gap:10px">
-          <button class="btn btn-gold" data-ph="join" style="width:100%">Unirme a un torneo</button>
-          <button class="btn btn-ghost btn-sm" data-ph="logout" style="width:100%">Salir</button>
-        </div>
-      </div>`;
-    document.body.appendChild(o);
-    requestAnimationFrame(() => o.classList.add('open'));
-  }
-  function removePlayerHome() {
-    const o = document.getElementById('player-home-ov');
-    if (o) { o.classList.remove('open'); setTimeout(() => o.remove(), 200); }
-  }
-
-  // Entry routing: guest/TO → organizer console; logged-in regular player →
-  // player home (console hidden); nobody → the login/register gate.
+  // Entry routing: the main page is the ORGANIZER console — only TOs see it.
+  // Account players and guests are routed to the player page (/u/); unauthenticated
+  // visitors get the login/register/guest gate.
   function applyView() {
-    const html = document.documentElement;
-    if (hasSession() && !isTO()) {            // logged-in regular player
+    if (hasSession() && isTO()) {              // organizer → console
       closeGate();
-      html.classList.remove('gate-pending');
-      html.classList.add('player-home');
-      showPlayerHome();
+      document.documentElement.classList.remove('gate-pending');
       return;
     }
-    removePlayerHome();
-    html.classList.remove('player-home');
-    if (!hasSession() && !isGuest()) {        // not authenticated, not guest
-      showGate();                              // gate-pending stays until decided
+    if (hasSession() || isGuest()) {           // account player or guest → player page
+      location.replace('/u/');
       return;
     }
-    closeGate();                               // guest or TO → organizer console
-    html.classList.remove('gate-pending');
+    showGate();                                // not authenticated, not guest
   }
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
   renderAccount();
-  if (isCloud() && isTO() && !state.started) startRegPoll();
-  applyView();
-  refreshMe(); // confirm role/status with the server (admin changes apply)
+  refreshMe(); // sets role from the server then routes (applyView); falls back to stored role offline
 })();

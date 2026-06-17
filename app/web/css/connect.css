@@ -24,8 +24,13 @@ input[type=password]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rg
 
 /* Prevent a flash of the console before the gate/role decision (set by inline head script). */
 html.gate-pending .wrap { visibility: hidden; }
-/* Logged-in players don't get the organizer console at all. */
-html.player-home .wrap { display: none; }
+
+/* Active-tournament cards on the player page (/u/). */
+.tcard {
+  background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px;
+  padding: 11px 13px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s;
+}
+.tcard:hover { border-color: var(--gold-soft); }
 
 /* Animate the gate box height when switching login/register — mirrors
    .tab-stack.h-anim so it "extends" instead of snapping to the new size. */

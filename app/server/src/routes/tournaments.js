@@ -197,4 +197,19 @@ export default async function tournamentRoutes(app) {
     }));
     return { name: t.name, status: t.status, finished_at: t.finished_at, currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
   });
+
+  // Public list of active tournaments (accepting registration or running) so
+  // players can pick one. Join codes are intentionally shown.
+  app.get('/api/tournaments/active', async () => {
+    const rows = db
+      .prepare("SELECT id, name, join_code, status, created_at, state_json FROM tournaments WHERE status IN ('setup','running') ORDER BY created_at DESC LIMIT 50")
+      .all();
+    return rows.map((r) => {
+      let s = {}; try { s = JSON.parse(r.state_json); } catch {}
+      return {
+        id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
+        players: (s.players || []).length, note: s.note || '', maxRounds: s.maxRounds || 0,
+      };
+    });
+  });
 }
