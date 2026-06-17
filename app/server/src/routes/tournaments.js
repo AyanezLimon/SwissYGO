@@ -214,7 +214,8 @@ export default async function tournamentRoutes(app) {
   });
 
   // Account-only profile/stats: overall record + win%, per-tournament placement,
-  // and head-to-head vs other ACCOUNT players. Guests never get here (no account).
+  // and head-to-head vs every opponent BY NAME (account, guest, or manual player).
+  // Only the logged-in account can see this; non-account opponents can't.
   app.get('/api/me/stats', { preHandler: requireAuth }, async (req) => {
     const uid = req.user.id;
     const myRegs = db.prepare('SELECT tournament_id, player_id FROM registrations WHERE user_id = ?').all(uid);
@@ -234,8 +235,7 @@ export default async function tournamentRoutes(app) {
       if (t.status === 'finished') finished++;
       let state; try { state = JSON.parse(t.state_json); } catch { continue; }
       const me = myPid.get(t.id);
-      const accs = db.prepare('SELECT user_id, player_id, display_name FROM registrations WHERE tournament_id = ? AND user_id IS NOT NULL').all(t.id);
-      const pidToUser = new Map(accs.map((r) => [r.player_id, { user_id: r.user_id, name: r.display_name }]));
+      const pidToName = new Map((state.players || []).map((p) => [p.id, p.name])); // all players, by name
 
       let tw = 0, tl = 0;
       for (const round of state.rounds || []) for (const m of round.matches) {
@@ -249,11 +249,12 @@ export default async function tournamentRoutes(app) {
         if (m.result !== 'p1' && m.result !== 'p2') continue;
         const iWon = (m.result === 'p1') === iAmP1;
         if (iWon) { wins++; tw++; } else { losses++; tl++; }
-        const opp = oppId && pidToUser.get(oppId);
-        if (opp && opp.user_id !== uid) {
-          const e = h2h.get(opp.user_id) || { username: opp.name, wins: 0, losses: 0 };
+        // Head-to-head keyed by opponent name (account, guest, or manual TO player).
+        if (oppId) {
+          const oname = pidToName.get(oppId) || 'Rival';
+          const e = h2h.get(oname) || { username: oname, wins: 0, losses: 0 };
           if (iWon) e.wins++; else e.losses++;
-          h2h.set(opp.user_id, e);
+          h2h.set(oname, e);
         }
       }
 
