@@ -61,14 +61,14 @@
         </div>
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
-        ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mis torneos</button>' : ''}
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
       </div>`;
 
     $('#join').addEventListener('click', () => doJoin($('#code').value));
     $('#code').addEventListener('keyup', (e) => { if (e.key === 'Enter') doJoin($('#code').value); });
     const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); } catch {} location.href = '/'; });
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { localStorage.removeItem('ygo_guest'); } catch {} location.href = '/'; });
-    const h = $('#hist'); if (h) h.addEventListener('click', renderHistory);
+    const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
     loadActive();
   }
 
@@ -159,24 +159,40 @@
     $('#back').addEventListener('click', onBack);
   }
 
-  async function renderHistory() {
+  async function renderProfile() {
     stopPoll();
-    root.innerHTML = `<div class="card"><h2 style="margin-top:0">Mis torneos</h2><div class="muted" id="hl">Cargando…</div>
-      <button class="btn btn-sm btn-ghost" id="back" style="margin-top:14px;width:100%">← Volver</button></div>`;
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Mi perfil</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div id="body" class="muted" style="margin-top:14px">Cargando…</div>
+      </div>`;
     $('#back').addEventListener('click', () => renderJoin());
     try {
-      const list = await API.req('/me/tournaments');
-      if (!list.length) { $('#hl').textContent = 'Aún no te has inscrito en torneos.'; return; }
-      const ul = document.createElement('ul'); ul.className = 'list';
-      ul.innerHTML = list.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
-        <span class="grow">${esc(t.name)}</span>
-        <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${t.status === 'finished' ? 'Finalizado' : 'En curso'}</span></li>`).join('');
-      $('#hl').replaceWith(ul);
-      ul.addEventListener('click', (e) => {
-        const li = e.target.closest('li[data-id]'); if (!li) return;
-        showResults(Number(li.dataset.id), null, () => renderHistory());
-      });
-    } catch (e) { const hl = $('#hl'); if (hl) hl.textContent = e.message; }
+      const st = await API.req('/me/stats');
+      const r = st.record;
+      const stat = (v, label) => `<div style="text-align:center"><div style="font-size:26px;font-weight:800;color:var(--gold)">${v}</div><div class="muted" style="font-size:11.5px">${label}</div></div>`;
+      let html = `<div style="display:flex;gap:22px;justify-content:center;color:var(--ink);margin-bottom:6px">
+        ${stat(r.winPct + '%', 'Win rate')}${stat(r.wins + '-' + r.losses, 'Récord (W-L)')}${stat(st.tournaments.joined, 'Torneos')}</div>`;
+
+      html += '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px">Torneos jugados</div>';
+      html += st.byTournament.length
+        ? '<ul class="list">' + st.byTournament.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
+            <span class="grow">${esc(t.name)}${t.rank ? ` · #${t.rank}/${t.total}` : ''}</span>
+            <span class="muted" style="font-size:12.5px">${t.wins}-${t.losses}</span>
+            <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${t.status === 'finished' ? 'Final' : 'En curso'}</span></li>`).join('') + '</ul>'
+        : '<p class="muted" style="font-size:13px">Aún no has jugado torneos con tu cuenta.</p>';
+
+      if (st.headToHead.length) {
+        html += '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px">Cara a cara</div>';
+        html += '<ul class="list">' + st.headToHead.map((h) => `<li><span class="grow">vs ${esc(h.username)}</span><span class="muted">${h.wins}-${h.losses}</span></li>`).join('') + '</ul>';
+      }
+
+      const b = $('#body'); b.classList.remove('muted'); b.innerHTML = html;
+      b.querySelectorAll('li[data-id]').forEach((li) => li.addEventListener('click', () => showResults(Number(li.dataset.id), null, () => renderProfile())));
+    } catch (e) { const b = $('#body'); if (b) b.textContent = e.message; }
   }
 
   function renderPairing(j, me) {

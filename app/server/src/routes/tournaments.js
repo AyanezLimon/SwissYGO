@@ -212,4 +212,63 @@ export default async function tournamentRoutes(app) {
       };
     });
   });
+
+  // Account-only profile/stats: overall record + win%, per-tournament placement,
+  // and head-to-head vs other ACCOUNT players. Guests never get here (no account).
+  app.get('/api/me/stats', { preHandler: requireAuth }, async (req) => {
+    const uid = req.user.id;
+    const myRegs = db.prepare('SELECT tournament_id, player_id FROM registrations WHERE user_id = ?').all(uid);
+    const empty = { tournaments: { joined: 0, finished: 0 }, record: { wins: 0, losses: 0, byes: 0, winPct: 0 }, byTournament: [], headToHead: [] };
+    if (!myRegs.length) return empty;
+
+    const myPid = new Map(myRegs.map((r) => [r.tournament_id, r.player_id]));
+    const ids = myRegs.map((r) => r.tournament_id);
+    const ph = ids.map(() => '?').join(',');
+    const tourneys = db.prepare(`SELECT id, name, status, created_at, finished_at, state_json FROM tournaments WHERE id IN (${ph})`).all(...ids);
+
+    let wins = 0, losses = 0, byes = 0, finished = 0;
+    const byTournament = [];
+    const h2h = new Map(); // opponentUserId -> { username, wins, losses }
+
+    for (const t of tourneys) {
+      if (t.status === 'finished') finished++;
+      let state; try { state = JSON.parse(t.state_json); } catch { continue; }
+      const me = myPid.get(t.id);
+      const accs = db.prepare('SELECT user_id, player_id, display_name FROM registrations WHERE tournament_id = ? AND user_id IS NOT NULL').all(t.id);
+      const pidToUser = new Map(accs.map((r) => [r.player_id, { user_id: r.user_id, name: r.display_name }]));
+
+      let tw = 0, tl = 0;
+      for (const round of state.rounds || []) for (const m of round.matches) {
+        if (!m.isReported) continue;
+        if (m.isBye) { if (m.p1Id === me) { byes++; tw++; } continue; }
+        if (m.isLateLoss) { if (m.p1Id === me) { losses++; tl++; } continue; }
+        if (m.p1Id !== me && m.p2Id !== me) continue;
+        const iAmP1 = m.p1Id === me;
+        const oppId = iAmP1 ? m.p2Id : m.p1Id;
+        if (m.result === 'doubleLoss') { losses++; tl++; continue; }
+        if (m.result !== 'p1' && m.result !== 'p2') continue;
+        const iWon = (m.result === 'p1') === iAmP1;
+        if (iWon) { wins++; tw++; } else { losses++; tl++; }
+        const opp = oppId && pidToUser.get(oppId);
+        if (opp && opp.user_id !== uid) {
+          const e = h2h.get(opp.user_id) || { username: opp.name, wins: 0, losses: 0 };
+          if (iWon) e.wins++; else e.losses++;
+          h2h.set(opp.user_id, e);
+        }
+      }
+
+      let rank = null;
+      try { const idx = finalStandings(state).findIndex((s) => s.id === me); if (idx >= 0) rank = idx + 1; } catch {}
+      byTournament.push({ id: t.id, name: t.name, status: t.status, created_at: t.created_at, finished_at: t.finished_at, wins: tw, losses: tl, rank, total: (state.players || []).length });
+    }
+
+    byTournament.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    const decided = wins + losses;
+    return {
+      tournaments: { joined: tourneys.length, finished },
+      record: { wins, losses, byes, winPct: decided ? Math.round((wins / decided) * 100) : 0 },
+      byTournament,
+      headToHead: [...h2h.values()].sort((a, b) => (b.wins + b.losses) - (a.wins + a.losses)),
+    };
+  });
 }
