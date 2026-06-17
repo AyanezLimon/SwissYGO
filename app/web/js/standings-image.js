@@ -289,6 +289,35 @@
       + '<div class="sr-foot-r"><span>Made with passion by</span>'
       + (B.budget ? '<img class="sr-foot-logo" src="' + B.budget + '" alt="">' : '')
       + '</div></div>';
+
+    // Scale the champion name down to fit on one line (mirrors the PNG, which
+    // shrinks the font until it fits). Refit only when the card's WIDTH changes
+    // (guarded so font-driven height changes don't loop the ResizeObserver).
+    const champEl = el.querySelector('.sr-champ-name');
+    if (champEl) {
+      const MAX = 76, MIN = 26;
+      const fit = () => {
+        champEl.style.whiteSpace = 'nowrap'; champEl.style.wordBreak = 'normal';
+        let fs = MAX; champEl.style.fontSize = fs + 'px';
+        while (champEl.scrollWidth > champEl.clientWidth && fs > MIN) { fs -= 2; champEl.style.fontSize = fs + 'px'; }
+        if (champEl.scrollWidth > champEl.clientWidth) { champEl.style.whiteSpace = 'normal'; champEl.style.wordBreak = 'break-word'; }
+      };
+      if (window.ResizeObserver) {
+        let lastW = -1;
+        const ro = new ResizeObserver((entries) => {
+          // Self-teardown: removing the card from the DOM fires this with a 0 box,
+          // so we stop observing — otherwise an observer would leak on every
+          // results-card render (modal reopened / player re-rendered repeatedly).
+          if (!el.isConnected) { ro.disconnect(); return; }
+          const w = entries[0].contentRect.width;
+          if (w === 0 || Math.abs(w - lastW) < 1) return;
+          lastW = w; fit();
+        });
+        ro.observe(el);
+      } else {
+        requestAnimationFrame(fit);
+      }
+    }
     return el;
   }
 
