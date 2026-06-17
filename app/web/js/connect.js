@@ -87,11 +87,18 @@
       if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no has creado torneos.'; return; }
       const ul = document.createElement('ul'); ul.className = 'list';
       const label = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
-      ul.innerHTML = list.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
-        <span class="grow">${esc(t.name)}</span>
-        <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${label(t.status)}</span></li>`).join('');
+      ul.innerHTML = list.map((t) => `<li>
+        <span class="grow">${esc(t.name)} <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${label(t.status)}</span></span>
+        <button class="btn btn-sm" data-act="open" data-id="${t.id}">Abrir</button>
+        <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button></li>`).join('');
       m.body.querySelector('#mt').replaceWith(ul);
-      ul.addEventListener('click', (e) => { const li = e.target.closest('li[data-id]'); if (li) { m.close(); showResultsModal(Number(li.dataset.id)); } });
+      ul.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-act]'); if (!btn) return;
+        const id = Number(btn.dataset.id);
+        m.close();
+        if (btn.dataset.act === 'open') loadTournament(id);
+        else showResultsModal(id);
+      });
     } catch (e) { const el = m.body.querySelector('#mt'); if (el) el.textContent = e.message; }
   }
 
@@ -108,6 +115,30 @@
     } catch (e) {
       m.body.innerHTML = `<p class="gate-error">${esc(e.message)}</p><div class="modal-actions"><button class="btn" data-close>Cerrar</button></div>`;
     }
+  }
+
+  // Open a specific cloud tournament into the console: pull its state_json, make
+  // it the live `state`, relink the cloud id/code, and resume sync + reg polling.
+  // Replacing what's on screen is destructive, so confirm first (styled modal).
+  async function loadTournament(id) {
+    let t;
+    try { t = await API.req('/tournaments/' + id); }
+    catch (e) { if (window.showToast) showToast('No se pudo abrir el torneo: ' + e.message, true); return; }
+    const open = () => {
+      const base = window.emptyState ? window.emptyState() : {};
+      state = Object.assign(base, t.state || {});
+      state.cloud = { id: t.id, code: t.join_code };
+      stopRegPoll();
+      save();                                  // persist locally + push (wrapped)
+      if (window.render) render();
+      if (window.switchTab) switchTab(state.finished ? 'standings' : state.started ? 'rondas' : 'registro');
+      renderAccount();
+      if (!state.started && !state.finished) startRegPoll();
+      if (window.showToast) showToast('Torneo «' + t.name + '» abierto.');
+    };
+    const msg = 'Abrir «' + t.name + '» reemplaza el torneo que tienes en pantalla. ¿Continuar?';
+    if (window.openConfirm) openConfirm(msg, open, { title: 'Abrir torneo', confirmText: 'Abrir' });
+    else open();
   }
 
   // ---- cloud hosting (Phase B) ------------------------------------------
