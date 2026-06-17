@@ -142,7 +142,8 @@
   // ---- results & history -------------------------------------------------
   const medal = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : r);
 
-  // /public → the shared StandingsImage renderer's data shape.
+  // /public → the shared StandingsImage renderer's data shape (only built when the
+  // player chooses to share — the view itself is the HTML table).
   function publicToImageData(pub) {
     return {
       standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
@@ -151,38 +152,47 @@
       date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
     };
   }
-  function downloadImage(img) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(img.blob); a.download = img.fname;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  async function shareResultsImage(pub, btn) {
+    if (!window.StandingsImage) return;
+    if (btn) btn.disabled = true;
+    try {
+      const img = await StandingsImage.build(publicToImageData(pub));
+      if (navigator.canShare && navigator.canShare({ files: [img.file] })) {
+        try { await navigator.share({ files: [img.file], title: 'Resultados · Velvet Room' }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(img.blob); a.download = img.fname;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (e) { /* best-effort; stay on the results view */ }
+    finally { if (btn) btn.disabled = false; }
   }
 
-  // Results = the SAME branded image the TO shares (single source of truth), plus
-  // a small "your placement" line since the image itself doesn't single you out.
+  // Results = the on-screen standings table (the web view), built from /public.
+  // The player's own row is highlighted; "Compartir" renders the branded PNG.
   async function showResults(id, j, onBack) {
     stopPoll();
-    root.innerHTML = `<div class="card"><div class="muted">Generando resultados…</div></div>`;
     try {
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
-      const img = await StandingsImage.build(publicToImageData(pub));
-      const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
-      const place = myRow
-        ? `<div class="muted" style="text-align:center;margin-bottom:10px">Tu posición: <b style="color:var(--gold)">${medal(myRow.rank)}</b> de ${pub.standings.length} · ${myRow.wins}-${myRow.losses}</div>`
-        : '';
+      const rows = pub.standings.map((s) => `
+        <tr class="${mine && s.name === mine ? 'me' : ''}">
+          <td>${medal(s.rank)}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
+          <td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
       root.innerHTML = `
         <div class="card">
           <h2 style="margin-top:0">${esc(pub.name)}</h2>
           <div class="muted" style="margin-bottom:12px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
-          ${place}
-          <img class="results-img" alt="Resultados — ${esc(pub.name)}" src="${img.dataUrl}">
-          <div class="row" style="gap:8px;margin-top:14px">
-            <button class="btn btn-gold btn-sm" id="dl" style="flex:1">⬇ Descargar</button>
+          ${pub.note ? `<div class="muted" style="margin-bottom:12px;font-style:italic">${esc(pub.note)}</div>` : ''}
+          <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
+          <div class="row" style="gap:8px;margin-top:16px">
+            <button class="btn btn-gold btn-sm" id="share" style="flex:1">📤 Compartir</button>
             <button class="btn btn-sm btn-ghost" id="back" style="flex:1">← Volver</button>
           </div>
-        </div>`;
-      $('#dl').addEventListener('click', () => downloadImage(img));
+        </div>
+        <style>#player tr.me{ background:rgba(130,216,235,.12); } #player tr.me td{ color:var(--ink); font-weight:700; }</style>`;
+      $('#share').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
       $('#back').addEventListener('click', onBack);
     } catch (e) {
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
