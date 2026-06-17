@@ -304,11 +304,16 @@
       };
       if (window.ResizeObserver) {
         let lastW = -1;
-        new ResizeObserver((entries) => {
+        const ro = new ResizeObserver((entries) => {
+          // Self-teardown: removing the card from the DOM fires this with a 0 box,
+          // so we stop observing — otherwise an observer would leak on every
+          // results-card render (modal reopened / player re-rendered repeatedly).
+          if (!el.isConnected) { ro.disconnect(); return; }
           const w = entries[0].contentRect.width;
-          if (Math.abs(w - lastW) < 1) return;
+          if (w === 0 || Math.abs(w - lastW) < 1) return;
           lastW = w; fit();
-        }).observe(el);
+        });
+        ro.observe(el);
       } else {
         requestAnimationFrame(fit);
       }
