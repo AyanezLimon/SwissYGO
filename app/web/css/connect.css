@@ -77,6 +77,37 @@ html.gate-pending .wrap { visibility: hidden; }
 .tp-pageno { font-size: 12.5px; color: var(--ink-soft); min-width: 56px; text-align: center; }
 .tp-table .btn[disabled], .tp-pager .btn[disabled] { opacity: .45; cursor: default; }
 
+/* Results "web view": an HTML twin of the shareable PNG (StandingsImage.buildCardEl).
+   Same layout/brand/colours as the image, but live & scalable. Theme-aware via vars. */
+.sresult {
+  background: var(--bg); color: var(--ink); border: 1px solid var(--border-2);
+  border-radius: 12px; padding: clamp(16px, 4.5vw, 30px); font-family: var(--sans);
+}
+.sresult .sr-head { display: flex; align-items: center; gap: 14px; }
+.sresult .sr-crest { width: 56px; height: 56px; flex: none; object-fit: contain; }
+.sresult .sr-titles { min-width: 0; }
+.sresult .sr-t1 { font-weight: 800; font-size: clamp(19px, 4.8vw, 26px); color: var(--ink); line-height: 1.08; }
+.sresult .sr-t2 { font-weight: 700; font-size: clamp(13px, 3.3vw, 17px); color: var(--gold); margin-top: 3px; }
+.sresult .sr-sub { font-size: clamp(11px, 2.8vw, 14px); color: var(--ink-soft); margin-top: 5px; }
+.sresult .sr-divider { height: 1px; background: var(--border-2); margin: 16px 0; }
+.sresult .sr-hero { text-align: center; padding: 4px 0 8px; }
+.sresult .sr-champ-label { color: var(--gold); font-weight: 800; letter-spacing: 5px; font-size: clamp(13px, 3vw, 17px); }
+.sresult .sr-champ-name { color: var(--ink); font-weight: 900; font-size: clamp(32px, 10vw, 76px); line-height: 1.04; margin: 8px 0 6px; word-break: break-word; }
+.sresult .sr-champ-pts { color: var(--ink-soft); font-family: var(--mono); font-size: clamp(13px, 3vw, 17px); }
+.sresult .sr-list { display: flex; flex-direction: column; }
+.sresult .sr-row { display: flex; align-items: baseline; gap: 12px; padding: 8px 2px; }
+.sresult .sr-pos { color: var(--gold); font-family: var(--mono); font-weight: 700; font-size: clamp(15px, 3.6vw, 20px); min-width: 2.4em; text-align: right; flex: none; }
+.sresult .sr-name { color: var(--ink); font-weight: 600; font-size: clamp(16px, 3.9vw, 21px); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: baseline; gap: 8px; }
+.sresult .sr-pts { color: var(--gold); font-family: var(--mono); font-size: clamp(13px, 3.1vw, 18px); flex: none; white-space: nowrap; }
+.sresult .sr-row.drop .sr-pos, .sresult .sr-row.drop .sr-pts { color: var(--ink-faint); }
+.sresult .sr-row.drop .sr-name { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: var(--ink-faint); }
+.sresult .sr-drop { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--ink-faint); border: 1px solid var(--border-2); border-radius: 999px; padding: 1px 7px; text-decoration: none; flex: none; }
+.sresult .sr-note { font-style: italic; color: var(--ink-soft); font-size: clamp(13px, 3vw, 16px); margin-top: 16px; line-height: 1.45; }
+.sresult .sr-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sresult .sr-foot-l, .sresult .sr-foot-r { display: flex; align-items: center; gap: 9px; color: var(--ink-soft); font-size: clamp(11px, 2.6vw, 13px); }
+.sresult .sr-foot-r { color: var(--ink-faint); text-align: right; }
+.sresult .sr-foot-logo { width: 36px; height: 36px; object-fit: contain; flex: none; }
+
 /* Player page (/u/) theme toggle — fixed top-right (no header to host it). On
    narrow screens the card is full-width, so clear space above it for the toggle. */
 .theme-switch.u-theme { position: fixed; top: 10px; right: 12px; z-index: 60; margin: 0; padding: 6px; }

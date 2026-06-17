@@ -169,29 +169,30 @@
     finally { if (btn) btn.disabled = false; }
   }
 
-  // Results = the on-screen standings table (the web view), built from /public.
-  // The player's own row is highlighted; "Compartir" renders the branded PNG.
+  // Results = the WEB VIEW: the HTML card identical to the shareable image.
+  // A small caption above shows the player's own placement (the card mirrors the
+  // image exactly, so it doesn't single anyone out). "Compartir" renders the PNG.
   async function showResults(id, j, onBack) {
     stopPoll();
+    root.innerHTML = '<div class="card"><div class="muted">Cargando resultados…</div></div>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
-      const rows = pub.standings.map((s) => `
-        <tr class="${mine && s.name === mine ? 'me' : ''}">
-          <td>${medal(s.rank)}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
-          <td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
-      root.innerHTML = `
-        <div class="card">
-          <h2 style="margin-top:0">${esc(pub.name)}</h2>
-          <div class="muted" style="margin-bottom:12px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
-          ${pub.note ? `<div class="muted" style="margin-bottom:12px;font-style:italic">${esc(pub.note)}</div>` : ''}
-          <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
-          <div class="row" style="gap:8px;margin-top:16px">
-            <button class="btn btn-gold btn-sm" id="share" style="flex:1">📤 Compartir</button>
-            <button class="btn btn-sm btn-ghost" id="back" style="flex:1">← Volver</button>
-          </div>
-        </div>
-        <style>#player tr.me{ background:rgba(130,216,235,.12); } #player tr.me td{ color:var(--ink); font-weight:700; }</style>`;
+      const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
+      root.innerHTML = '';
+      const card = document.createElement('div'); card.className = 'card';
+      if (myRow) {
+        const cap = document.createElement('div');
+        cap.className = 'muted'; cap.style.cssText = 'text-align:center;margin-bottom:12px';
+        cap.innerHTML = 'Tu posición: <b style="color:var(--gold)">' + medal(myRow.rank) + '</b> de ' + pub.standings.length + ' · ' + myRow.wins + '-' + myRow.losses;
+        card.appendChild(cap);
+      }
+      card.appendChild(StandingsImage.buildCardEl(publicToImageData(pub)));
+      const actions = document.createElement('div');
+      actions.className = 'row'; actions.style.cssText = 'gap:8px;margin-top:16px';
+      actions.innerHTML = '<button class="btn btn-gold btn-sm" id="share" style="flex:1">📤 Compartir</button><button class="btn btn-sm btn-ghost" id="back" style="flex:1">← Volver</button>';
+      card.appendChild(actions);
+      root.appendChild(card);
       $('#share').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
       $('#back').addEventListener('click', onBack);
     } catch (e) {

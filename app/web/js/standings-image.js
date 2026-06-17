@@ -238,5 +238,59 @@
     return { blob, file: new File([blob], fname, { type: 'image/png' }), fname, dataUrl: canvas.toDataURL('image/png') };
   }
 
-  window.StandingsImage = { build };
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // The SAME layout as the PNG above, but as a live HTML element (the "web view"):
+  // brand header, champion hero, ranked list, note, dual-logo footer. Styled by
+  // .sresult* in connect.css (theme-aware), so it reads identical to the share
+  // image. Used by the TO "Resultados" view and the player's finished screen.
+  function buildCardEl(data) {
+    const ordered = (data.standings || []).map((s) => ({
+      name: s.name,
+      matchPoints: s.matchPoints != null ? s.matchPoints : (s.points || 0),
+      wins: s.wins || 0, losses: s.losses || 0, dropped: !!s.dropped,
+    }));
+    const finished = !!data.finished;
+    const champ = finished ? (ordered.find((s) => !s.dropped) || ordered[0]) : null;
+    const list = finished ? ordered.filter((s) => s !== champ) : ordered;
+    const B = window.BRAND || {};
+    const dateTxt = (data.date || new Date()).toLocaleDateString('es-CR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const sub = finished
+      ? 'Resultados finales · ' + data.maxRounds + ' ronda' + (data.maxRounds === 1 ? '' : 's') + ' · ' + dateTxt
+      : 'Standings · Ronda ' + data.currentRound + ' de ' + data.maxRounds + ' · ' + dateTxt;
+    const note = (data.note || '').trim();
+
+    const rows = list.map((r) => {
+      const pos = ordered.indexOf(r) + 1;
+      return '<div class="sr-row' + (r.dropped ? ' drop' : '') + '">'
+        + '<span class="sr-pos">' + pos + '.</span>'
+        + '<span class="sr-name">' + esc(r.name) + (r.dropped ? '<span class="sr-drop">DROP</span>' : '') + '</span>'
+        + '<span class="sr-pts">' + r.matchPoints + ' pts (' + r.wins + '-' + r.losses + ')</span></div>';
+    }).join('');
+
+    const el = document.createElement('div');
+    el.className = 'sresult';
+    el.innerHTML =
+      '<div class="sr-head">'
+      + (B.crest ? '<img class="sr-crest" src="' + B.crest + '" alt="">' : '')
+      + '<div class="sr-titles"><div class="sr-t1">Torneo Yu-Gi-Oh!</div>'
+      + '<div class="sr-t2">Velvet Room Game Store</div>'
+      + '<div class="sr-sub">' + esc(sub) + '</div></div></div>'
+      + '<div class="sr-divider"></div>'
+      + (champ ? '<div class="sr-hero"><div class="sr-champ-label">🏆 CAMPEÓN</div>'
+        + '<div class="sr-champ-name">' + esc(champ.name) + '</div>'
+        + '<div class="sr-champ-pts">' + champ.matchPoints + ' pts · ' + champ.wins + '-' + champ.losses + '</div></div>' : '')
+      + '<div class="sr-list">' + rows + '</div>'
+      + (note ? '<div class="sr-note">' + esc(note) + '</div>' : '')
+      + '<div class="sr-divider"></div>'
+      + '<div class="sr-foot"><div class="sr-foot-l">'
+      + (B.crest ? '<img class="sr-foot-logo" src="' + B.crest + '" alt="">' : '')
+      + '<span>Velvet Room Game Store</span></div>'
+      + '<div class="sr-foot-r"><span>Made with passion by</span>'
+      + (B.budget ? '<img class="sr-foot-logo" src="' + B.budget + '" alt="">' : '')
+      + '</div></div>';
+    return el;
+  }
+
+  window.StandingsImage = { build, buildCardEl };
 })();
