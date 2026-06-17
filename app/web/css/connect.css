@@ -108,6 +108,12 @@ html.gate-pending .wrap { visibility: hidden; }
 .sresult .sr-foot-r { color: var(--ink-faint); text-align: right; }
 .sresult .sr-foot-logo { width: 36px; height: 36px; object-fit: contain; flex: none; }
 
+/* Player page (/u/) width: phone-first by default; the results card gets a
+   roomier, still-bounded width so the standings/champion breathe (replaces the
+   old inline max-width:480 on #player). */
+#player { max-width: 480px; margin: 0 auto; }
+#player.results { max-width: 760px; }
+
 /* Player page (/u/) theme toggle — fixed top-right (no header to host it). On
    narrow screens the card is full-width, so clear space above it for the toggle. */
 .theme-switch.u-theme { position: fixed; top: 10px; right: 12px; z-index: 60; margin: 0; padding: 6px; }

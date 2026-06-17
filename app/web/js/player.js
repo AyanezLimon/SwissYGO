@@ -48,6 +48,7 @@
   // ---- join screen -------------------------------------------------------
   function renderJoin(err, codePrefill) {
     stopPoll();
+    root.classList.remove('results');
     const logged = loggedIn();
     root.innerHTML = `
       <div class="card">
@@ -174,28 +175,30 @@
   // image exactly, so it doesn't single anyone out). "Compartir" renders the PNG.
   async function showResults(id, j, onBack) {
     stopPoll();
+    root.classList.remove('results');
     root.innerHTML = '<div class="card"><div class="muted">Cargando resultados…</div></div>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
       const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
+      root.classList.add('results'); // wider layout for the results card
       root.innerHTML = '';
-      const card = document.createElement('div'); card.className = 'card';
       if (myRow) {
         const cap = document.createElement('div');
         cap.className = 'muted'; cap.style.cssText = 'text-align:center;margin-bottom:12px';
         cap.innerHTML = 'Tu posición: <b style="color:var(--gold)">' + medal(myRow.rank) + '</b> de ' + pub.standings.length + ' · ' + myRow.wins + '-' + myRow.losses;
-        card.appendChild(cap);
+        root.appendChild(cap);
       }
-      card.appendChild(StandingsImage.buildCardEl(publicToImageData(pub)));
+      // The .sresult card is the framed artifact itself — no extra panel around it.
+      root.appendChild(StandingsImage.buildCardEl(publicToImageData(pub)));
       const actions = document.createElement('div');
-      actions.className = 'row'; actions.style.cssText = 'gap:8px;margin-top:16px';
-      actions.innerHTML = '<button class="btn btn-gold btn-sm" id="share" style="flex:1">📤 Compartir</button><button class="btn btn-sm btn-ghost" id="back" style="flex:1">← Volver</button>';
-      card.appendChild(actions);
-      root.appendChild(card);
+      actions.className = 'row'; actions.style.cssText = 'gap:10px;margin-top:16px;justify-content:center';
+      actions.innerHTML = '<button class="btn btn-gold btn-sm" id="share">📤 Compartir</button><button class="btn btn-sm btn-ghost" id="back">← Volver</button>';
+      root.appendChild(actions);
       $('#share').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
       $('#back').addEventListener('click', onBack);
     } catch (e) {
+      root.classList.remove('results');
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
       $('#back').addEventListener('click', onBack);
     }
@@ -203,6 +206,7 @@
 
   async function renderProfile() {
     stopPoll();
+    root.classList.remove('results');
     root.innerHTML = `
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:center">
@@ -238,6 +242,7 @@
   }
 
   function renderPairing(j, me) {
+    root.classList.remove('results');
     let body;
     if (me.status === 'finished') {
       body = `<div class="big">🏁 Torneo finalizado</div><p class="muted">¡Gracias por jugar!</p>`;

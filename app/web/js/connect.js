@@ -212,7 +212,7 @@
   // (StandingsImage.buildCardEl), plus a "Compartir" that renders the same design
   // as a PNG for the native share sheet / download.
   async function showResultsModal(id) {
-    const m = makeModal(600);
+    const m = makeModal(760);
     m.body.innerHTML = '<p class="modal-msg">Cargando resultados…</p>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public');
@@ -220,7 +220,7 @@
       m.body.appendChild(StandingsImage.buildCardEl(publicToImageData(pub)));
       const actions = document.createElement('div');
       actions.className = 'modal-actions';
-      actions.style.cssText = 'margin-top:16px;justify-content:space-between';
+      actions.style.cssText = 'margin-top:16px;justify-content:center;gap:10px';
       actions.innerHTML = '<button class="btn btn-gold btn-sm" data-share>📤 Compartir</button><button class="btn btn-sm" data-close>Cerrar</button>';
       m.body.appendChild(actions);
       actions.querySelector('[data-share]').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));

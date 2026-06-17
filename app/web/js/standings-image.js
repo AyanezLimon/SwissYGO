@@ -289,6 +289,30 @@
       + '<div class="sr-foot-r"><span>Made with passion by</span>'
       + (B.budget ? '<img class="sr-foot-logo" src="' + B.budget + '" alt="">' : '')
       + '</div></div>';
+
+    // Scale the champion name down to fit on one line (mirrors the PNG, which
+    // shrinks the font until it fits). Refit only when the card's WIDTH changes
+    // (guarded so font-driven height changes don't loop the ResizeObserver).
+    const champEl = el.querySelector('.sr-champ-name');
+    if (champEl) {
+      const MAX = 76, MIN = 26;
+      const fit = () => {
+        champEl.style.whiteSpace = 'nowrap'; champEl.style.wordBreak = 'normal';
+        let fs = MAX; champEl.style.fontSize = fs + 'px';
+        while (champEl.scrollWidth > champEl.clientWidth && fs > MIN) { fs -= 2; champEl.style.fontSize = fs + 'px'; }
+        if (champEl.scrollWidth > champEl.clientWidth) { champEl.style.whiteSpace = 'normal'; champEl.style.wordBreak = 'break-word'; }
+      };
+      if (window.ResizeObserver) {
+        let lastW = -1;
+        new ResizeObserver((entries) => {
+          const w = entries[0].contentRect.width;
+          if (Math.abs(w - lastW) < 1) return;
+          lastW = w; fit();
+        }).observe(el);
+      } else {
+        requestAnimationFrame(fit);
+      }
+    }
     return el;
   }
 
