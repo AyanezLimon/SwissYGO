@@ -151,8 +151,10 @@ export default async function tournamentRoutes(app) {
       // Resume: if already registered, return that BEFORE the open-registration
       // gate, so a player who lost localStorage / switched devices can recover
       // their pairing even after the TO started the event.
-      const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
-      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: uname };
+      // Return the STORED display_name (not uname): it may have been disambiguated
+      // to "Name (2)" at insert, and that's the name used in state.players/pairings.
+      const existing = db.prepare('SELECT player_id, display_name FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
+      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name };
       if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
       const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
