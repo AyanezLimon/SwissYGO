@@ -22,8 +22,10 @@ input[type=password]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rg
 .account-ctl .who { font-size: 13px; color: var(--ink-soft); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-ctl .who b { color: var(--ink); }
 
-/* Prevent a flash of the console before the gate decision (set by inline head script). */
+/* Prevent a flash of the console before the gate/role decision (set by inline head script). */
 html.gate-pending .wrap { visibility: hidden; }
+/* Logged-in players don't get the organizer console at all. */
+html.player-home .wrap { display: none; }
 
 /* Animate the gate box height when switching login/register — mirrors
    .tab-stack.h-anim so it "extends" instead of snapping to the new size. */

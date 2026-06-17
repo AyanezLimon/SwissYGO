@@ -23,9 +23,10 @@
       const r = await API.me();
       setUser(r.user.username); setRole(r.user.role);
       renderAccount();
+      applyView();
       if (isCloud() && isTO() && !state.started) startRegPoll();
     } catch (e) {
-      if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); showGate(); }
+      if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); applyView(); }
     }
   }
 
@@ -57,10 +58,16 @@
   }
 
   document.addEventListener('click', (e) => {
+    const ph = e.target.closest('[data-ph]');
+    if (ph) {
+      if (ph.dataset.ph === 'join') location.href = '/u/';
+      if (ph.dataset.ph === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
+      return;
+    }
     const b = e.target.closest('[data-acc]');
     if (!b) return;
-    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); showGate(); }
-    if (b.dataset.acc === 'login') { setGuest(false); showGate(); }
+    if (b.dataset.acc === 'logout') { API.token.clear(); setUser(''); setRole(''); setGuest(false); stopRegPoll(); renderAccount(); applyView(); }
+    if (b.dataset.acc === 'login') { setGuest(false); applyView(); }
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
     if (b.dataset.acc === 'mine') showMyTournaments();
@@ -224,7 +231,7 @@
       setMode(t.dataset.gt, g, true);
     });
     g.querySelector('#gate-form').addEventListener('submit', (e) => { e.preventDefault(); submit(g); });
-    g.querySelector('#gate-guest').addEventListener('click', () => { setGuest(true); closeGate(); renderAccount(); });
+    g.querySelector('#gate-guest').addEventListener('click', () => { setGuest(true); renderAccount(); applyView(); });
     setMode('login', g, false);
     setTimeout(() => g.querySelector('#gate-user').focus(), 60);
   }
@@ -289,8 +296,8 @@
       setUser(r.user.username);
       setRole(r.user.role);
       setGuest(false);
-      closeGate();
       renderAccount();
+      applyView();
     } catch (err) {
       errEl.textContent = err.status ? err.message : 'No se pudo conectar con el servidor.';
       btn.disabled = false;
@@ -305,11 +312,53 @@
     setTimeout(() => g.remove(), 220);
   }
 
+  // ---- view routing by role ---------------------------------------------
+  function showPlayerHome() {
+    if (document.getElementById('player-home-ov')) return;
+    const o = document.createElement('div');
+    o.className = 'modal-overlay'; o.id = 'player-home-ov';
+    o.innerHTML = `
+      <div class="modal" style="max-width:400px;text-align:center">
+        <h3 class="modal-title">Hola, ${esc(username() || 'jugador')}</h3>
+        <p class="modal-msg">Esta es la consola del organizador. Para unirte a un torneo como jugador, entra a la página de jugador.</p>
+        <div class="modal-actions" style="justify-content:center;flex-direction:column;gap:10px">
+          <button class="btn btn-gold" data-ph="join" style="width:100%">Unirme a un torneo</button>
+          <button class="btn btn-ghost btn-sm" data-ph="logout" style="width:100%">Salir</button>
+        </div>
+      </div>`;
+    document.body.appendChild(o);
+    requestAnimationFrame(() => o.classList.add('open'));
+  }
+  function removePlayerHome() {
+    const o = document.getElementById('player-home-ov');
+    if (o) { o.classList.remove('open'); setTimeout(() => o.remove(), 200); }
+  }
+
+  // Entry routing: guest/TO → organizer console; logged-in regular player →
+  // player home (console hidden); nobody → the login/register gate.
+  function applyView() {
+    const html = document.documentElement;
+    if (hasSession() && !isTO()) {            // logged-in regular player
+      closeGate();
+      html.classList.remove('gate-pending');
+      html.classList.add('player-home');
+      showPlayerHome();
+      return;
+    }
+    removePlayerHome();
+    html.classList.remove('player-home');
+    if (!hasSession() && !isGuest()) {        // not authenticated, not guest
+      showGate();                              // gate-pending stays until decided
+      return;
+    }
+    closeGate();                               // guest or TO → organizer console
+    html.classList.remove('gate-pending');
+  }
+
   // ---- boot --------------------------------------------------------------
   wrapSave();
   renderAccount();
   if (isCloud() && isTO() && !state.started) startRegPoll();
-  if (!hasSession() && !isGuest()) showGate();
-  else document.documentElement.classList.remove('gate-pending');
+  applyView();
   refreshMe(); // confirm role/status with the server (admin changes apply)
 })();
