@@ -204,6 +204,8 @@
     }
   }
 
+  const RANK_ICON = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : (r ? '#' + r : '—'));
+
   async function renderProfile() {
     stopPoll();
     root.classList.remove('results');
@@ -213,32 +215,76 @@
           <h2 style="margin:0">Mi perfil</h2>
           <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
         </div>
-        <div id="body" class="muted" style="margin-top:14px">Cargando…</div>
+        <div id="body" class="muted" style="margin-top:16px">Cargando…</div>
       </div>`;
     $('#back').addEventListener('click', () => renderJoin());
     try {
       const st = await API.req('/me/stats');
       const r = st.record;
-      const stat = (v, label) => `<div style="text-align:center"><div style="font-size:26px;font-weight:800;color:var(--gold)">${v}</div><div class="muted" style="font-size:11.5px">${label}</div></div>`;
-      let html = `<div style="display:flex;gap:22px;justify-content:center;color:var(--ink);margin-bottom:6px">
-        ${stat(r.winPct + '%', 'Win rate')}${stat(r.wins + '-' + r.losses, 'Récord (W-L)')}${stat(st.tournaments.joined, 'Torneos')}</div>`;
+      const b = $('#body'); b.classList.remove('muted');
 
-      html += '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px">Torneos jugados</div>';
-      html += st.byTournament.length
-        ? '<ul class="list">' + st.byTournament.map((t) => `<li data-id="${t.id}" style="cursor:pointer">
-            <span class="grow">${esc(t.name)}${t.rank ? ` · #${t.rank}/${t.total}` : ''}</span>
-            <span class="muted" style="font-size:12.5px">${t.wins}-${t.losses}</span>
-            <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${t.status === 'finished' ? 'Final' : 'En curso'}</span></li>`).join('') + '</ul>'
-        : '<p class="muted" style="font-size:13px">Aún no has jugado torneos con tu cuenta.</p>';
-
-      if (st.headToHead.length) {
-        html += '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px">Cara a cara</div>';
-        html += '<ul class="list">' + st.headToHead.map((h) => `<li><span class="grow">vs ${esc(h.username)}</span><span class="muted">${h.wins}-${h.losses}</span></li>`).join('') + '</ul>';
+      if (!st.tournaments.joined) {
+        b.innerHTML = '<p class="muted" style="font-size:13px;text-align:center;padding:18px 0">Aún no has jugado torneos con tu cuenta.<br>Únete a uno con un código y tus estadísticas aparecerán aquí.</p>';
+        return;
       }
 
-      const b = $('#body'); b.classList.remove('muted'); b.innerHTML = html;
-      b.querySelectorAll('li[data-id]').forEach((li) => li.addEventListener('click', () => showResults(Number(li.dataset.id), null, () => renderProfile())));
-    } catch (e) { const b = $('#body'); if (b) b.textContent = e.message; }
+      const C = 339.292; // 2π·54 — ring circumference
+      const pct = r.winPct;
+      const decided = r.wins + r.losses;
+
+      // Hero: animated win-rate ring + stat tiles.
+      let html = `
+        <div class="pf-hero">
+          <div class="pf-ring">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="track" cx="60" cy="60" r="54"></circle>
+              <circle class="prog" id="pf-prog" cx="60" cy="60" r="54" stroke-dasharray="${C}" stroke-dashoffset="${C}"></circle>
+            </svg>
+            <div class="center"><div class="pct">${pct}<span>%</span></div><div class="lbl">Win rate</div></div>
+          </div>
+          <div class="pf-tiles">
+            <div class="pf-tile"><div class="v win">${r.wins}</div><div class="k">Victorias</div></div>
+            <div class="pf-tile"><div class="v loss">${r.losses}</div><div class="k">Derrotas</div></div>
+            <div class="pf-tile"><div class="v">${st.tournaments.joined}</div><div class="k">Torneos</div></div>
+          </div>
+          ${r.byes ? `<div class="pf-byes">${decided} partida${decided === 1 ? '' : 's'} decidida${decided === 1 ? '' : 's'} · ${r.byes} BYE${r.byes === 1 ? '' : 's'}</div>` : ''}
+        </div>`;
+
+      // Head-to-head: proportional win/loss bar per opponent, colour-coded.
+      if (st.headToHead.length) {
+        html += '<div class="pf-sec-title">Cara a cara</div><div class="pf-h2h">';
+        html += st.headToHead.map((h) => {
+          const tot = h.wins + h.losses;
+          const wpct = tot ? Math.round((h.wins / tot) * 100) : 0;
+          const cls = h.wins > h.losses ? 'pos' : h.wins < h.losses ? 'neg' : '';
+          return `<div class="pf-opp">
+            <div class="pf-opp-top"><span class="pf-opp-name">${esc(h.username)}</span><span class="pf-opp-rec ${cls}">${h.wins}-${h.losses} · ${wpct}%</span></div>
+            <div class="pf-bar"><span class="pf-bar-w" data-w="${tot ? (h.wins / tot) * 100 : 0}"></span><span class="pf-bar-l" data-w="${tot ? (h.losses / tot) * 100 : 0}"></span></div>
+          </div>`;
+        }).join('');
+        html += '</div>';
+      }
+
+      // Tournaments played (tap to see results).
+      html += '<div class="pf-sec-title">Torneos jugados</div><div class="pf-tourneys">';
+      html += st.byTournament.map((t) => `<button class="pf-tourney" data-id="${t.id}" type="button">
+        <span class="pf-tk-rank">${RANK_ICON(t.rank)}</span>
+        <span class="pf-tk-main"><span class="pf-tk-name">${esc(t.name)}</span>
+          <span class="pf-tk-sub">${t.rank ? t.rank + '/' + t.total + ' · ' : ''}${t.wins}-${t.losses}</span></span>
+        <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${t.status === 'finished' ? 'Final' : 'En curso'}</span>
+      </button>`).join('');
+      html += '</div>';
+
+      b.innerHTML = html;
+      b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => showResults(Number(el.dataset.id), null, () => renderProfile())));
+
+      // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const prog = b.querySelector('#pf-prog');
+        if (prog) prog.style.strokeDashoffset = (C * (1 - pct / 100)).toFixed(2);
+        b.querySelectorAll('.pf-bar-w, .pf-bar-l').forEach((bar) => { bar.style.width = bar.dataset.w + '%'; });
+      }));
+    } catch (e) { const b = $('#body'); if (b) { b.classList.add('muted'); b.textContent = e.message; } }
   }
 
   function renderPairing(j, me) {
