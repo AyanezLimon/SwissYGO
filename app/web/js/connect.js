@@ -180,7 +180,10 @@
     setTimeout(() => { const q = m.body.querySelector('#tp-q'); if (q) q.focus(); }, 60);
   }
 
-  // /public → the shared StandingsImage renderer's data shape.
+  const medalOrNum = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : r);
+
+  // /public → the shared StandingsImage renderer's data shape (used only when the
+  // user explicitly shares/downloads — the view itself is the HTML table below).
   function publicToImageData(pub) {
     return {
       standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
@@ -189,26 +192,48 @@
       date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
     };
   }
-  function downloadImage(img) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(img.blob); a.download = img.fname;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  // Build the branded PNG on demand and share it (native sheet) or download it.
+  async function shareResultsImage(pub, btn) {
+    if (!window.StandingsImage) return;
+    if (btn) btn.disabled = true;
+    try {
+      const img = await StandingsImage.build(publicToImageData(pub));
+      if (navigator.canShare && navigator.canShare({ files: [img.file] })) {
+        try { await navigator.share({ files: [img.file], title: 'Resultados · Velvet Room' }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; /* user cancelled */ }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(img.blob); a.download = img.fname;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (e) {
+      if (window.showToast) showToast('No se pudo generar la imagen: ' + e.message, true);
+    } finally { if (btn) btn.disabled = false; }
   }
 
-  // Results = the SAME branded image as "Compartir" (single source of truth).
+  // Results = the on-screen standings table (same look as the console's "Tabla de
+  // Posiciones"), built from /public, plus an optional "Compartir" that renders
+  // the branded PNG via the shared module.
   async function showResultsModal(id) {
-    const m = makeModal(620);
-    m.body.innerHTML = '<p class="modal-msg">Generando resultados…</p>';
+    const m = makeModal(520);
+    m.body.innerHTML = '<p class="modal-msg">Cargando resultados…</p>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public');
-      const img = await StandingsImage.build(publicToImageData(pub));
+      const rows = pub.standings.map((s) => `<tr${s.dropped ? ' class="dropped"' : ''}>
+        <td class="pos">${medalOrNum(s.rank)}</td>
+        <td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
+        <td class="num">${s.points}</td>
+        <td class="num" style="color:var(--ink-soft)">${s.wins}-${s.losses}</td></tr>`).join('');
       m.body.innerHTML = `<h3 class="modal-title">${esc(pub.name)}</h3>
-        <img class="results-img" alt="Resultados — ${esc(pub.name)}" src="${img.dataUrl}">
-        <div class="modal-actions" style="margin-top:14px;justify-content:space-between">
-          <button class="btn btn-gold btn-sm" data-dl>⬇ Descargar</button>
+        <div class="modal-msg" style="margin-bottom:10px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
+        ${pub.note ? `<div class="muted" style="margin-bottom:12px;font-style:italic">${esc(pub.note)}</div>` : ''}
+        <div class="table-scroll"><table>
+          <thead><tr><th class="pos">#</th><th>Jugador</th><th class="num">Pts</th><th class="num">W-L</th></tr></thead>
+          <tbody>${rows}</tbody></table></div>
+        <div class="modal-actions" style="margin-top:16px;justify-content:space-between">
+          <button class="btn btn-gold btn-sm" data-share>📤 Compartir</button>
           <button class="btn btn-sm" data-close>Cerrar</button></div>`;
-      m.body.querySelector('[data-dl]').addEventListener('click', () => downloadImage(img));
+      m.body.querySelector('[data-share]').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
     } catch (e) {
       m.body.innerHTML = `<p class="gate-error">${esc(e.message)}</p><div class="modal-actions"><button class="btn" data-close>Cerrar</button></div>`;
     }
@@ -533,10 +558,11 @@
     else reset();
   }, true);
 
-  // Single source of truth for the shareable image: route the console's
+  // Single source of truth for the shareable image: route the console's live
   // Compartir/Descargar (bound in app.js) through StandingsImage too. app.js calls
   // buildStandingsImageBlob() by name, so reassigning the global redirects its
-  // existing handlers — the format now lives in ONE place (js/standings-image.js).
+  // handlers — the format lives in ONE place (js/standings-image.js), shared with
+  // the results-view "Compartir" above.
   if (window.StandingsImage) {
     window.buildStandingsImageBlob = function () {
       const ordered = window.finalStandings ? finalStandings() : [];
