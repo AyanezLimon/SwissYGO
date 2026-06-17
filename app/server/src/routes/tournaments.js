@@ -122,16 +122,20 @@ export default async function tournamentRoutes(app) {
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
     if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
 
-    let userId = null, uname = null;
-    try { await req.jwtVerify(); userId = req.user.id; uname = req.user.username; } catch { /* guest */ }
+    let userId = null;
+    try { await req.jwtVerify(); userId = req.user.id; } catch { /* guest */ }
 
     if (userId) {
+      // Re-read the account live: a token alone must not let a disabled user join.
+      const u = db.prepare('SELECT username, disabled FROM users WHERE id = ?').get(userId);
+      if (!u || u.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
+      const uname = u.username; // authoritative display name (case as stored)
       const existing = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
-      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id };
+      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: uname };
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
       db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name) VALUES (?, ?, ?, ?)')
         .run(t.id, userId, playerId, uname);
-      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId });
+      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: uname });
     }
 
     // Guest: requires a display name; issue a guest_token for /me identification.
@@ -141,7 +145,7 @@ export default async function tournamentRoutes(app) {
     const playerId = 'g-' + guestToken.slice(0, 8) + '-' + Date.now().toString(36);
     db.prepare('INSERT INTO registrations (tournament_id, guest_token, player_id, display_name) VALUES (?, ?, ?, ?)')
       .run(t.id, guestToken, playerId, name);
-    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, guest_token: guestToken });
+    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: name, guest_token: guestToken });
   });
 
   // Polled by the player view (~every 4s). Identify by JWT (account) or
@@ -194,7 +198,12 @@ export default async function tournamentRoutes(app) {
 
     if (t.status !== 'finished') {
       let allowed = false;
-      try { await req.jwtVerify(); if (req.user.id === t.to_user_id || db.prepare('SELECT 1 FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id)) allowed = true; } catch {}
+      try {
+        await req.jwtVerify();
+        // Creator, a participant, or ANY active TO (the role administers every event).
+        if (req.user.id === t.to_user_id || db.prepare('SELECT 1 FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id)) allowed = true;
+        else { const u = db.prepare('SELECT role, disabled FROM users WHERE id = ?').get(req.user.id); if (u && !u.disabled && u.role === 'to') allowed = true; }
+      } catch {}
       if (!allowed) {
         const gt = req.headers['x-guest-token'];
         if (gt && db.prepare('SELECT 1 FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt)) allowed = true;
@@ -261,17 +270,19 @@ export default async function tournamentRoutes(app) {
         if (m.p1Id !== me && m.p2Id !== me) continue;
         const iAmP1 = m.p1Id === me;
         const oppId = iAmP1 ? m.p2Id : m.p1Id;
-        if (m.result === 'doubleLoss') { losses++; tl++; continue; }
+        // Head-to-head keyed by opponent name (account, guest, or manual TO player).
+        const recordH2H = (won) => {
+          if (!oppId) return;
+          const oname = pidToName.get(oppId) || 'Rival';
+          const e = h2h.get(oname) || { username: oname, wins: 0, losses: 0 };
+          if (won) e.wins++; else e.losses++;
+          h2h.set(oname, e);
+        };
+        if (m.result === 'doubleLoss') { losses++; tl++; recordH2H(false); continue; }
         if (m.result !== 'p1' && m.result !== 'p2') continue;
         const iWon = (m.result === 'p1') === iAmP1;
         if (iWon) { wins++; tw++; } else { losses++; tl++; }
-        // Head-to-head keyed by opponent name (account, guest, or manual TO player).
-        if (oppId) {
-          const oname = pidToName.get(oppId) || 'Rival';
-          const e = h2h.get(oname) || { username: oname, wins: 0, losses: 0 };
-          if (iWon) e.wins++; else e.losses++;
-          h2h.set(oname, e);
-        }
+        recordH2H(iWon);
       }
 
       let rank = null;

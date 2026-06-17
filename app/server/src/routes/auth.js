@@ -13,6 +13,9 @@ export default async function authRoutes(app) {
     }
     const exists = db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
     if (exists) return reply.code(409).send({ error: 'Ese usuario ya existe.' });
+    if (email && db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+      return reply.code(409).send({ error: 'Ese correo ya está registrado.' });
+    }
 
     const hash = await hashPassword(password);
     const info = db

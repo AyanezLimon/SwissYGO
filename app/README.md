@@ -49,10 +49,10 @@ app/
 ```bash
 cd app/web
 python3 -m http.server 5173      # or any static server → http://localhost:5173
-npm install && npm test          # vitest: parity tests for js/lib (dev-only)
 ```
 
-(ES modules need http, not `file://`.)
+(The frontend is plain classic scripts — no build, no package.json, no test
+runner. Validate with `node --check js/*.js` and by loading it in a browser.)
 
 **Backend (only for connected mode):**
 

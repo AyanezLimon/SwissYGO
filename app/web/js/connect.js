@@ -373,6 +373,25 @@
     showGate();                                // not authenticated, not guest
   }
 
+  // Before a CLOUD tournament starts, drain pending self-registrations so a player
+  // who joined seconds earlier (between absorb polls) isn't stranded: otherwise the
+  // TO closes registration and that player polls /me forever with no pairing.
+  // app.js binds #start-tournament by reference (and registered first), so we
+  // intercept on document in the CAPTURE phase — runs before app.js's handler and
+  // stopImmediatePropagation keeps the event from reaching it; we re-invoke after.
+  let draining = false;
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#start-tournament');
+    if (!btn || draining) return;
+    if (!isCloud() || (typeof state !== 'undefined' && state.started)) return; // offline / already running: let app.js handle it
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    draining = true; btn.disabled = true;
+    try { await absorbRegistrations(); } catch { /* fall through: start with what we have */ }
+    draining = false; btn.disabled = false;
+    if (window.startTournament) startTournament();
+  }, true);
+
   // ---- boot --------------------------------------------------------------
   wrapSave();
   renderAccount();

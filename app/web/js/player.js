@@ -111,12 +111,13 @@
       let res;
       if (loggedIn()) {
         res = await API.req('/tournaments/join', { method: 'POST', body: { code } });
-        setJoined({ id: res.id, name: res.name });
+        // name = OUR display name (account username), NOT res.name (the tournament).
+        setJoined({ id: res.id, name: res.display_name || uname(), guestToken: null });
       } else {
         const name = ($('#gname') && $('#gname').value.trim()) || guestName();
         try { sessionStorage.setItem('ygo_guest_name', name); } catch {}
         res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
-        setJoined({ id: res.id, name: res.name, guestToken: res.guest_token });
+        setJoined({ id: res.id, name: res.display_name || name, guestToken: res.guest_token });
       }
       startPoll();
     } catch (e) {

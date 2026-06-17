@@ -1,10 +1,10 @@
 name: Deploy API (dev)
 
-# The backend container is only needed once you want accounts/registration. Until
-# then there's NO backend running — offline mode needs nothing. So this is MANUAL
-# (workflow_dispatch). When connected mode goes live, you can add a push trigger
-# on app/server/** if you want it automatic. The image is API-only (no SPA build),
-# so it's small and rarely rebuilt.
+# Connected mode is live, so this deploys automatically on backend changes (push
+# to develop touching app/server/**, the Dockerfile or compose). It also stays
+# available via workflow_dispatch. Requires the JWT_SECRET / ADMIN_PASSWORD repo
+# secrets (already configured); the step fails fast if JWT_SECRET is missing. The
+# image is API-only (no SPA build), so it's small and rarely rebuilt.
 on:
   push:
     branches: [develop]
