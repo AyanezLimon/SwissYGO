@@ -180,10 +180,7 @@
     setTimeout(() => { const q = m.body.querySelector('#tp-q'); if (q) q.focus(); }, 60);
   }
 
-  const medalOrNum = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : r);
-
-  // /public → the shared StandingsImage renderer's data shape (used only when the
-  // user explicitly shares/downloads — the view itself is the HTML table below).
+  // /public → the shared StandingsImage renderer's data shape (web card + PNG).
   function publicToImageData(pub) {
     return {
       standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
@@ -211,29 +208,22 @@
     } finally { if (btn) btn.disabled = false; }
   }
 
-  // Results = the on-screen standings table (same look as the console's "Tabla de
-  // Posiciones"), built from /public, plus an optional "Compartir" that renders
-  // the branded PNG via the shared module.
+  // Results = the WEB VIEW: an HTML card identical to the shareable image
+  // (StandingsImage.buildCardEl), plus a "Compartir" that renders the same design
+  // as a PNG for the native share sheet / download.
   async function showResultsModal(id) {
-    const m = makeModal(520);
+    const m = makeModal(600);
     m.body.innerHTML = '<p class="modal-msg">Cargando resultados…</p>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public');
-      const rows = pub.standings.map((s) => `<tr${s.dropped ? ' class="dropped"' : ''}>
-        <td class="pos">${medalOrNum(s.rank)}</td>
-        <td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
-        <td class="num">${s.points}</td>
-        <td class="num" style="color:var(--ink-soft)">${s.wins}-${s.losses}</td></tr>`).join('');
-      m.body.innerHTML = `<h3 class="modal-title">${esc(pub.name)}</h3>
-        <div class="modal-msg" style="margin-bottom:10px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
-        ${pub.note ? `<div class="muted" style="margin-bottom:12px;font-style:italic">${esc(pub.note)}</div>` : ''}
-        <div class="table-scroll"><table>
-          <thead><tr><th class="pos">#</th><th>Jugador</th><th class="num">Pts</th><th class="num">W-L</th></tr></thead>
-          <tbody>${rows}</tbody></table></div>
-        <div class="modal-actions" style="margin-top:16px;justify-content:space-between">
-          <button class="btn btn-gold btn-sm" data-share>📤 Compartir</button>
-          <button class="btn btn-sm" data-close>Cerrar</button></div>`;
-      m.body.querySelector('[data-share]').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
+      m.body.innerHTML = '';
+      m.body.appendChild(StandingsImage.buildCardEl(publicToImageData(pub)));
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      actions.style.cssText = 'margin-top:16px;justify-content:space-between';
+      actions.innerHTML = '<button class="btn btn-gold btn-sm" data-share>📤 Compartir</button><button class="btn btn-sm" data-close>Cerrar</button>';
+      m.body.appendChild(actions);
+      actions.querySelector('[data-share]').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
     } catch (e) {
       m.body.innerHTML = `<p class="gate-error">${esc(e.message)}</p><div class="modal-actions"><button class="btn" data-close>Cerrar</button></div>`;
     }
