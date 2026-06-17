@@ -142,32 +142,52 @@
   // ---- results & history -------------------------------------------------
   const medal = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : r);
 
+  // /public → the shared StandingsImage renderer's data shape.
+  function publicToImageData(pub) {
+    return {
+      standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
+      finished: pub.status === 'finished',
+      maxRounds: pub.maxRounds, currentRound: pub.currentRound, note: pub.note || '',
+      date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
+    };
+  }
+  function downloadImage(img) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(img.blob); a.download = img.fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  // Results = the SAME branded image the TO shares (single source of truth), plus
+  // a small "your placement" line since the image itself doesn't single you out.
   async function showResults(id, j, onBack) {
     stopPoll();
+    root.innerHTML = `<div class="card"><div class="muted">Generando resultados…</div></div>`;
     try {
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
-      const mine = (j && j.name) || (() => { try { return localStorage.getItem('ygo_username'); } catch { return null; } })();
-      renderResults(pub, mine, onBack);
+      const mine = (j && j.name) || uname() || null;
+      const img = await StandingsImage.build(publicToImageData(pub));
+      const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
+      const place = myRow
+        ? `<div class="muted" style="text-align:center;margin-bottom:10px">Tu posición: <b style="color:var(--gold)">${medal(myRow.rank)}</b> de ${pub.standings.length} · ${myRow.wins}-${myRow.losses}</div>`
+        : '';
+      root.innerHTML = `
+        <div class="card">
+          <h2 style="margin-top:0">${esc(pub.name)}</h2>
+          <div class="muted" style="margin-bottom:12px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
+          ${place}
+          <img class="results-img" alt="Resultados — ${esc(pub.name)}" src="${img.dataUrl}">
+          <div class="row" style="gap:8px;margin-top:14px">
+            <button class="btn btn-gold btn-sm" id="dl" style="flex:1">⬇ Descargar</button>
+            <button class="btn btn-sm btn-ghost" id="back" style="flex:1">← Volver</button>
+          </div>
+        </div>`;
+      $('#dl').addEventListener('click', () => downloadImage(img));
+      $('#back').addEventListener('click', onBack);
     } catch (e) {
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
       $('#back').addEventListener('click', onBack);
     }
-  }
-
-  function renderResults(pub, highlightName, onBack) {
-    const rows = pub.standings.map((s) => `
-      <tr class="${highlightName && s.name === highlightName ? 'me' : ''}">
-        <td>${medal(s.rank)}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td>
-        <td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
-    root.innerHTML = `
-      <div class="card">
-        <h2 style="margin-top:0">${esc(pub.name)}</h2>
-        <div class="muted" style="margin-bottom:12px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
-        <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
-        <button class="btn btn-sm btn-ghost" id="back" style="margin-top:16px;width:100%">← Volver</button>
-      </div>
-      <style>#player tr.me{ background:rgba(130,216,235,.12); } #player tr.me td{ color:var(--ink); font-weight:700; }</style>`;
-    $('#back').addEventListener('click', onBack);
   }
 
   async function renderProfile() {
@@ -243,7 +263,30 @@
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && joined()) poll(); });
 
+  // ---- theme (light/dark) -----------------------------------------------
+  // Reuses the console's mechanism: the 'ygo_theme' key + [data-theme="light"]
+  // on <html> (the FOUC script in the page head already applies it on load).
+  function applyTheme(theme) {
+    if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    else document.documentElement.removeAttribute('data-theme');
+  }
+  function mountThemeToggle() {
+    if (document.getElementById('theme-toggle')) return;
+    const btn = document.createElement('button');
+    btn.className = 'theme-switch u-theme'; btn.id = 'theme-toggle'; btn.type = 'button';
+    btn.setAttribute('aria-label', 'Cambiar entre tema claro y oscuro');
+    btn.title = 'Tema claro / oscuro';
+    btn.innerHTML = '<span class="track"><span class="knob"></span></span>';
+    btn.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      try { localStorage.setItem('ygo_theme', next); } catch (e) {}
+    });
+    document.body.appendChild(btn);
+  }
+
   // ---- boot --------------------------------------------------------------
+  mountThemeToggle();
   // Allow ?code=XXXX / #XXXX prefill from a shared link.
   const pre = (new URLSearchParams(location.search).get('code') || location.hash.replace('#', '')).toUpperCase();
   if (joined()) startPoll();

@@ -79,58 +79,136 @@
     return { body, close };
   }
 
-  // Admin panel: EVERY tournament (a TO can administer any event, not just its own
-  // or the ones it joined as a player). Shows round progress + timer state so the
-  // TO can resume one mid-round. "Abrir" loads it into the console.
+  // Admin panel: EVERY tournament (a TO administers any event, not just its own).
+  // A searchable / sortable / paginated table — stays usable with many events.
+  // "Abrir" loads one into the console; "Resultados" shows the shared image.
   async function showTournamentsPanel() {
-    const m = makeModal(520);
+    const m = makeModal(760);
     m.body.innerHTML = '<h3 class="modal-title">Torneos</h3><p class="modal-msg" id="mt">Cargando…</p>';
-    try {
-      const list = await API.req('/tournaments');
-      if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no hay torneos.'; return; }
-      const statusLabel = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
-      const timerLabel = { running: '⏱ corriendo', paused: '⏱ en pausa', ended: '⏱ terminado' };
-      const day = (s) => { const d = String(s || '').slice(0, 10); return d || '—'; };
-      const curId = isCloud() ? state.cloud.id : null;
-      const ul = document.createElement('ul'); ul.className = 'list tlist';
-      ul.innerHTML = list.map((t) => {
-        const here = t.id === curId;
-        const progress = t.status === 'setup'
-          ? `${t.players} jugador${t.players === 1 ? '' : 'es'}`
-          : `Ronda ${t.currentRound}/${t.maxRounds} · ${t.players} jug.`;
-        const timer = timerLabel[t.timer] ? ` · ${timerLabel[t.timer]}` : '';
-        const code = `<code class="tcode">${esc(t.join_code)}</code>`;
-        return `<li class="trow">
-          <div class="grow">
-            <div class="tname">${esc(t.name)} <span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${statusLabel(t.status)}</span>${here ? ' <span class="pill pill-ok">Abierto</span>' : ''}</div>
-            <div class="tmeta">${code} · ${progress}${timer} · ${day(t.created_at)}${t.owner ? ' · por ' + esc(t.owner) : ''}</div>
-          </div>
-          <div class="tacts">
-            <button class="btn btn-sm" data-act="open" data-id="${t.id}"${here ? ' disabled' : ''}>${here ? 'Actual' : 'Abrir'}</button>
-            <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button>
-          </div></li>`;
-      }).join('');
-      m.body.querySelector('#mt').replaceWith(ul);
-      ul.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-act]'); if (!btn || btn.disabled) return;
-        const id = Number(btn.dataset.id);
-        m.close();
-        if (btn.dataset.act === 'open') loadTournament(id);
-        else showResultsModal(id);
+    let list;
+    try { list = await API.req('/tournaments'); }
+    catch (e) { const el = m.body.querySelector('#mt'); if (el) el.textContent = e.message; return; }
+    if (!list.length) { m.body.querySelector('#mt').textContent = 'Aún no hay torneos.'; return; }
+
+    const statusLabel = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
+    const timerMark = { running: '⏱', paused: '⏸', ended: '⏱✓' };
+    const day = (s) => String(s || '').slice(0, 10) || '—';
+    const PER = 8;
+    const curId = isCloud() ? state.cloud.id : null;
+    const ui = { q: '', status: 'all', sort: 'created_at', dir: -1, page: 0 };
+
+    m.body.innerHTML = `
+      <h3 class="modal-title">Torneos</h3>
+      <div class="tp-toolbar">
+        <input type="text" id="tp-q" class="tp-search" placeholder="Buscar nombre, código o creador…" autocomplete="off" autocapitalize="none" spellcheck="false">
+        <select id="tp-status" class="tp-filter" aria-label="Filtrar por estado">
+          <option value="all">Todos</option><option value="setup">Registro</option>
+          <option value="running">En curso</option><option value="finished">Finalizado</option>
+        </select>
+      </div>
+      <div class="tp-wrap">
+        <table class="tp-table"><thead><tr>
+          <th data-sort="name">Torneo</th><th data-sort="status">Estado</th>
+          <th data-sort="currentRound">Ronda</th><th data-sort="players">Jug.</th>
+          <th data-sort="created_at">Creado</th><th>Acciones</th>
+        </tr></thead><tbody id="tp-body"></tbody></table>
+      </div>
+      <div class="tp-foot">
+        <span id="tp-count" class="tp-count"></span>
+        <span class="tp-pager"><button class="btn btn-sm btn-ghost" id="tp-prev" aria-label="Anterior">‹</button>
+          <span id="tp-page" class="tp-pageno"></span>
+          <button class="btn btn-sm btn-ghost" id="tp-next" aria-label="Siguiente">›</button></span>
+      </div>`;
+    const body = m.body.querySelector('#tp-body');
+
+    function filtered() {
+      let rows = list.slice();
+      if (ui.status !== 'all') rows = rows.filter((t) => t.status === ui.status);
+      const q = ui.q.trim().toLowerCase();
+      if (q) rows = rows.filter((t) => [t.name, t.join_code, t.owner].some((f) => String(f || '').toLowerCase().includes(q)));
+      const k = ui.sort, text = (k === 'name' || k === 'status' || k === 'created_at');
+      rows.sort((a, b) => {
+        if (text) { const av = String(a[k] || '').toLowerCase(), bv = String(b[k] || '').toLowerCase(); return av < bv ? -ui.dir : av > bv ? ui.dir : 0; }
+        return ((Number(a[k]) || 0) - (Number(b[k]) || 0)) * ui.dir;
       });
-    } catch (e) { const el = m.body.querySelector('#mt'); if (el) el.textContent = e.message; }
+      return rows;
+    }
+    function draw() {
+      const rows = filtered();
+      const pages = Math.max(1, Math.ceil(rows.length / PER));
+      ui.page = Math.min(Math.max(0, ui.page), pages - 1);
+      const slice = rows.slice(ui.page * PER, ui.page * PER + PER);
+      body.innerHTML = slice.map((t) => {
+        const here = t.id === curId;
+        const round = t.status === 'setup' ? '—' : `${t.currentRound}/${t.maxRounds}${timerMark[t.timer] ? ' ' + timerMark[t.timer] : ''}`;
+        return `<tr>
+          <td><div class="tp-name">${esc(t.name)}${here ? ' <span class="pill pill-ok">Abierto</span>' : ''}</div>
+            <div class="tp-sub"><code class="tcode">${esc(t.join_code)}</code>${t.owner ? ' · ' + esc(t.owner) : ''}</div></td>
+          <td><span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${statusLabel(t.status)}</span></td>
+          <td class="tp-num">${round}</td><td class="tp-num">${t.players}</td><td class="tp-day">${day(t.created_at)}</td>
+          <td class="tp-acts"><button class="btn btn-sm" data-act="open" data-id="${t.id}"${here ? ' disabled' : ''}>${here ? 'Actual' : 'Abrir'}</button>
+            <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button></td></tr>`;
+      }).join('') || '<tr><td colspan="6" class="tp-empty">Sin resultados.</td></tr>';
+      m.body.querySelector('#tp-count').textContent = rows.length + (rows.length === 1 ? ' torneo' : ' torneos');
+      m.body.querySelector('#tp-page').textContent = (ui.page + 1) + ' / ' + pages;
+      m.body.querySelector('#tp-prev').disabled = ui.page <= 0;
+      m.body.querySelector('#tp-next').disabled = ui.page >= pages - 1;
+      m.body.querySelectorAll('th[data-sort]').forEach((th) => {
+        const on = th.dataset.sort === ui.sort;
+        th.classList.toggle('sorted', on);
+        th.setAttribute('data-dir', on ? (ui.dir > 0 ? 'asc' : 'desc') : '');
+      });
+    }
+
+    m.body.querySelector('#tp-q').addEventListener('input', (e) => { ui.q = e.target.value; ui.page = 0; draw(); });
+    m.body.querySelector('#tp-status').addEventListener('change', (e) => { ui.status = e.target.value; ui.page = 0; draw(); });
+    m.body.querySelector('#tp-prev').addEventListener('click', () => { ui.page--; draw(); });
+    m.body.querySelector('#tp-next').addEventListener('click', () => { ui.page++; draw(); });
+    m.body.querySelectorAll('th[data-sort]').forEach((th) => th.addEventListener('click', () => {
+      const k = th.dataset.sort;
+      if (ui.sort === k) ui.dir = -ui.dir; else { ui.sort = k; ui.dir = (k === 'name' || k === 'status') ? 1 : -1; }
+      draw();
+    }));
+    body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act]'); if (!btn || btn.disabled) return;
+      const id = Number(btn.dataset.id);
+      m.close();
+      if (btn.dataset.act === 'open') loadTournament(id);
+      else showResultsModal(id);
+    });
+    draw();
+    setTimeout(() => { const q = m.body.querySelector('#tp-q'); if (q) q.focus(); }, 60);
   }
 
+  // /public → the shared StandingsImage renderer's data shape.
+  function publicToImageData(pub) {
+    return {
+      standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
+      finished: pub.status === 'finished',
+      maxRounds: pub.maxRounds, currentRound: pub.currentRound, note: pub.note || '',
+      date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
+    };
+  }
+  function downloadImage(img) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(img.blob); a.download = img.fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  // Results = the SAME branded image as "Compartir" (single source of truth).
   async function showResultsModal(id) {
-    const m = makeModal();
-    m.body.innerHTML = '<p class="modal-msg">Cargando resultados…</p>';
+    const m = makeModal(620);
+    m.body.innerHTML = '<p class="modal-msg">Generando resultados…</p>';
     try {
       const pub = await API.req('/tournaments/' + id + '/public');
-      const rows = pub.standings.map((s) => `<tr><td>${s.rank}</td><td>${esc(s.name)}${s.dropped ? ' <span class="pill pill-drop">DROP</span>' : ''}</td><td>${s.points}</td><td>${s.wins}-${s.losses}</td></tr>`).join('');
+      const img = await StandingsImage.build(publicToImageData(pub));
       m.body.innerHTML = `<h3 class="modal-title">${esc(pub.name)}</h3>
-        <div class="modal-msg" style="margin-bottom:10px">${pub.status === 'finished' ? '🏁 Resultados finales' : 'Tabla parcial'}</div>
-        <table><thead><tr><th>#</th><th>Jugador</th><th>Pts</th><th>G-P</th></tr></thead><tbody>${rows}</tbody></table>
-        <div class="modal-actions" style="margin-top:16px"><button class="btn" data-close>Cerrar</button></div>`;
+        <img class="results-img" alt="Resultados — ${esc(pub.name)}" src="${img.dataUrl}">
+        <div class="modal-actions" style="margin-top:14px;justify-content:space-between">
+          <button class="btn btn-gold btn-sm" data-dl>⬇ Descargar</button>
+          <button class="btn btn-sm" data-close>Cerrar</button></div>`;
+      m.body.querySelector('[data-dl]').addEventListener('click', () => downloadImage(img));
     } catch (e) {
       m.body.innerHTML = `<p class="gate-error">${esc(e.message)}</p><div class="modal-actions"><button class="btn" data-close>Cerrar</button></div>`;
     }
@@ -454,6 +532,20 @@
     if (window.openConfirm) openConfirm(msg, reset, { title: 'Nuevo Torneo', confirmText: 'Sí, reiniciar', danger: true });
     else reset();
   }, true);
+
+  // Single source of truth for the shareable image: route the console's
+  // Compartir/Descargar (bound in app.js) through StandingsImage too. app.js calls
+  // buildStandingsImageBlob() by name, so reassigning the global redirects its
+  // existing handlers — the format now lives in ONE place (js/standings-image.js).
+  if (window.StandingsImage) {
+    window.buildStandingsImageBlob = function () {
+      const ordered = window.finalStandings ? finalStandings() : [];
+      return StandingsImage.build({
+        standings: ordered.map((s) => ({ name: s.name, matchPoints: s.matchPoints, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
+        finished: !!state.finished, maxRounds: state.maxRounds, currentRound: state.currentRound, note: state.note || '',
+      });
+    };
+  }
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
