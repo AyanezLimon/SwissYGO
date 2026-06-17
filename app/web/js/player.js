@@ -247,7 +247,7 @@
             <div class="pf-tile"><div class="v loss">${r.losses}</div><div class="k">Derrotas</div></div>
             <div class="pf-tile"><div class="v">${st.tournaments.joined}</div><div class="k">Torneos</div></div>
           </div>
-          ${r.byes ? `<div class="pf-byes">${decided} partida${decided === 1 ? '' : 's'} decidida${decided === 1 ? '' : 's'} · ${r.byes} BYE${r.byes === 1 ? '' : 's'}</div>` : ''}
+          <div class="pf-byes">${decided} partida${decided === 1 ? '' : 's'} decidida${decided === 1 ? '' : 's'}${r.byes ? ` · ${r.byes} BYE${r.byes === 1 ? '' : 's'}` : ''}</div>
         </div>`;
 
       // Head-to-head: proportional win/loss bar per opponent, colour-coded.
