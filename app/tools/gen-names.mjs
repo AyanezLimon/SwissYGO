@@ -4,7 +4,7 @@
  *
  *   node app/tools/gen-names.mjs
  *
- * Sources: YGOPRODeck (Yu-Gi-Oh cards), PokéAPI (Pokémon), + curated lists.
+ * Sources: YGOPRODeck (Yu-Gi-Oh cards) + curated lists (videogames/objects/places/silly).
  * Names are kept single-word, ASCII (accents stripped), 3–14 chars, deduped. */
 import { writeFileSync, mkdirSync } from 'node:fs';
 
@@ -24,29 +24,13 @@ async function ygo() {
   } catch (e) { console.error('YGO fetch failed:', e.message); return []; }
 }
 
-async function pkmn() {
-  try {
-    const r = await fetch('https://pokeapi.co/api/v2/pokemon?limit=2000');
-    const j = await r.json();
-    const out = new Set();
-    for (const p of j.results || []) {
-      const raw = p.name || '';
-      if (raw.includes('-')) continue; // skip alternate forms
-      const n = deaccent(raw);
-      if (/^[a-z]{3,14}$/.test(n)) out.add(cap(n));
-    }
-    return [...out];
-  } catch (e) { console.error('PokéAPI fetch failed:', e.message); return []; }
-}
-
 // Curated: iconic videogame characters/places + objects + silly (single-word, ASCII).
 const CURATED = [
   'Mario','Luigi','Peach','Bowser','Yoshi','Toad','Wario','Waluigi','Link','Zelda','Ganon','Kirby',
   'Sonic','Tails','Knuckles','Eggman','Samus','Megaman','Pacman','Sans','Cuphead','Steve','Creeper',
   'Enderman','Kratos','Geralt','Doomguy','Master','Cloud','Sephiroth','Tifa','Aerith','Barret','Yuna',
   'Tidus','Auron','Chocobo','Moguri','Tonberry','Cactilio','Vivi','Squall','Zidane','Crono','Lucca',
-  'Frog','Magus','Ryu','Ken','Chun','Akuma','Scorpion','SubZero','Raiden','Pikachu','Snorlax','Gengar',
-  'Lapras','Eevee','Mewtwo','Lucario','Greninja','Garchomp',
+  'Frog','Magus','Ryu','Ken','Chun','Akuma','Scorpion','SubZero','Raiden',
   'Jarron','Tostadora','Calcetin','Cuchara','Tenedor','Almohada','Sarten','Croqueta','Waffle','Panqueque',
   'Burrito','Taco','Nacho','Empanada','Churro','Aguacate','Mango','Pulpo','Calamar','Capibara','Mapache',
   'Erizo','Nutria','Ajolote','Quokka','Pinguino','Morsa','Tucan','Colibri','Luciernaga','Escarabajo',
@@ -69,9 +53,9 @@ const ADJS = [
 ];
 
 async function main() {
-  const [y, p] = await Promise.all([ygo(), pkmn()]);
+  const y = await ygo();
   const seen = new Set(); const NOUNS = [];
-  for (const n of [...y, ...p, ...CURATED]) {
+  for (const n of [...y, ...CURATED]) {
     const key = n.toLowerCase();
     if (n && !seen.has(key)) { seen.add(key); NOUNS.push(n); }
   }
@@ -86,6 +70,6 @@ window.NAMES = ${JSON.stringify({ NOUNS, ADJS: ADJ })};
 `;
   writeFileSync('app/web/js/names-data.js', out);
   console.log(`names-data.js written: ${NOUNS.length} nouns × ${ADJ.length} adjectives = ${(NOUNS.length * ADJ.length).toLocaleString()} base combos (×90 numbers)`);
-  console.log('YGO:', y.length, 'Pokémon:', p.length, 'curated:', CURATED.length);
+  console.log('YGO:', y.length, 'curated:', CURATED.length);
 }
 main();
