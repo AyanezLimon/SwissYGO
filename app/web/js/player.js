@@ -185,7 +185,13 @@
   // skip the first sighting (page load / reload) to avoid spurious alerts.
   let _lastRound = -1;
   let _audioCtx = null;
+  let _primed = false;
+  // Audio unlock + Notification permission both need a user GESTURE, so this must
+  // run inside one. It's idempotent and is wired to the FIRST gesture after load
+  // (see boot) so EVERY entry path is covered — join-by-code, session resume,
+  // deep-link resume, account/guest resume — not just the explicit join click.
   function primeNotifications() {
+    if (_primed) return; _primed = true;
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
     try { _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (_audioCtx.state === 'suspended') _audioCtx.resume(); } catch {}
   }
@@ -439,6 +445,10 @@
 
   // ---- boot --------------------------------------------------------------
   mountThemeToggle();
+  // Prime audio + notification permission on the first user gesture, regardless of
+  // how the player entered (join-by-code, resume, deep link). Each fires once.
+  document.addEventListener('pointerdown', primeNotifications, { once: true });
+  document.addEventListener('keydown', primeNotifications, { once: true });
   // A shared link (/u/?torneo=CODE, also ?code= / #CODE) opens that tournament's
   // detail card automatically; otherwise show the join screen.
   const _sp = new URLSearchParams(location.search);
