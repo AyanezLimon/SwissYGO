@@ -25,6 +25,8 @@
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .err { color:var(--crimson); min-height:18px; margin-top:8px; }
   .actions button { padding:5px 9px; font-size:12.5px; }
+  .tabbtn { background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--soft); padding:6px 4px; }
+  .tabbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
 </style>
 </head>
 <body>
@@ -42,14 +44,29 @@
 
   <div class="card" id="panel" hidden>
     <div class="row" style="justify-content:space-between">
-      <strong id="count"></strong>
+      <div class="row" style="gap:4px">
+        <button class="tabbtn active" id="tab-users">Usuarios</button>
+        <button class="tabbtn" id="tab-tourneys">Torneos</button>
+      </div>
       <button id="refresh">Recargar</button>
     </div>
     <div class="err" id="err"></div>
-    <table>
-      <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
+
+    <div id="view-users">
+      <strong id="count"></strong>
+      <table>
+        <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div id="view-tourneys" hidden>
+      <strong id="tcount"></strong>
+      <table>
+        <thead><tr><th>Torneo</th><th>Estado</th><th>Ronda</th><th>Jug.</th><th>Creado</th><th>Acciones</th></tr></thead>
+        <tbody id="trows"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -85,13 +102,63 @@
     } catch (e) { $('#err').textContent = e.message; }
   }
 
+  const statusLabel = (s) => s === 'finished' ? 'Finalizado' : s === 'running' ? 'En curso' : 'Registro';
+  async function loadTournaments() {
+    $('#err').textContent = '';
+    try {
+      const ts = await api('/admin/tournaments');
+      $('#tcount').textContent = ts.length + ' torneo(s)';
+      $('#trows').innerHTML = ts.map(t => `
+        <tr data-id="${t.id}">
+          <td>${esc(t.name)}<div style="color:var(--soft);font-size:12px">${esc(t.code)}${t.owner ? ' · ' + esc(t.owner) : ''}</div></td>
+          <td><span class="tag ${t.status === 'finished' ? 'on' : 'to'}">${statusLabel(t.status)}</span></td>
+          <td>${t.status === 'setup' ? '—' : t.currentRound + '/' + t.maxRounds}</td>
+          <td>${t.players}</td>
+          <td style="color:var(--soft);font-size:12.5px">${esc((t.created_at||'').replace('T',' ').slice(0,16))}</td>
+          <td class="actions row">
+            <button data-act="rename">Renombrar</button>
+            <button class="btn-danger" data-act="del">Eliminar</button>
+          </td>
+        </tr>`).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+
+  let view = 'users';
+  function showView(v) {
+    view = v;
+    $('#tab-users').classList.toggle('active', v === 'users');
+    $('#tab-tourneys').classList.toggle('active', v === 'tourneys');
+    $('#view-users').hidden = v !== 'users';
+    $('#view-tourneys').hidden = v !== 'tourneys';
+    (v === 'users' ? load : loadTournaments)();
+  }
+
   $('#enter').addEventListener('click', async () => {
     PW = $('#pw').value;
-    try { await api('/admin/users'); $('#login').hidden = true; $('#panel').hidden = false; load(); }
+    try { await api('/admin/users'); $('#login').hidden = true; $('#panel').hidden = false; showView('users'); }
     catch (e) { $('#login-err').textContent = e.message; }
   });
   $('#pw').addEventListener('keyup', (e) => { if (e.key === 'Enter') $('#enter').click(); });
-  $('#refresh').addEventListener('click', load);
+  $('#refresh').addEventListener('click', () => (view === 'users' ? load : loadTournaments)());
+  $('#tab-users').addEventListener('click', () => showView('users'));
+  $('#tab-tourneys').addEventListener('click', () => showView('tourneys'));
+
+  $('#trows').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]'); if (!btn) return;
+    const tr = btn.closest('tr'); const id = tr.dataset.id;
+    const name = tr.querySelector('td').childNodes[0].textContent;
+    try {
+      if (btn.dataset.act === 'rename') {
+        const n = prompt('Nuevo nombre del torneo:', name); if (n === null) return;
+        if (!n.trim()) { $('#err').textContent = 'El nombre no puede ir vacío.'; return; }
+        await api('/admin/tournaments/' + id, { method: 'PATCH', body: JSON.stringify({ name: n.trim() }) });
+      } else if (btn.dataset.act === 'del') {
+        if (!confirm('¿Eliminar "' + name + '"? Se borran también sus inscripciones. No se puede deshacer.')) return;
+        await api('/admin/tournaments/' + id, { method: 'DELETE' });
+      }
+      loadTournaments();
+    } catch (err) { $('#err').textContent = err.message; }
+  });
 
   $('#rows').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act]'); if (!btn) return;
