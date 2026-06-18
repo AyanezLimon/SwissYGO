@@ -265,6 +265,7 @@
       if (window.render) render();
       if (window.switchTab) switchTab(state.finished ? 'standings' : state.started ? 'rondas' : 'registro');
       renderAccount();
+      syncTournamentFields();
       if (!state.started && !state.finished) startRegPoll();
       if (window.showToast) showToast('Torneo «' + t.name + '» abierto.');
     };
@@ -312,43 +313,53 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
 
   const ddmmyyyy = (iso) => { const p = String(iso).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; };
+  const todayISO = () => new Date().toISOString().slice(0, 10);
 
-  // Publish opens a small form: the TO names the tournament and picks a date
-  // (defaults to today; a tournament can be planned ahead). Empty name →
-  // "Torneo - DD/MM/YYYY". The date is the EVENT date (kept in state_json), not
-  // the creation timestamp.
-  function publish() {
-    if (!hasSession()) { showGate(); return; }
-    const m = makeModal(400);
-    const iso = new Date().toISOString().slice(0, 10);
-    m.body.innerHTML = `<h3 class="modal-title">Publicar torneo</h3>
-      <div class="gate-field"><label>Nombre del torneo</label>
-        <input type="text" id="pub-name" maxlength="80" placeholder="Torneo - ${ddmmyyyy(iso)}" autocomplete="off"></div>
-      <div class="gate-field"><label>Fecha</label>
-        <input type="date" id="pub-date" value="${iso}"></div>
-      <div class="gate-error" id="pub-err"></div>
-      <div class="modal-actions" style="justify-content:flex-end;gap:8px;margin-top:8px">
-        <button class="btn btn-sm btn-ghost" data-close>Cancelar</button>
-        <button class="btn btn-gold btn-sm" id="pub-go">Publicar</button></div>`;
-    m.body.querySelector('#pub-go').addEventListener('click', () => doPublish(m));
-    setTimeout(() => { const n = m.body.querySelector('#pub-name'); if (n) n.focus(); }, 60);
+  // Name + date are filled in the Registro section (#tournament-name / -date),
+  // alongside the player list and the note — NOT in a publish modal. They live in
+  // state_json (state.name / state.eventDate); publish just reads them. Wired once,
+  // mirroring app.js's #tournament-note pattern (persist on input, refill on load).
+  let tfWired = false;
+  function wireTournamentFields() {
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    if (nameEl && dateEl && !tfWired) {
+      tfWired = true;
+      nameEl.addEventListener('input', () => { state.name = nameEl.value.trim(); save(); });
+      dateEl.addEventListener('change', () => { state.eventDate = dateEl.value || todayISO(); save(); });
+    }
+    syncTournamentFields();
   }
-  async function doPublish(m) {
-    const date = m.body.querySelector('#pub-date').value || new Date().toISOString().slice(0, 10);
-    const name = m.body.querySelector('#pub-name').value.trim() || ('Torneo - ' + ddmmyyyy(date));
-    const go = m.body.querySelector('#pub-go'); go.disabled = true;
+  function syncTournamentFields() {
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    if (nameEl && document.activeElement !== nameEl) {
+      nameEl.value = state.name || '';
+      nameEl.placeholder = 'Torneo - ' + ddmmyyyy(todayISO());
+    }
+    if (dateEl && document.activeElement !== dateEl) dateEl.value = state.eventDate || todayISO();
+  }
+
+  // Publish reads the already-filled Registro fields — no extra form. Empty name →
+  // "Torneo - DD/MM/YYYY"; date defaults to today.
+  async function publish() {
+    if (!hasSession()) { showGate(); return; }
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    const date = (dateEl && dateEl.value) || todayISO();
+    const typed = nameEl ? nameEl.value.trim() : '';
+    const name = typed || ('Torneo - ' + ddmmyyyy(date));
     try {
       const r = await API.req('/tournaments', { method: 'POST', body: { name } });
       state.cloud = { id: r.id, code: r.join_code };
+      state.name = typed;              // live name (empty → /u/ falls back to stored name)
       state.eventDate = date;          // planned event date, travels in state_json
-      save();                          // local + first cloud push (wrapped), incl. eventDate
+      save();                          // local + first cloud push (wrapped)
       startRegPoll();
       renderAccount();
-      m.close();
       showCodeModal(r.join_code);
     } catch (e) {
-      const el = m.body.querySelector('#pub-err'); if (el) el.textContent = e.message;
-      go.disabled = false;
+      if (window.showToast) showToast('No se pudo publicar: ' + e.message, true);
     }
   }
 
@@ -596,6 +607,7 @@
       if (window.switchTab) switchTab('registro');
       if (window.render) render();
       renderAccount();
+      syncTournamentFields();        // clear name, reset date to today
     };
     if (window.openConfirm) openConfirm(msg, reset, { title: 'Nuevo Torneo', confirmText: 'Sí, reiniciar', danger: true });
     else reset();
@@ -619,6 +631,7 @@
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
+  wireTournamentFields();   // name/date inputs in the Registro section
   renderAccount();
   refreshMe(); // sets role from the server then routes (applyView); falls back to stored role offline
 })();

@@ -10,6 +10,15 @@ input[type=password] {
 }
 input[type=password]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(130, 216, 235, .18); }
 
+/* Date input parity (Registro: tournament date) + a visible picker icon on dark. */
+input[type=date] {
+  background: var(--field-bg); border: 1px solid var(--border-2); color: var(--ink);
+  border-radius: 8px; padding: 9px 12px; font-family: var(--sans); font-size: 14px; outline: none;
+}
+input[type=date]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(130, 216, 235, .18); }
+input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
+[data-theme="light"] input[type=date]::-webkit-calendar-picker-indicator { filter: none; }
+
 /* Gate fields: stack, full width (inputs are inline-width by default). */
 .gate-field { margin-bottom: 12px; }
 .gate-field label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
