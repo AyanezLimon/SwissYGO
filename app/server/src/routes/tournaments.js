@@ -270,6 +270,20 @@ export default async function tournamentRoutes(app) {
     });
   });
 
+  // Public summary by join code — powers the player's tournament detail card
+  // (deep link /u/?torneo=CODE and the active-list card). No state mutation.
+  app.get('/api/tournaments/by-code/:code', async (req, reply) => {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const t = db.prepare('SELECT * FROM tournaments WHERE join_code = ?').get(code);
+    if (!t) return reply.code(404).send({ error: 'Código inválido.' });
+    let s = {}; try { s = JSON.parse(t.state_json); } catch {}
+    return {
+      id: t.id, name: t.name, code: t.join_code, status: t.status,
+      date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
+      currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
+    };
+  });
+
   // Account-only profile/stats: overall record + win%, per-tournament placement,
   // and head-to-head vs every opponent BY NAME (account, guest, or manual player).
   // Only the logged-in account can see this; non-account opponents can't.
