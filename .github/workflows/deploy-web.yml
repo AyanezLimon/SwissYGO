@@ -19,7 +19,7 @@ jobs:
     env:
       DEST: ${{ vars.DEV_WEB_PATH || '/DATA/AppData/swissygo-dev' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Publish static SPA
         run: |
           mkdir -p "$DEST"
