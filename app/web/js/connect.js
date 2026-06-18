@@ -43,38 +43,40 @@
       header.insertBefore(ctl, themeBtn || null);
     }
     if (hasSession()) {
-      let cloud = '';
-      if (isTO()) {
-        // ☁ Publicar lives in the file toolbar now (see mountToolbarPublish); the
-        // header keeps the code/link button (reachable from any tab while running).
-        cloud = isCloud()
-          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y enlace">Código <b></b></button>`
-          : '';
-        cloud += `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>`;
-      }
+      // The publish/code control lives in the file toolbar (see mountToolbarCloudBtn),
+      // so the header only carries the account + "Torneos" panel.
+      const cloud = isTO() ? `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>` : '';
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
-      if (isTO() && isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
     }
-    mountToolbarPublish();
+    mountToolbarCloudBtn();
   }
 
-  // ☁ Publicar in the file toolbar (with Exportar/Importar/Nuevo torneo), shown
-  // only to a TO that hasn't cloud-linked a tournament yet.
-  function mountToolbarPublish() {
+  // The TO's cloud control in the file toolbar (with Exportar/Importar/Nuevo
+  // torneo). It STAYS in this slot through publish: "☁ Publicar" before, then
+  // "Código XXXXX" after — so it doesn't jump to the header once published.
+  function mountToolbarCloudBtn() {
     const tb = document.querySelector('.toolbar');
     if (!tb || !tb.querySelector('#reset-all')) return; // only the file toolbar
     let btn = document.getElementById('toolbar-publish');
-    if (!(hasSession() && isTO() && !isCloud())) { if (btn) btn.remove(); return; }
+    if (!(hasSession() && isTO())) { if (btn) btn.remove(); return; }
     if (!btn) {
       btn = document.createElement('button');
-      btn.className = 'btn btn-sm btn-gold'; btn.id = 'toolbar-publish'; btn.type = 'button';
+      btn.id = 'toolbar-publish'; btn.type = 'button';
+      tb.insertBefore(btn, tb.querySelector('#reset-all'));
+    }
+    if (isCloud()) {
+      btn.className = 'btn btn-sm';
+      btn.textContent = 'Código ' + state.cloud.code;
+      btn.title = 'Ver código y enlace';
+      btn.onclick = () => showCodeModal(state.cloud.code);
+    } else {
+      btn.className = 'btn btn-sm btn-gold';
       btn.textContent = '☁ Publicar';
       btn.title = 'Publicar para que jugadores se inscriban';
-      btn.addEventListener('click', publish);
-      tb.insertBefore(btn, tb.querySelector('#reset-all'));
+      btn.onclick = publish;
     }
   }
 
