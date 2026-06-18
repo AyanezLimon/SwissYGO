@@ -158,6 +158,7 @@
     code = (code || '').trim().toUpperCase();
     const errEl = $('#perr');
     if (code.length !== 5) { if (errEl) errEl.textContent = 'El código tiene 5 caracteres.'; return; }
+    primeNotifications(); // within the click gesture: unlock audio + ask for permission
     const btn = $('#join'); if (btn) btn.disabled = true;
     try {
       let res;
@@ -178,12 +179,54 @@
     }
   }
 
+  // ---- round-start alert -------------------------------------------------
+  // When a new round's pairing appears, nudge the player (sound + vibration +
+  // OS notification) so a phone-in-pocket player knows their table is up. We
+  // skip the first sighting (page load / reload) to avoid spurious alerts.
+  let _lastRound = -1;
+  let _audioCtx = null;
+  let _primed = false;
+  // Audio unlock + Notification permission both need a user GESTURE, so this must
+  // run inside one. It's idempotent and is wired to the FIRST gesture after load
+  // (see boot) so EVERY entry path is covered — join-by-code, session resume,
+  // deep-link resume, account/guest resume — not just the explicit join click.
+  function primeNotifications() {
+    if (_primed) return; _primed = true;
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+    try { _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (_audioCtx.state === 'suspended') _audioCtx.resume(); } catch {}
+  }
+  function beep() {
+    try {
+      if (!_audioCtx) return;
+      const o = _audioCtx.createOscillator(), g = _audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.06;
+      o.connect(g); g.connect(_audioCtx.destination);
+      o.start(); o.stop(_audioCtx.currentTime + 0.18);
+    } catch {}
+  }
+  function notifyRound(me) {
+    const body = me.pairing.isBye ? 'Descansas (BYE)'
+      : me.pairing.lateLoss ? 'Entrada tardía'
+      : 'Mesa ' + me.pairing.table + (me.pairing.opponent ? ' · vs ' + me.pairing.opponent : '');
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch {}
+    beep();
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Ronda ' + me.currentRound + ' — ' + (me.name || 'Torneo'), { body, tag: 'ygo-round', renotify: true });
+      }
+    } catch {}
+  }
+
   // ---- pairing screen ----------------------------------------------------
   async function poll() {
     const j = joined(); if (!j) return;
     try {
       const me = await API.req('/tournaments/' + j.id + '/me', { auth: !j.guestToken, guestToken: j.guestToken });
       if (me.status === 'finished') { stopPoll(); showResults(j.id, j, () => { setJoined(null); renderJoin(); }); return; }
+      if (me.pairing && me.currentRound !== _lastRound) {
+        if (_lastRound !== -1 && me.currentRound > _lastRound) notifyRound(me);
+        _lastRound = me.currentRound;
+      }
       renderPairing(j, me);
     } catch (e) {
       if (e.status === 403) renderJoin('Ya no estás inscrito en ese torneo.');
@@ -201,7 +244,7 @@
       standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
       finished: pub.status === 'finished',
       maxRounds: pub.maxRounds, currentRound: pub.currentRound, note: pub.note || '',
-      date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
+      date: pub.date ? new Date(pub.date + 'T00:00:00') : (pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date()),
     };
   }
   async function shareResultsImage(pub, btn) {
@@ -374,7 +417,7 @@
     $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
   }
 
-  function startPoll() { stopPoll(); poll(); pollTimer = setInterval(poll, 4000); }
+  function startPoll() { stopPoll(); _lastRound = -1; poll(); pollTimer = setInterval(poll, 4000); }
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && joined()) poll(); });
 
@@ -402,6 +445,10 @@
 
   // ---- boot --------------------------------------------------------------
   mountThemeToggle();
+  // Prime audio + notification permission on the first user gesture, regardless of
+  // how the player entered (join-by-code, resume, deep link). Each fires once.
+  document.addEventListener('pointerdown', primeNotifications, { once: true });
+  document.addEventListener('keydown', primeNotifications, { once: true });
   // A shared link (/u/?torneo=CODE, also ?code= / #CODE) opens that tournament's
   // detail card automatically; otherwise show the join screen.
   const _sp = new URLSearchParams(location.search);

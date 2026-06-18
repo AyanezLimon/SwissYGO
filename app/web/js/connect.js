@@ -208,7 +208,7 @@
       standings: (pub.standings || []).map((s) => ({ name: s.name, matchPoints: s.points, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
       finished: pub.status === 'finished',
       maxRounds: pub.maxRounds, currentRound: pub.currentRound, note: pub.note || '',
-      date: pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date(),
+      date: pub.date ? new Date(pub.date + 'T00:00:00') : (pub.finished_at ? new Date(String(pub.finished_at).replace(' ', 'T') + 'Z') : new Date()),
     };
   }
   // Build the branded PNG on demand and share it (native sheet) or download it.
@@ -433,12 +433,14 @@
       </div>`;
     document.body.appendChild(m);
     requestAnimationFrame(() => m.classList.add('open'));
+    const close = () => { m.classList.remove('open'); setTimeout(() => m.remove(), 200); };
     m.querySelector('#code-copy').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(url); if (window.showToast) showToast('Enlace copiado'); }
       catch { if (window.showToast) showToast(url); }
+      close(); // copying confirms + dismisses, like "Listo"
     });
     m.addEventListener('click', (e) => {
-      if (e.target === m || e.target.closest('[data-close]')) { m.classList.remove('open'); setTimeout(() => m.remove(), 200); }
+      if (e.target === m || e.target.closest('[data-close]')) close();
     });
   }
 
