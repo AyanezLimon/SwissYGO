@@ -519,11 +519,32 @@
   // how the player entered (join-by-code, resume, deep link). Each fires once.
   document.addEventListener('pointerdown', primeNotifications, { once: true });
   document.addEventListener('keydown', primeNotifications, { once: true });
+
+  // An organizer administers; they don't play — so a TO must never sit on /u/.
+  // The stored role can be stale right after an upgrade (a freshly-promoted player
+  // was last seen as 'player'), so re-check with the server and, if this account is
+  // an organizer, send them to the console (/). Guests/players stay. Mirror of the
+  // console's applyView(), which routes players/guests the other way (→ /u/).
+  async function routeIfOrganizer() {
+    let tok = null; try { tok = localStorage.getItem('ygo_token'); } catch {}
+    if (!tok) return false;                     // guest / no account → stays on /u/
+    try {
+      const r = await API.me();
+      const role = r && r.user && r.user.role;
+      if (role) { try { localStorage.setItem('ygo_role', role); } catch {} } // keep stored role fresh
+      if (role === 'to') { location.replace('/'); return true; }
+    } catch (e) { /* offline or expired session → stay on /u/ */ }
+    return false;
+  }
+
   // A shared link (/u/?torneo=CODE, also ?code= / #CODE) opens that tournament's
   // detail card automatically; otherwise show the join screen.
-  const _sp = new URLSearchParams(location.search);
-  const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
-  if (joined()) startPoll();
-  else if (pre.length === 5) openByCode(pre);
-  else renderJoin(null, pre);
+  (async () => {
+    if (await routeIfOrganizer()) return;       // organizer → bounced to the console
+    const _sp = new URLSearchParams(location.search);
+    const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
+    if (joined()) startPoll();
+    else if (pre.length === 5) openByCode(pre);
+    else renderJoin(null, pre);
+  })();
 })();
