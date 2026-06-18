@@ -274,7 +274,7 @@ export default async function tournamentRoutes(app) {
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
     let s = {}; try { s = JSON.parse(t.state_json); } catch {}
     return {
-      id: t.id, name: s.name || t.name, code: t.join_code, status: t.status,
+      id: t.id, name: t.name, code: t.join_code, status: t.status,
       date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
       currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
     };
