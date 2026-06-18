@@ -77,8 +77,9 @@ export default async function adminRoutes(app) {
     return { ok: true };
   });
 
-  app.delete('/admin/tournaments/:id', { preHandler: guard }, async (req) => {
-    db.prepare('DELETE FROM tournaments WHERE id = ?').run(Number(req.params.id)); // registrations cascade (FK)
+  app.delete('/admin/tournaments/:id', { preHandler: guard }, async (req, reply) => {
+    const info = db.prepare('DELETE FROM tournaments WHERE id = ?').run(Number(req.params.id)); // registrations cascade (FK)
+    if (!info.changes) return reply.code(404).send({ error: 'Torneo no encontrado.' });
     return { ok: true };
   });
 }
