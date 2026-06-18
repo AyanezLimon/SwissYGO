@@ -91,6 +91,10 @@ export default async function tournamentRoutes(app) {
     } else {
       db.prepare('UPDATE tournaments SET state_json = ?, status = ? WHERE id = ?').run(JSON.stringify(state), status, row.id);
     }
+    // The name is DURABLE metadata: keep it in the tournaments.name column (not
+    // only in state_json, which is mutable). The TO's renames ride along here.
+    const name = (typeof req.body?.name === 'string' && req.body.name.trim()) ? req.body.name.trim().slice(0, 80) : null;
+    if (name && name !== row.name) db.prepare('UPDATE tournaments SET name = ? WHERE id = ?').run(name, row.id);
     return { ok: true, status };
   });
 
@@ -259,7 +263,7 @@ export default async function tournamentRoutes(app) {
     return rows.map((r) => {
       let s = {}; try { s = JSON.parse(r.state_json); } catch {}
       return {
-        id: r.id, name: s.name || r.name, code: r.join_code, status: r.status, created_at: r.created_at,
+        id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
         date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
         currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
       };

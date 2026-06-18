@@ -290,7 +290,10 @@
   function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(cloudSync, 400); }
   async function cloudSync() {
     if (!isCloud()) return;
-    try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state } }); }
+    // name = durable metadata → server stores it in the tournaments.name column
+    // (state_json is mutable). Only sent when set; empty leaves the column as-is.
+    const name = (state.name && state.name.trim()) || undefined;
+    try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name } }); }
     catch (e) { /* fail-soft: localStorage remains the cache; retry on next save */ }
   }
   // Push any debounced-but-unsent state before the page goes away, so closing the
@@ -305,7 +308,7 @@
       await fetch('/api/tournaments/' + state.cloud.id, {
         method: 'PUT', keepalive: true,
         headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}) },
-        body: JSON.stringify({ state }),
+        body: JSON.stringify({ state, name: (state.name && state.name.trim()) || undefined }),
       });
     } catch { /* best-effort */ }
   }
