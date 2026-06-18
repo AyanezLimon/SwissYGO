@@ -76,6 +76,29 @@ compiler) or the Docker path used in prod (`app/docker-compose.yml`). Launch rea
 curl -fsS https://torneodev.elbunkers.com/api/health
 ```
 
+## QA against the live server (connected mode)
+
+Two extra drivers exercise the **connected** features against the deployed dev server
+(`https://torneodev.elbunkers.com`) — useful when you can't build the API locally. Override the
+target with `BASE=...` and credentials with the env vars below.
+
+```bash
+# Player side, READ-ONLY (no joins/writes): gate, /u/ join screen, the detail card
+# via deep link for a late-open AND a closed tournament (both discovered live), and
+# account login → Mi perfil. Screenshots → screenshots-live/.
+node .claude/skills/run-swissygo/qa-live.mjs        # creds: QA_PLAYER_USER / QA_PLAYER_PASS
+
+# Full connected E2E (WRITES — needs a TO account): qa-to publishes a fresh tournament,
+# 4 guests self-register via the deep link, the console absorbs them, starts, a late
+# entry joins mid-event, the TO reports every round to the finish, and a player sees the
+# results card. Screenshots → screenshots-e2e/. Exits non-zero if it didn't reach finished.
+node .claude/skills/run-swissygo/qa-e2e.mjs         # creds: QA_TO_USER / QA_TO_PASS
+```
+
+`qa-e2e.mjs` only writes its **own** qa tournament (owned by the TO account); it leaves
+dev-clutter tournaments named `QA-E2E …` you can delete from the LAN admin page → Torneos tab.
+Both default to the `qa-to` / `qa-player` accounts (password `qa-pass-123`) on torneodev.
+
 ## Gotchas
 
 - **`better-sqlite3` won't `npm install` on Node 24 / win-x64**: no prebuilt binary for that
