@@ -30,7 +30,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       released: ${{ steps.rel.outputs.released }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # historial completo → notas de release correctas
 
@@ -89,7 +89,7 @@ jobs:
     needs: release
     runs-on: [self-hosted, swissygo-pi]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Publicar en el servidor web del Pi
         run: |

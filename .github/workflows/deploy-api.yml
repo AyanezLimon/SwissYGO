@@ -23,7 +23,7 @@ jobs:
   deploy:
     runs-on: [self-hosted, swissygo-pi]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build & (re)start API container
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
