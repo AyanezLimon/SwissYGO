@@ -161,39 +161,50 @@ html.gate-pending .wrap { visibility: hidden; }
 .pf-tk-sub { font-size: 12px; color: var(--ink-soft); font-family: var(--mono); }
 @media (prefers-reduced-motion: reduce) { .pf-ring .prog, .pf-bar-w, .pf-bar-l { transition: none; } }
 
-/* ── Registro roster: responsive chip grid ──────────────────────────────────
-   app.js renders #reg-list as a full-width 3-col <table> (pos | name | action).
-   At table width that strands "Eliminar" against the right edge with a big dead
-   gap after the name, and the tall rows make a real (8–32 player) field a long,
-   sparse scroll. Re-lay it out additively (no app.js/styles.css edit) as a
-   breathing grid of compact seat chips: 2–3 per row on desktop, 1 on phones. */
-#reg-list table { width: 100%; border-collapse: collapse; }
-#reg-list tbody {
+/* ── Registro setup: a human-flow form (event · roster · start) ──────────────
+   Lay it out by task, not by filling width (additive — no app.js/styles.css edit):
+   • Event identity at top: nombre | fecha (2 cols), then the optional, collapsed
+     Comentario/Premiación as event metadata — out of the roster's way.
+   • Roster (the primary, repeated task): add-player row + paste + the list.
+   • Start: rounds (with its suggestion inline, contextual to the now-known player
+     count) followed by the dominant full-width "Iniciar Torneo" CTA. Rounds + hint
+     live in #setup-controls, which app.js already hides once the event starts. */
+#tournament-meta {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 210px);
+  gap: 10px 12px; align-items: end;
 }
-#reg-list tr {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--field-bg); border: 1px solid var(--border-2);
-  border-radius: 10px; padding: 8px 10px 8px 12px; transition: border-color .15s;
+#reg-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 210px);
+  gap: 10px 12px; align-items: end;
 }
-#reg-list tr:hover { border-color: var(--gold-soft); }
-#reg-list td { padding: 0; border: 0; }
-#reg-list td.pos {
-  flex: none; min-width: 1.5em; text-align: right;
-  font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft);
+#tournament-date,
+#reg-input-row #player-name, #reg-input-row #add-player { width: 100%; box-sizing: border-box; }
+#note-details { margin: 0 0 18px; }   /* optional event metadata — clear gap before the roster begins */
+
+/* Compact the section header (we're already in the Registro tab) and pull it
+   close to the first field. The registrant count is moved out of the title (it's
+   more useful next to the rounds field — see #rounds-count) and hidden here. */
+#registration-card #reg-title { font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+#registration-card #reg-title .count { display: none; }
+
+/* Start zone: rounds + its suggestion sit inline (helper hugging its field), then
+   the dominant CTA below; the utility toolbar (export · import · publicar · the
+   danger "Nuevo Torneo") follows. #start-hint is the verbose twin of the inline
+   suggestion — hidden to avoid duplication (kept in the DOM; app.js writes it). */
+#rounds-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 14px; }
+#rounds-row label { font-weight: 600; color: var(--ink); }
+#rounds-row #num-rounds { width: 72px; box-sizing: border-box; }
+#rounds-row #rounds-count { margin: 0; color: var(--ink-soft); }
+#rounds-row #rounds-count b { color: var(--ink); font-weight: 700; }
+#rounds-row #rounds-suggestion { margin: 0; color: var(--ink-soft); }
+#setup-controls #start-hint { display: none; }
+#setup-controls #start-tournament { width: 100%; padding: 14px 20px; font-size: 16px; font-weight: 700; }
+
+@media (max-width: 460px) {            /* stack fields on phones */
+  #tournament-meta, #reg-input-row { grid-template-columns: 1fr; }
 }
-#reg-list tr td:nth-child(2) {   /* name + Late/DROP pills. Wrap (don't clip) so a
-                                    long name never hides the status pills app.js
-                                    appends in this same cell on started events. */
-  flex: 1; min-width: 0; color: var(--ink); font-weight: 600;
-  overflow-wrap: anywhere;
-}
-#reg-list tr td:last-child { flex: none; }
-/* "Eliminar" → a compact ✕ icon button (text hidden but kept as the a11y label). */
-#reg-list td:last-child .btn { padding: 4px 8px; min-width: 0; font-size: 0; line-height: 1; }
-#reg-list td:last-child .btn::after { content: "\2715"; font-size: 13px; }
 
 /* Player page (/u/) theme toggle — fixed top-right (no header to host it). On
    narrow screens the card is full-width, so clear space above it for the toggle. */

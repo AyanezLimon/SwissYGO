@@ -65,7 +65,7 @@
     if (!btn) {
       btn = document.createElement('button');
       btn.id = 'toolbar-publish'; btn.type = 'button';
-      tb.insertBefore(btn, tb.querySelector('#reset-all'));
+      tb.insertBefore(btn, tb.querySelector('.spacer') || tb.querySelector('#reset-all')); // group with the utilities, left of the spacer (keeps destructive "Nuevo Torneo" apart)
     }
     if (isCloud()) {
       btn.className = 'btn btn-sm';
@@ -653,9 +653,26 @@
     };
   }
 
+  // Surface the live registrant count next to the rounds field — that's what
+  // actually informs the rounds choice ("we're N players, how many rounds?"), so
+  // it's more useful there than in the section title (whose count we hide in CSS).
+  // app.js rebuilds the title (with its count) and calls renderRegistro() by name,
+  // so wrap the global to refresh our count on every render.
+  function syncRoundsCount() {
+    const el = document.getElementById('rounds-count');
+    if (!el) return;
+    const n = (typeof state !== 'undefined' && state && state.players) ? state.players.length : 0;
+    el.innerHTML = n ? '<b>' + n + '</b> ' + (n === 1 ? 'inscrito' : 'inscritos') : '';
+  }
+  if (typeof renderRegistro === 'function') {
+    const _renderRegistro = renderRegistro;
+    window.renderRegistro = function () { const r = _renderRegistro.apply(this, arguments); syncRoundsCount(); return r; };
+  }
+
   // ---- boot --------------------------------------------------------------
   wrapSave();
   wireTournamentFields();   // name/date inputs in the Registro section
+  syncRoundsCount();        // populate the count now (a tournament loaded from storage already rendered)
   renderAccount();
   refreshMe(); // sets role from the server then routes (applyView); falls back to stored role offline
 })();
