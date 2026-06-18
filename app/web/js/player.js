@@ -127,8 +127,9 @@
       action = joinControls('Confirmar registro');
     } else if (t.status === 'finished') {
       action = '<button class="btn btn-gold" id="results" style="width:100%">Ver resultados</button>';
-    } else if ((t.currentRound || 0) < (t.maxRounds || 0)) {
+    } else if (t.lateOpen) {
       // Running but rounds remain → late entry (official rule: a loss per played round).
+      // t.lateOpen is the server's own gate signal — UI can't advertise a 409.
       action = `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Este torneo ya comenzó (Ronda ${t.currentRound}/${t.maxRounds}). Puedes entrar como <b>entrada tardía</b>: recibes una derrota por cada ronda ya jugada y te emparejan desde la próxima.</div>`
         + joinControls('Entrar como entrada tardía');
     } else {

@@ -25,6 +25,11 @@ function emptyStateJson() {
 export default async function tournamentRoutes(app) {
   const db = app.db;
 
+  // Single source of truth for late-entry eligibility: the event is running and
+  // at least one more round can be generated. Used by /join (the gate) AND the
+  // read endpoints (so the UI never advertises a join the server would reject).
+  const isLateOpen = (s) => !!s.started && !s.finished && (s.rounds || []).length < (s.maxRounds || 0);
+
   // Any TO can administer ANY tournament (the TO role is system-wide, not per-event),
   // so console endpoints gate on the `to` role (requireTO) and only 404 here.
   // `to_user_id` is kept purely as "who created it" metadata.
@@ -148,7 +153,7 @@ export default async function tournamentRoutes(app) {
     // and rounds remain (rounds.length < maxRounds). The TO console absorbs late
     // entries with a loss per already-played round (official rule).
     let st = {}; try { st = JSON.parse(t.state_json); } catch {}
-    const lateOpen = !!st.started && !st.finished && (st.rounds || []).length < (st.maxRounds || 0);
+    const lateOpen = isLateOpen(st);
     const open = t.status === 'setup' || lateOpen;
     const closedMsg = st.finished ? 'Este torneo ya finalizó.' : 'El registro de este torneo ya cerró.';
 
@@ -274,7 +279,7 @@ export default async function tournamentRoutes(app) {
       return {
         id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
         date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
-        currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
+        currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0, lateOpen: isLateOpen(s),
       };
     });
   });
@@ -289,7 +294,7 @@ export default async function tournamentRoutes(app) {
     return {
       id: t.id, name: t.name, code: t.join_code, status: t.status,
       date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
-      currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
+      currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0, lateOpen: isLateOpen(s),
     };
   });
 
