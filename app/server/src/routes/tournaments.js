@@ -265,7 +265,7 @@ export default async function tournamentRoutes(app) {
       roundNumber: r.roundNumber,
       matches: r.matches.map((m) => ({ bye: !!m.isBye, p1: pname(m.p1Id), p2: m.isBye ? null : pname(m.p2Id), result: m.result, reported: !!m.isReported })),
     }));
-    return { name: t.name, status: t.status, finished_at: t.finished_at, note: state.note || '', currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
+    return { name: t.name, status: t.status, finished_at: t.finished_at, date: state.eventDate || null, note: state.note || '', currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
   });
 
   // Public list of active tournaments (accepting registration or running) so
