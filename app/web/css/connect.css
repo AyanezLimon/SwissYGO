@@ -210,3 +210,36 @@ html.gate-pending .wrap { visibility: hidden; }
    narrow screens the card is full-width, so clear space above it for the toggle. */
 .theme-switch.u-theme { position: fixed; top: 10px; right: 12px; z-index: 60; margin: 0; padding: 6px; }
 @media (max-width: 560px) { .theme-switch.u-theme { top: 6px; right: 8px; } #player { padding-top: 48px; } }
+
+/* Notifications bell toggle — sits just left of the theme switch. Solid gold bell
+   when ON; desaturated + a red slash when muted (standard mute affordance). */
+.notif-switch.u-notif {
+  position: fixed; top: 10px; right: 54px; z-index: 60;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 30px; padding: 0; line-height: 0;
+  background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; cursor: pointer;
+}
+.notif-switch.u-notif:hover { border-color: var(--gold-soft); }
+.notif-switch.u-notif svg { width: 17px; height: 17px; fill: var(--gold); display: block; }
+.notif-switch.u-notif.off svg { fill: var(--ink-faint); }                 /* desaturated when muted */
+.notif-switch.u-notif.off::after {                                        /* crossed-out slash */
+  content: ''; position: absolute; left: 6px; right: 6px; top: 50%;
+  height: 2px; border-radius: 2px; background: var(--crimson); transform: rotate(-45deg);
+}
+@media (max-width: 560px) { .notif-switch.u-notif { top: 6px; right: 50px; } }
+
+/* Player alert banner (round start / tournament finished) — fixed top toast that
+   covers the foreground case (browsers suppress OS notifications for a visible tab). */
+#ygo-banner {
+  position: fixed; left: 12px; right: 12px; top: 12px; z-index: 80; max-width: 520px; margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel-2); border: 1px solid var(--gold); border-radius: 12px;
+  padding: 12px 14px; color: var(--ink); box-shadow: 0 12px 34px rgba(0, 0, 0, .5);
+  transform: translateY(-150%); opacity: 0;
+  transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .32s; cursor: pointer;
+}
+#ygo-banner.show { transform: translateY(0); opacity: 1; }
+#ygo-banner strong { font-weight: 800; }
+#ygo-banner span { color: var(--ink-soft); flex: 1; min-width: 0; }
+#ygo-banner i { color: var(--ink-faint); font-style: normal; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { #ygo-banner { transition: opacity .2s; transform: none; } }
