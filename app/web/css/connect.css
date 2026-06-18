@@ -184,9 +184,11 @@ html.gate-pending .wrap { visibility: hidden; }
   flex: none; min-width: 1.5em; text-align: right;
   font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft);
 }
-#reg-list tr td:nth-child(2) {   /* name (+ Late/DROP pills) — fills, ellipsises */
+#reg-list tr td:nth-child(2) {   /* name + Late/DROP pills. Wrap (don't clip) so a
+                                    long name never hides the status pills app.js
+                                    appends in this same cell on started events. */
   flex: 1; min-width: 0; color: var(--ink); font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 #reg-list tr td:last-child { flex: none; }
 /* "Eliminar" → a compact ✕ icon button (text hidden but kept as the a11y label). */
