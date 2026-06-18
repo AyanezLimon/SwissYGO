@@ -24,7 +24,13 @@
   .tag.off { color:var(--crimson); border-color:#5a2a28; } .tag.on { color:var(--green); border-color:#2f5a32; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .err { color:var(--crimson); min-height:18px; margin-top:8px; }
-  .actions button { padding:5px 9px; font-size:12.5px; }
+  /* Action cells stay real table-cells (NOT flex) so columns line up; buttons are
+     inline-block with even spacing, and the role toggle has a fixed width so its
+     varying label ("Organizador" vs "Jugador") doesn't shift the rest of the row. */
+  td.actions { white-space:nowrap; }
+  .actions button { padding:5px 9px; font-size:12.5px; margin-right:6px; }
+  .actions button:last-child { margin-right:0; }
+  .actions [data-act="role"] { min-width:124px; }
   .tabbtn { background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--soft); padding:6px 4px; }
   .tabbtn.active { color:var(--gold); border-bottom-color:var(--gold); }
 </style>
@@ -47,6 +53,7 @@
       <div class="row" style="gap:4px">
         <button class="tabbtn active" id="tab-users">Usuarios</button>
         <button class="tabbtn" id="tab-tourneys">Torneos</button>
+        <button class="tabbtn" id="tab-regs">Inscripciones</button>
       </div>
       <button id="refresh">Recargar</button>
     </div>
@@ -67,6 +74,14 @@
         <tbody id="trows"></tbody>
       </table>
     </div>
+
+    <div id="view-regs" hidden>
+      <strong id="rcount"></strong>
+      <table>
+        <thead><tr><th>Torneo</th><th>Inscrito</th><th>Tipo</th><th>Unido</th><th>Acciones</th></tr></thead>
+        <tbody id="rrows"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -74,7 +89,11 @@
   let PW = '';
   const $ = (s) => document.querySelector(s);
   async function api(path, opts = {}) {
-    const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-Admin-Password': PW, ...(opts.headers || {}) } });
+    // Only send a JSON content-type when there's actually a body — a DELETE/GET with
+    // Content-Type: application/json and an empty body makes Fastify 400 ("bad request").
+    const headers = { 'X-Admin-Password': PW, ...(opts.headers || {}) };
+    if (opts.body) headers['Content-Type'] = 'application/json';
+    const res = await fetch(path, { ...opts, headers });
     const t = await res.text(); const d = t ? JSON.parse(t) : null;
     if (!res.ok) throw new Error((d && d.error) || res.statusText);
     return d;
@@ -92,7 +111,7 @@
           <td><span class="tag ${u.role}">${u.role === 'to' ? 'Organizador' : 'Jugador'}</span></td>
           <td><span class="tag ${u.disabled ? 'off' : 'on'}">${u.disabled ? 'Deshabilitado' : 'Activo'}</span></td>
           <td style="color:var(--soft);font-size:12.5px">${esc((u.created_at||'').replace('T',' ').slice(0,16))}</td>
-          <td class="actions row">
+          <td class="actions">
             <button data-act="role">${u.role === 'to' ? '↓ Jugador' : '↑ Organizador'}</button>
             <button data-act="disable">${u.disabled ? 'Activar' : 'Deshabilitar'}</button>
             <button data-act="pw">Contraseña</button>
@@ -115,7 +134,7 @@
           <td>${t.status === 'setup' ? '—' : t.currentRound + '/' + t.maxRounds}</td>
           <td>${t.players}</td>
           <td style="color:var(--soft);font-size:12.5px">${esc((t.created_at||'').replace('T',' ').slice(0,16))}</td>
-          <td class="actions row">
+          <td class="actions">
             <button data-act="rename">Renombrar</button>
             <button class="btn-danger" data-act="del">Eliminar</button>
           </td>
@@ -123,14 +142,33 @@
     } catch (e) { $('#err').textContent = e.message; }
   }
 
+  async function loadRegistrations() {
+    $('#err').textContent = '';
+    try {
+      const rs = await api('/admin/registrations');
+      $('#rcount').textContent = rs.length + ' inscripción(es)';
+      $('#rrows').innerHTML = rs.map(r => `
+        <tr data-tid="${r.tournament_id}" data-pid="${esc(r.player_id)}">
+          <td>${esc(r.tournament || '—')}<div style="color:var(--soft);font-size:12px">${esc(r.code || '')}</div></td>
+          <td>${esc(r.display_name || '—')}</td>
+          <td><span class="tag ${r.kind === 'cuenta' ? 'to' : 'player'}">${r.kind}</span>${r.account ? `<div style="color:var(--soft);font-size:12px">${esc(r.account)}</div>` : ''}</td>
+          <td style="color:var(--soft);font-size:12.5px">${esc((r.joined_at||'').replace('T',' ').slice(0,16))}</td>
+          <td class="actions"><button class="btn-danger" data-act="del">Eliminar</button></td>
+        </tr>`).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+
+  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations };
   let view = 'users';
   function showView(v) {
     view = v;
     $('#tab-users').classList.toggle('active', v === 'users');
     $('#tab-tourneys').classList.toggle('active', v === 'tourneys');
+    $('#tab-regs').classList.toggle('active', v === 'regs');
     $('#view-users').hidden = v !== 'users';
     $('#view-tourneys').hidden = v !== 'tourneys';
-    (v === 'users' ? load : loadTournaments)();
+    $('#view-regs').hidden = v !== 'regs';
+    loaders[v]();
   }
 
   $('#enter').addEventListener('click', async () => {
@@ -139,9 +177,20 @@
     catch (e) { $('#login-err').textContent = e.message; }
   });
   $('#pw').addEventListener('keyup', (e) => { if (e.key === 'Enter') $('#enter').click(); });
-  $('#refresh').addEventListener('click', () => (view === 'users' ? load : loadTournaments)());
+  $('#refresh').addEventListener('click', () => loaders[view]());
   $('#tab-users').addEventListener('click', () => showView('users'));
   $('#tab-tourneys').addEventListener('click', () => showView('tourneys'));
+  $('#tab-regs').addEventListener('click', () => showView('regs'));
+
+  $('#rrows').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act="del"]'); if (!btn) return;
+    const tr = btn.closest('tr');
+    if (!confirm('¿Eliminar esta inscripción?')) return;
+    try {
+      await api('/admin/registrations/' + tr.dataset.tid + '/' + encodeURIComponent(tr.dataset.pid), { method: 'DELETE' });
+      loadRegistrations();
+    } catch (err) { $('#err').textContent = err.message; }
+  });
 
   $('#trows').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act]'); if (!btn) return;

@@ -82,4 +82,29 @@ export default async function adminRoutes(app) {
     if (!info.changes) return reply.code(404).send({ error: 'Torneo no encontrado.' });
     return { ok: true };
   });
+
+  // ---- Registrations (read / delete) ----
+  // No "id" column: a registration is keyed by (tournament_id, player_id). guest_token
+  // is never exposed; we only surface whether the entry is an account or a guest.
+  app.get('/admin/registrations', { preHandler: guard }, async () => {
+    const rows = db.prepare(`SELECT r.tournament_id, r.player_id, r.display_name, r.user_id, r.joined_at,
+                                    t.name AS tournament, t.join_code AS code, u.username AS account
+                             FROM registrations r
+                             LEFT JOIN tournaments t ON t.id = r.tournament_id
+                             LEFT JOIN users u ON u.id = r.user_id
+                             ORDER BY r.joined_at DESC`).all();
+    return rows.map((r) => ({
+      tournament_id: r.tournament_id, player_id: r.player_id, display_name: r.display_name,
+      tournament: r.tournament, code: r.code,
+      kind: r.user_id ? 'cuenta' : 'invitado', account: r.account || null,
+      joined_at: r.joined_at,
+    }));
+  });
+
+  app.delete('/admin/registrations/:tournamentId/:playerId', { preHandler: guard }, async (req, reply) => {
+    const info = db.prepare('DELETE FROM registrations WHERE tournament_id = ? AND player_id = ?')
+      .run(Number(req.params.tournamentId), req.params.playerId);
+    if (!info.changes) return reply.code(404).send({ error: 'Inscripción no encontrada.' });
+    return { ok: true };
+  });
 }
