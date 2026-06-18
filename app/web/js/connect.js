@@ -24,7 +24,7 @@
       setUser(r.user.username); setRole(r.user.role);
       renderAccount();
       applyView();
-      if (isCloud() && isTO() && !state.started) startRegPoll();
+      if (isCloud() && isTO()) startRegPoll(); // self-gates (setup or late-entry window)
     } catch (e) {
       if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); }
       applyView(); // fall back to stored role when offline
@@ -266,7 +266,7 @@
       if (window.switchTab) switchTab(state.finished ? 'standings' : state.started ? 'rondas' : 'registro');
       renderAccount();
       syncTournamentFields();
-      if (!state.started && !state.finished) startRegPoll();
+      startRegPoll(); // self-gates (setup or running late-entry window)
       if (window.showToast) showToast('Torneo «' + t.name + '» abierto.');
     };
     const msg = 'Abrir «' + t.name + '» reemplaza el torneo que tienes en pantalla. ¿Continuar?';
@@ -366,34 +366,51 @@
     }
   }
 
-  // While registration is open, pull self-registrations and absorb them into the
-  // TO's player list (single-writer: the TO writes state, players only register).
+  // Pull self-registrations and absorb them (single-writer: the TO writes state,
+  // players only register). Runs during setup AND while the event is running with
+  // rounds left — the latter absorbs newcomers as LATE ENTRIES.
+  const lateOpen = () => isCloud() && state.started && !state.finished && (state.rounds || []).length < state.maxRounds;
+  const regPollActive = () => isCloud() && !state.finished && (!state.started || lateOpen());
   function startRegPoll() {
     stopRegPoll();
-    if (!isCloud() || state.started) return;
+    if (!regPollActive()) return;
     regPollTimer = setInterval(absorbRegistrations, 4000);
     absorbRegistrations();
   }
   function stopRegPoll() { if (regPollTimer) { clearInterval(regPollTimer); regPollTimer = null; } }
+  // Late entry (official rule): the player joins a running event with a loss for
+  // each round already generated, then gets paired from the next round. Uses the
+  // registration's player_id so the player's /me poll matches their slot.
+  function addLatePlayerFromReg(r) {
+    const mkid = window.uid || (() => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+    const player = { id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, lateEntry: true, userId: r.user_id || null };
+    for (const round of (state.rounds || [])) {
+      round.matches.push({ id: mkid(), p1Id: player.id, p2Id: null, result: 'lateLoss', isBye: false, isReported: true, isLateLoss: true });
+    }
+    state.players.push(player);
+  }
   async function absorbRegistrations() {
-    if (!isCloud() || state.started) { stopRegPoll(); return; }
+    if (!regPollActive()) { stopRegPoll(); return; }
     try {
       const regs = await API.req('/tournaments/' + state.cloud.id + '/registrations');
       const removed = (state.cloud && state.cloud.removed) || [];
-      let added = 0;
+      const late = !!state.started; // running → newcomers enter as late entries
+      let n = 0;
       for (const r of regs) {
         // Skip registrations the TO removed via "Eliminar": absorbing them again
         // would resurrect a no-show right after the TO took them out.
         if (removed.includes(r.player_id)) continue;
-        if (!state.players.some((p) => p.id === r.player_id)) {
-          state.players.push({ id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, userId: r.user_id || null });
-          added++;
-        }
+        if (state.players.some((p) => p.id === r.player_id)) continue;
+        if (late) addLatePlayerFromReg(r);
+        else state.players.push({ id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, userId: r.user_id || null });
+        n++;
       }
-      if (added) {
+      if (n) {
         save();
         if (window.render) render();
-        if (window.showToast) showToast(added + (added === 1 ? ' jugador se inscribió.' : ' jugadores se inscribieron.'));
+        if (window.showToast) showToast(late
+          ? n + (n === 1 ? ' jugador entró tarde (derrota por ronda jugada).' : ' jugadores entraron tarde (derrota por ronda jugada).')
+          : n + (n === 1 ? ' jugador se inscribió.' : ' jugadores se inscribieron.'));
       }
     } catch (e) { /* ignore transient poll errors */ }
   }

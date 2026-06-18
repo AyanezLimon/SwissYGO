@@ -117,16 +117,23 @@
     const logged = loggedIn();
     const label = t.status === 'finished' ? 'Finalizado' : t.status === 'running' ? 'En curso' : 'Registro abierto';
     const pill = t.status === 'setup' ? 'pill-ok' : 'pill-pend';
+    // Account → joins as username; guest → typed name. Shared by setup + late entry.
+    const joinControls = (btnLabel) => (logged
+      ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Te inscribes como <b>${esc(uname() || 'tu cuenta')}</b></div>`
+      : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`)
+      + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">${btnLabel}</button>`;
     let action;
     if (t.status === 'setup') {
-      action = (logged
-        ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Te inscribes como <b>${esc(uname() || 'tu cuenta')}</b></div>`
-        : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`)
-        + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">Confirmar registro</button>`;
+      action = joinControls('Confirmar registro');
     } else if (t.status === 'finished') {
       action = '<button class="btn btn-gold" id="results" style="width:100%">Ver resultados</button>';
+    } else if (t.lateOpen) {
+      // Running but rounds remain → late entry (official rule: a loss per played round).
+      // t.lateOpen is the server's own gate signal — UI can't advertise a 409.
+      action = `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Este torneo ya comenzó (Ronda ${t.currentRound}/${t.maxRounds}). Puedes entrar como <b>entrada tardía</b>: recibes una derrota por cada ronda ya jugada y te emparejan desde la próxima.</div>`
+        + joinControls('Entrar como entrada tardía');
     } else {
-      action = '<div class="muted" style="font-size:13px;text-align:center;padding:6px 0">El registro de este torneo ya cerró.</div>';
+      action = '<div class="muted" style="font-size:13px;text-align:center;padding:6px 0">El registro cerró y no quedan rondas por jugar.</div>';
     }
     const meta = `${t.date ? esc(fmtDate(t.date)) + ' · ' : ''}${t.players} jugador(es)`
       + `${t.status === 'running' ? ` · Ronda ${t.currentRound}/${t.maxRounds}` : ''}`
@@ -339,6 +346,8 @@
       stopPoll();
     } else if (!me.pairing) {
       body = `<div class="big">✅ Inscrito</div><p class="muted">Espera a que el organizador inicie el torneo o genere la ronda.</p>`;
+    } else if (me.pairing.lateLoss) {
+      body = `<div class="round">Ronda ${me.currentRound} de ${me.maxRounds}</div><div class="big">Entrada tardía</div><p class="muted">Recibes una derrota administrativa esta ronda. Te emparejan desde la próxima.</p>`;
     } else if (me.pairing.isBye) {
       body = `<div class="round">Ronda ${me.currentRound} de ${me.maxRounds}</div><div class="big">Descansas (BYE)</div><p class="muted">Ganas la ronda automáticamente.</p>`;
     } else {
