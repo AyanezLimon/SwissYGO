@@ -144,6 +144,14 @@ export default async function tournamentRoutes(app) {
     const t = db.prepare('SELECT * FROM tournaments WHERE join_code = ?').get(code);
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
 
+    // Registration is open during setup OR as a LATE ENTRY while the event runs
+    // and rounds remain (rounds.length < maxRounds). The TO console absorbs late
+    // entries with a loss per already-played round (official rule).
+    let st = {}; try { st = JSON.parse(t.state_json); } catch {}
+    const lateOpen = !!st.started && !st.finished && (st.rounds || []).length < (st.maxRounds || 0);
+    const open = t.status === 'setup' || lateOpen;
+    const closedMsg = st.finished ? 'Este torneo ya finalizó.' : 'El registro de este torneo ya cerró.';
+
     let userId = null;
     try { await req.jwtVerify(); userId = req.user.id; } catch { /* guest */ }
 
@@ -159,16 +167,16 @@ export default async function tournamentRoutes(app) {
       // to "Name (2)" at insert, and that's the name used in state.players/pairings.
       const existing = db.prepare('SELECT player_id, display_name FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
       if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name };
-      if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
+      if (!open) return reply.code(409).send({ error: closedMsg });
       const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
       db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name) VALUES (?, ?, ?, ?)')
         .run(t.id, userId, playerId, dn);
-      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn });
+      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, late: lateOpen });
     }
 
     // Guest: no persistent identity, so no resume — registration must be open.
-    if (t.status !== 'setup') return reply.code(409).send({ error: 'El registro de este torneo ya cerró.' });
+    if (!open) return reply.code(409).send({ error: closedMsg });
     const name = (req.body?.name || '').trim().slice(0, 40);
     if (!name) return reply.code(400).send({ error: 'Indica un nombre para inscribirte como invitado.' });
     const dn = uniqueName(t, name);
@@ -176,7 +184,7 @@ export default async function tournamentRoutes(app) {
     const playerId = 'g-' + guestToken.slice(0, 8) + '-' + Date.now().toString(36);
     db.prepare('INSERT INTO registrations (tournament_id, guest_token, player_id, display_name) VALUES (?, ?, ?, ?)')
       .run(t.id, guestToken, playerId, dn);
-    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, guest_token: guestToken });
+    return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, guest_token: guestToken, late: lateOpen });
   });
 
   // Polled by the player view (~every 4s). Identify by JWT (account) or
@@ -200,10 +208,11 @@ export default async function tournamentRoutes(app) {
       if (m) {
         const oppId = m.p1Id === reg.player_id ? m.p2Id : m.p1Id;
         const opp = oppId ? state.players.find((p) => p.id === oppId) : null;
-        const table = round.matches.filter((x) => !x.isBye).indexOf(m) + 1;
+        const table = round.matches.filter((x) => !x.isBye && !x.isLateLoss).indexOf(m) + 1;
         pairing = {
           isBye: !!m.isBye,
-          table: m.isBye ? null : table,
+          lateLoss: !!m.isLateLoss,                 // admin loss for joining mid-event
+          table: (m.isBye || m.isLateLoss) ? null : table,
           opponent: opp ? opp.name : null,
           result: m.result,
           reported: !!m.isReported,
