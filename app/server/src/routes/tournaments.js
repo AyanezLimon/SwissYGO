@@ -91,6 +91,10 @@ export default async function tournamentRoutes(app) {
     } else {
       db.prepare('UPDATE tournaments SET state_json = ?, status = ? WHERE id = ?').run(JSON.stringify(state), status, row.id);
     }
+    // The name is DURABLE metadata: keep it in the tournaments.name column (not
+    // only in state_json, which is mutable). The TO's renames ride along here.
+    const name = (typeof req.body?.name === 'string' && req.body.name.trim()) ? req.body.name.trim().slice(0, 80) : null;
+    if (name && name !== row.name) db.prepare('UPDATE tournaments SET name = ? WHERE id = ?').run(name, row.id);
     return { ok: true, status };
   });
 
@@ -260,9 +264,24 @@ export default async function tournamentRoutes(app) {
       let s = {}; try { s = JSON.parse(r.state_json); } catch {}
       return {
         id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
-        players: (s.players || []).length, note: s.note || '', maxRounds: s.maxRounds || 0,
+        date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
+        currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
       };
     });
+  });
+
+  // Public summary by join code — powers the player's tournament detail card
+  // (deep link /u/?torneo=CODE and the active-list card). No state mutation.
+  app.get('/api/tournaments/by-code/:code', async (req, reply) => {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const t = db.prepare('SELECT * FROM tournaments WHERE join_code = ?').get(code);
+    if (!t) return reply.code(404).send({ error: 'Código inválido.' });
+    let s = {}; try { s = JSON.parse(t.state_json); } catch {}
+    return {
+      id: t.id, name: t.name, code: t.join_code, status: t.status,
+      date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
+      currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
+    };
   });
 
   // Account-only profile/stats: overall record + win%, per-tournament placement,

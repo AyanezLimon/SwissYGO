@@ -93,14 +93,58 @@
             <b>${esc(t.name)}</b>
             <span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span>
           </div>
-          <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
+          <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
         </div>`).join('');
-      el.querySelectorAll('.tcard').forEach((c) => c.addEventListener('click', () => {
-        if (c.dataset.open !== '1') { const pe = $('#perr'); if (pe) pe.textContent = 'Ese torneo ya cerró el registro.'; return; }
-        doJoin(c.dataset.code);
-      }));
+      el.querySelectorAll('.tcard').forEach((c, i) => c.addEventListener('click', () => showTournamentCard(list[i])));
     } catch (e) { el.innerHTML = '<p class="muted" style="font-size:13px">No se pudo cargar la lista de torneos.</p>'; }
+  }
+
+  // Open the tournament detail card from a code (deep link /u/?torneo=CODE).
+  async function openByCode(code) {
+    try {
+      const t = await API.req('/tournaments/by-code/' + encodeURIComponent(code), { auth: false });
+      showTournamentCard(t);
+    } catch (e) { renderJoin(e.status === 404 ? 'Código inválido.' : null, code); }
+  }
+
+  // Detailed tournament card — reused by the deep link and the active list. Shows
+  // the event info and a "Confirmar registro" action (setup), results (finished),
+  // or a closed notice (running; late entry comes in Part 3).
+  function showTournamentCard(t) {
+    stopPoll();
+    root.classList.remove('results');
+    const logged = loggedIn();
+    const label = t.status === 'finished' ? 'Finalizado' : t.status === 'running' ? 'En curso' : 'Registro abierto';
+    const pill = t.status === 'setup' ? 'pill-ok' : 'pill-pend';
+    let action;
+    if (t.status === 'setup') {
+      action = (logged
+        ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Te inscribes como <b>${esc(uname() || 'tu cuenta')}</b></div>`
+        : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`)
+        + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">Confirmar registro</button>`;
+    } else if (t.status === 'finished') {
+      action = '<button class="btn btn-gold" id="results" style="width:100%">Ver resultados</button>';
+    } else {
+      action = '<div class="muted" style="font-size:13px;text-align:center;padding:6px 0">El registro de este torneo ya cerró.</div>';
+    }
+    const meta = `${t.date ? esc(fmtDate(t.date)) + ' · ' : ''}${t.players} jugador(es)`
+      + `${t.status === 'running' ? ` · Ronda ${t.currentRound}/${t.maxRounds}` : ''}`
+      + ` · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b>`;
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
+          <h2 style="margin:0">${esc(t.name)}</h2>
+          <span class="pill ${pill}">${label}</span>
+        </div>
+        <div class="muted" style="font-size:12.5px;margin:6px 0 12px">${meta}</div>
+        ${t.note ? `<div style="background:var(--field-bg);border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--ink-soft);white-space:pre-wrap">${esc(t.note)}</div>` : ''}
+        <div style="margin-top:14px">${action}</div>
+        <button class="btn btn-sm btn-ghost" id="back" style="width:100%;margin-top:10px">← Volver</button>
+      </div>`;
+    const c = $('#confirm'); if (c) c.addEventListener('click', () => doJoin(t.code));
+    const rs = $('#results'); if (rs) rs.addEventListener('click', () => showResults(t.id, null, () => showTournamentCard(t)));
+    $('#back').addEventListener('click', () => renderJoin());
   }
 
   async function doJoin(code) {
@@ -349,8 +393,11 @@
 
   // ---- boot --------------------------------------------------------------
   mountThemeToggle();
-  // Allow ?code=XXXX / #XXXX prefill from a shared link.
-  const pre = (new URLSearchParams(location.search).get('code') || location.hash.replace('#', '')).toUpperCase();
+  // A shared link (/u/?torneo=CODE, also ?code= / #CODE) opens that tournament's
+  // detail card automatically; otherwise show the join screen.
+  const _sp = new URLSearchParams(location.search);
+  const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
   if (joined()) startPoll();
+  else if (pre.length === 5) openByCode(pre);
   else renderJoin(null, pre);
 })();

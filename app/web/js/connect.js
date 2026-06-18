@@ -45,9 +45,11 @@
     if (hasSession()) {
       let cloud = '';
       if (isTO()) {
+        // ☁ Publicar lives in the file toolbar now (see mountToolbarPublish); the
+        // header keeps the code/link button (reachable from any tab while running).
         cloud = isCloud()
-          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y estado">Código <b></b></button>`
-          : `<button class="btn btn-sm" data-acc="publish" title="Publicar para que jugadores se inscriban">☁ Publicar</button>`;
+          ? `<button class="btn btn-sm" data-acc="code" title="Ver código y enlace">Código <b></b></button>`
+          : '';
         cloud += `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>`;
       }
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
@@ -55,6 +57,24 @@
       if (isTO() && isCloud()) ctl.querySelector('[data-acc="code"] b').textContent = state.cloud.code;
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
+    }
+    mountToolbarPublish();
+  }
+
+  // ☁ Publicar in the file toolbar (with Exportar/Importar/Nuevo torneo), shown
+  // only to a TO that hasn't cloud-linked a tournament yet.
+  function mountToolbarPublish() {
+    const tb = document.querySelector('.toolbar');
+    if (!tb || !tb.querySelector('#reset-all')) return; // only the file toolbar
+    let btn = document.getElementById('toolbar-publish');
+    if (!(hasSession() && isTO() && !isCloud())) { if (btn) btn.remove(); return; }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'btn btn-sm btn-gold'; btn.id = 'toolbar-publish'; btn.type = 'button';
+      btn.textContent = '☁ Publicar';
+      btn.title = 'Publicar para que jugadores se inscriban';
+      btn.addEventListener('click', publish);
+      tb.insertBefore(btn, tb.querySelector('#reset-all'));
     }
   }
 
@@ -245,6 +265,7 @@
       if (window.render) render();
       if (window.switchTab) switchTab(state.finished ? 'standings' : state.started ? 'rondas' : 'registro');
       renderAccount();
+      syncTournamentFields();
       if (!state.started && !state.finished) startRegPoll();
       if (window.showToast) showToast('Torneo «' + t.name + '» abierto.');
     };
@@ -269,7 +290,10 @@
   function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(cloudSync, 400); }
   async function cloudSync() {
     if (!isCloud()) return;
-    try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state } }); }
+    // name = durable metadata → server stores it in the tournaments.name column
+    // (state_json is mutable). Only sent when set; empty leaves the column as-is.
+    const name = (state.name && state.name.trim()) || undefined;
+    try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name } }); }
     catch (e) { /* fail-soft: localStorage remains the cache; retry on next save */ }
   }
   // Push any debounced-but-unsent state before the page goes away, so closing the
@@ -284,20 +308,56 @@
       await fetch('/api/tournaments/' + state.cloud.id, {
         method: 'PUT', keepalive: true,
         headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: 'Bearer ' + t } : {}) },
-        body: JSON.stringify({ state }),
+        body: JSON.stringify({ state, name: (state.name && state.name.trim()) || undefined }),
       });
     } catch { /* best-effort */ }
   }
   window.addEventListener('pagehide', flushSync);
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
 
+  const ddmmyyyy = (iso) => { const p = String(iso).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; };
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+
+  // Name + date are filled in the Registro section (#tournament-name / -date),
+  // alongside the player list and the note — NOT in a publish modal. They live in
+  // state_json (state.name / state.eventDate); publish just reads them. Wired once,
+  // mirroring app.js's #tournament-note pattern (persist on input, refill on load).
+  let tfWired = false;
+  function wireTournamentFields() {
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    if (nameEl && dateEl && !tfWired) {
+      tfWired = true;
+      nameEl.addEventListener('input', () => { state.name = nameEl.value.trim(); save(); });
+      dateEl.addEventListener('change', () => { state.eventDate = dateEl.value || todayISO(); save(); });
+    }
+    syncTournamentFields();
+  }
+  function syncTournamentFields() {
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    if (nameEl && document.activeElement !== nameEl) {
+      nameEl.value = state.name || '';
+      nameEl.placeholder = 'Torneo - ' + ddmmyyyy(todayISO());
+    }
+    if (dateEl && document.activeElement !== dateEl) dateEl.value = state.eventDate || todayISO();
+  }
+
+  // Publish reads the already-filled Registro fields — no extra form. Empty name →
+  // "Torneo - DD/MM/YYYY"; date defaults to today.
   async function publish() {
     if (!hasSession()) { showGate(); return; }
-    const name = (state.note && state.note.trim()) || ('Torneo ' + new Date().toLocaleDateString());
+    const nameEl = document.getElementById('tournament-name');
+    const dateEl = document.getElementById('tournament-date');
+    const date = (dateEl && dateEl.value) || todayISO();
+    const typed = nameEl ? nameEl.value.trim() : '';
+    const name = typed || ('Torneo - ' + ddmmyyyy(date));
     try {
       const r = await API.req('/tournaments', { method: 'POST', body: { name } });
       state.cloud = { id: r.id, code: r.join_code };
-      save();              // persists locally + first cloud push (wrapped)
+      state.name = typed;              // live name (empty → /u/ falls back to stored name)
+      state.eventDate = date;          // planned event date, travels in state_json
+      save();                          // local + first cloud push (wrapped)
       startRegPoll();
       renderAccount();
       showCodeModal(r.join_code);
@@ -340,17 +400,24 @@
 
   function showCodeModal(code) {
     if (document.getElementById('code-modal')) return;
+    const url = location.origin + '/u/?torneo=' + code;
     const m = document.createElement('div');
     m.className = 'modal-overlay'; m.id = 'code-modal';
     m.innerHTML = `
-      <div class="modal" style="max-width:380px;text-align:center">
+      <div class="modal" style="max-width:400px;text-align:center">
         <h3 class="modal-title">Torneo publicado</h3>
-        <p class="modal-msg" style="margin-bottom:8px">Los jugadores entran a <b>torneodev.elbunkers.com/u</b> e ingresan este código:</p>
-        <div style="font-family:var(--mono);font-size:42px;font-weight:800;letter-spacing:8px;color:var(--gold);margin:4px 0 18px">${code}</div>
-        <div class="modal-actions" style="justify-content:center"><button class="btn btn-gold" data-close>Listo</button></div>
+        <p class="modal-msg" style="margin-bottom:8px">Comparte el enlace, o el código para entrar en <b>${location.host}/u</b>:</p>
+        <div style="font-family:var(--mono);font-size:42px;font-weight:800;letter-spacing:8px;color:var(--gold);margin:4px 0 14px">${code}</div>
+        <div class="modal-actions" style="justify-content:center;gap:8px">
+          <button class="btn btn-gold" id="code-copy">📋 Copiar enlace</button>
+          <button class="btn btn-ghost" data-close>Listo</button></div>
       </div>`;
     document.body.appendChild(m);
     requestAnimationFrame(() => m.classList.add('open'));
+    m.querySelector('#code-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(url); if (window.showToast) showToast('Enlace copiado'); }
+      catch { if (window.showToast) showToast(url); }
+    });
     m.addEventListener('click', (e) => {
       if (e.target === m || e.target.closest('[data-close]')) { m.classList.remove('open'); setTimeout(() => m.remove(), 200); }
     });
@@ -543,6 +610,7 @@
       if (window.switchTab) switchTab('registro');
       if (window.render) render();
       renderAccount();
+      syncTournamentFields();        // clear name, reset date to today
     };
     if (window.openConfirm) openConfirm(msg, reset, { title: 'Nuevo Torneo', confirmText: 'Sí, reiniciar', danger: true });
     else reset();
@@ -559,12 +627,14 @@
       return StandingsImage.build({
         standings: ordered.map((s) => ({ name: s.name, matchPoints: s.matchPoints, wins: s.wins, losses: s.losses, dropped: !!s.dropped })),
         finished: !!state.finished, maxRounds: state.maxRounds, currentRound: state.currentRound, note: state.note || '',
+        date: state.eventDate ? new Date(state.eventDate + 'T00:00:00') : undefined,
       });
     };
   }
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
+  wireTournamentFields();   // name/date inputs in the Registro section
   renderAccount();
   refreshMe(); // sets role from the server then routes (applyView); falls back to stored role offline
 })();
