@@ -73,6 +73,7 @@
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
         ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
       </div>`;
 
     $('#join').addEventListener('click', () => doJoin($('#code').value));
@@ -81,6 +82,7 @@
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
+    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => renderLeaderboard());
     loadActive();
   }
 
@@ -358,6 +360,49 @@
 
   const RANK_ICON = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : (r ? '#' + r : '—'));
 
+  // ---- leaderboard (Clasificación) --------------------------------------
+  // Public Elo ranking for the CURRENT season (one calendar month). Account
+  // players only; the viewer's own row is highlighted. Past seasons live in the
+  // player's profile (not here), so the public board stays fresh & contestable.
+  const MONTHS_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const monthLabel = (ym) => { const [y, m] = String(ym || '').split('-'); const i = parseInt(m, 10) - 1; return MONTHS_ES[i] ? MONTHS_ES[i] + ' ' + y : (ym || ''); };
+  const dateLabel = (d) => { try { const dt = new Date(String(d).replace(' ', 'T')); return isNaN(dt) ? '' : dt.getDate() + ' ' + MONTHS_ES[dt.getMonth()].slice(0, 3); } catch { return ''; } };
+  async function renderLeaderboard() {
+    stopPoll();
+    root.classList.remove('results');
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">🏆 Clasificación</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div class="muted" id="lb-season" style="font-size:12.5px;margin:4px 0 12px">Temporada</div>
+        <div id="lb-body" class="muted">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', () => renderJoin());
+    try {
+      const data = await API.req('/leaderboard', { auth: false });
+      const seasonEl = $('#lb-season'); if (seasonEl) seasonEl.textContent = 'Temporada · ' + monthLabel(data.month);
+      const me = (uname() || '').toLowerCase();
+      const body = $('#lb-body'); body.classList.remove('muted');
+      if (!data.players.length) {
+        body.innerHTML = '<p class="muted" style="font-size:13px;text-align:center;padding:18px 0">Aún no hay partidas suficientes esta temporada.<br>Juega torneos con tu cuenta y aparecerás aquí.</p>';
+        return;
+      }
+      body.innerHTML = '<table class="lb-table"><thead><tr><th></th><th>Jugador</th><th class="r">Rating</th><th class="r">W-L</th></tr></thead><tbody>'
+        + data.players.map((p) => `
+          <tr class="${me && p.username.toLowerCase() === me ? 'lb-me' : ''}">
+            <td class="lb-rank">${medal(p.rank)}</td>
+            <td class="lb-name">${esc(p.username)}</td>
+            <td class="lb-rating">${p.rating}</td>
+            <td class="lb-rec">${p.wins}-${p.losses}</td>
+          </tr>`).join('') + '</tbody></table>';
+    } catch (e) {
+      const body = $('#lb-body'); body.classList.remove('muted');
+      body.innerHTML = `<p class="gate-error">${esc(e.message)}</p>`;
+    }
+  }
+
   async function renderProfile() {
     stopPoll();
     root.classList.remove('results');
@@ -383,6 +428,7 @@
       const C = 339.292; // 2π·54 — ring circumference
       const pct = r.winPct;
       const decided = r.wins + r.losses;
+      let elo = null; try { elo = await API.req('/me/elo'); } catch (e) {} // best-effort Elo detail
 
       // Hero: animated win-rate ring + stat tiles.
       let html = `
@@ -402,6 +448,28 @@
           <div class="pf-byes">${decided} partida${decided === 1 ? '' : 's'} decidida${decided === 1 ? '' : 's'}${r.byes ? ` · ${r.byes} BYE${r.byes === 1 ? '' : 's'}` : ''}</div>
         </div>`;
 
+      // Elo — a tappable banner (rank + rating, or "te faltan N partidas" if not yet
+      // ranked) that opens the season match history; plus a past-seasons recap.
+      if (elo) {
+        const countedN = (elo.matches || []).filter((m) => m.counted).length;
+        const minG = elo.minGames || 3;
+        const hasMatches = (elo.matches || []).length > 0;
+        let inner;
+        if (elo.current) {
+          inner = `<span class="pf-elo-rank">${RANK_ICON(elo.current.rank)}</span><span class="pf-elo-rating">${elo.current.rating}</span><span class="pf-elo-cap">Rating Elo · ${elo.current.wins}-${elo.current.losses}</span>`;
+        } else {
+          const need = Math.max(1, minG - countedN);
+          inner = `<span class="pf-elo-rank">📊</span><span class="pf-elo-need">Te falta${need === 1 ? '' : 'n'} ${need} partida${need === 1 ? '' : 's'} para entrar al ranking</span>`;
+        }
+        html += `<div class="pf-sec-title">Clasificación · ${esc(monthLabel(elo.season))}</div>`;
+        html += `<button class="pf-elo-now" id="elo-open" type="button"${hasMatches ? '' : ' disabled'}>${inner}${hasMatches ? '<span class="pf-elo-go">Ver partidas ›</span>' : ''}</button>`;
+        if (elo.pastSeasons && elo.pastSeasons.length) {
+          html += '<div class="pf-sec-title">Temporadas pasadas</div><div class="pf-seasons">'
+            + elo.pastSeasons.map((s) => `<div class="pf-season"><span class="pf-season-m">${esc(monthLabel(s.month))}</span><span class="pf-season-r">${RANK_ICON(s.rank)} · ${s.rating}</span></div>`).join('')
+            + '</div>';
+        }
+      }
+
       // Head-to-head: proportional win/loss bar per opponent, colour-coded.
       if (st.headToHead.length) {
         html += '<div class="pf-sec-title">Cara a cara</div><div class="pf-h2h">';
@@ -410,7 +478,7 @@
           const wpct = tot ? Math.round((h.wins / tot) * 100) : 0;
           const cls = h.wins > h.losses ? 'pos' : h.wins < h.losses ? 'neg' : '';
           return `<div class="pf-opp">
-            <div class="pf-opp-top"><span class="pf-opp-name">${esc(h.username)}</span><span class="pf-opp-rec ${cls}">${h.wins}-${h.losses} · ${wpct}%</span></div>
+            <div class="pf-opp-top"><span class="pf-opp-name">${esc(h.username)}</span><span class="pf-opp-rec ${cls}">${h.wins}-${h.losses} (${wpct}%)</span></div>
             <div class="pf-bar"><span class="pf-bar-w" data-w="${tot ? (h.wins / tot) * 100 : 0}"></span><span class="pf-bar-l" data-w="${tot ? (h.losses / tot) * 100 : 0}"></span></div>
           </div>`;
         }).join('');
@@ -429,6 +497,7 @@
 
       b.innerHTML = html;
       b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => showResults(Number(el.dataset.id), null, () => renderProfile())));
+      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => renderEloDetail(elo));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -437,6 +506,41 @@
         b.querySelectorAll('.pf-bar-w, .pf-bar-l').forEach((bar) => { bar.style.width = bar.dataset.w + '%'; });
       }));
     } catch (e) { const b = $('#body'); if (b) { b.classList.add('muted'); b.textContent = e.message; } }
+  }
+
+  // Season match history (opened from the profile's Elo banner). One card per game:
+  // opponent + tournament/date, with the ±Elo on the right (green/red, colour-bordered).
+  // Games that didn't count show a short grey note (BYE / Sin rival / …) and no number.
+  const ELO_NOTE = { bye: 'BYE', lateLoss: 'Entrada tardía', doubleLoss: 'Doble derrota', guest: 'Sin rival', other: 'No cuenta' };
+  function renderEloDetail(elo) {
+    stopPoll();
+    root.classList.remove('results');
+    const cards = (elo.matches || []).slice().reverse().map((mt) => {
+      const sub = [mt.tournament, dateLabel(mt.date)].filter(Boolean).join(' · ');
+      if (mt.counted) {
+        const cls = mt.delta >= 0 ? 'win' : 'loss';
+        return `<div class="pf-match ${cls}">
+          <span class="pf-match-main"><span class="pf-match-opp">${esc(mt.opponent)}</span><span class="pf-match-sub">${esc(sub)}</span></span>
+          <span class="pf-match-delta ${mt.delta >= 0 ? 'pos' : 'neg'}">${mt.delta >= 0 ? '+' : ''}${mt.delta}</span>
+        </div>`;
+      }
+      const note = ELO_NOTE[mt.reason] || 'No cuenta';
+      const main = mt.opponent || note;
+      return `<div class="pf-match nc">
+        <span class="pf-match-main"><span class="pf-match-opp">${esc(main)}</span><span class="pf-match-sub">${esc(sub)}</span></span>
+        ${mt.opponent ? `<span class="pf-match-note">${esc(note)}</span>` : ''}
+      </div>`;
+    }).join('');
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Historial · ${esc(monthLabel(elo.season))}</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div class="muted" style="font-size:12.5px;margin:4px 0 12px">Cómo cambió tu rating, partida por partida.</div>
+        <div class="pf-matches">${cards || '<p class="muted" style="text-align:center;padding:18px 0">Sin partidas esta temporada.</p>'}</div>
+      </div>`;
+    $('#back').addEventListener('click', () => renderProfile());
   }
 
   function renderPairing(j, me) {
