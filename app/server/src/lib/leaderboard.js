@@ -14,7 +14,7 @@
  */
 const BASE = 1200;
 const K = 24;
-const MIN_GAMES = 3;
+export const MIN_GAMES = 3;
 
 // rows: [{ id, state (parsed), pidMap: Map<player_id, {userId, username}> }], ordered
 // chronologically (oldest finished first).
@@ -62,7 +62,8 @@ export function computeLeaderboard(rows, opts = {}) {
             const meIsA = a.userId === trackUser;
             const before = meIsA ? Ra : Rb, after = meIsA ? Ra2 : Rb2;
             log.push({
-              tournamentId: t.id, opponent: names.get(meIsA ? m.p2Id : m.p1Id) || 'Rival',
+              tournamentId: t.id, tournament: t.name || null, date: t.date || null,
+              opponent: names.get(meIsA ? m.p2Id : m.p1Id) || 'Rival',
               counted: true, won: meIsA ? (m.result === 'p1') : (m.result === 'p2'),
               before: Math.round(before), after: Math.round(after), delta: Math.round(after - before),
             });
@@ -72,7 +73,7 @@ export function computeLeaderboard(rows, opts = {}) {
           const reason = m.isBye ? 'bye' : m.isLateLoss ? 'lateLoss'
             : m.result === 'doubleLoss' ? 'doubleLoss'
             : (!a || !b) ? 'guest' : 'other';
-          log.push({ tournamentId: t.id, opponent: names.get(meIsA ? m.p2Id : m.p1Id) || null, counted: false, reason });
+          log.push({ tournamentId: t.id, tournament: t.name || null, date: t.date || null, opponent: names.get(meIsA ? m.p2Id : m.p1Id) || null, counted: false, reason });
         }
       }
     }

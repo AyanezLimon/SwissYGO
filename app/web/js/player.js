@@ -366,6 +366,7 @@
   // player's profile (not here), so the public board stays fresh & contestable.
   const MONTHS_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const monthLabel = (ym) => { const [y, m] = String(ym || '').split('-'); const i = parseInt(m, 10) - 1; return MONTHS_ES[i] ? MONTHS_ES[i] + ' ' + y : (ym || ''); };
+  const dateLabel = (d) => { try { const dt = new Date(String(d).replace(' ', 'T')); return isNaN(dt) ? '' : dt.getDate() + ' ' + MONTHS_ES[dt.getMonth()].slice(0, 3); } catch { return ''; } };
   async function renderLeaderboard() {
     stopPoll();
     root.classList.remove('results');
@@ -447,26 +448,21 @@
           <div class="pf-byes">${decided} partida${decided === 1 ? '' : 's'} decidida${decided === 1 ? '' : 's'}${r.byes ? ` · ${r.byes} BYE${r.byes === 1 ? '' : 's'}` : ''}</div>
         </div>`;
 
-      // Elo — current season (rank + rating), this season's match-by-match deltas
-      // (and which games didn't count + why), then a recap of past seasons.
+      // Elo — a tappable banner (rank + rating, or "te faltan N partidas" if not yet
+      // ranked) that opens the season match history; plus a past-seasons recap.
       if (elo) {
-        html += `<div class="pf-sec-title">Clasificación · ${esc(monthLabel(elo.season))}</div>`;
+        const countedN = (elo.matches || []).filter((m) => m.counted).length;
+        const minG = elo.minGames || 3;
+        const hasMatches = (elo.matches || []).length > 0;
+        let inner;
         if (elo.current) {
-          html += `<div class="pf-elo-now"><span class="pf-elo-rank">${RANK_ICON(elo.current.rank)}</span><span class="pf-elo-rating">${elo.current.rating}</span><span class="pf-elo-cap">Rating Elo · ${elo.current.wins}-${elo.current.losses}</span></div>`;
+          inner = `<span class="pf-elo-rank">${RANK_ICON(elo.current.rank)}</span><span class="pf-elo-rating">${elo.current.rating}</span><span class="pf-elo-cap">Rating Elo · ${elo.current.wins}-${elo.current.losses}</span>`;
         } else {
-          html += '<p class="muted" style="font-size:13px;margin:0 0 6px">Aún no tienes partidas que cuenten esta temporada (mín. 3 contra cuentas).</p>';
+          const need = Math.max(1, minG - countedN);
+          inner = `<span class="pf-elo-rank">📊</span><span class="pf-elo-need">Te falta${need === 1 ? '' : 'n'} ${need} partida${need === 1 ? '' : 's'} para entrar al ranking</span>`;
         }
-        if (elo.matches && elo.matches.length) {
-          const reasonTxt = { bye: 'BYE', lateLoss: 'Entrada tardía', doubleLoss: 'Doble derrota', guest: 'Rival sin cuenta', other: 'No cuenta' };
-          html += '<div class="pf-elolog">' + elo.matches.slice().reverse().map((mt) => {
-            if (mt.counted) {
-              const cls = mt.delta >= 0 ? 'pos' : 'neg';
-              return `<div class="pf-elorow"><span class="pf-elo-opp">${mt.won ? '✓' : '✗'} ${esc(mt.opponent)}</span><span class="pf-elo-delta ${cls}">${mt.delta >= 0 ? '+' : ''}${mt.delta}</span></div>`;
-            }
-            const why = reasonTxt[mt.reason] || 'No cuenta';
-            return `<div class="pf-elorow"><span class="pf-elo-opp muted">${mt.opponent ? esc(mt.opponent) : why}</span><span class="pf-elo-delta none">no suma · ${why}</span></div>`;
-          }).join('') + '</div>';
-        }
+        html += `<div class="pf-sec-title">Clasificación · ${esc(monthLabel(elo.season))}</div>`;
+        html += `<button class="pf-elo-now" id="elo-open" type="button"${hasMatches ? '' : ' disabled'}>${inner}${hasMatches ? '<span class="pf-elo-go">Ver partidas ›</span>' : ''}</button>`;
         if (elo.pastSeasons && elo.pastSeasons.length) {
           html += '<div class="pf-sec-title">Temporadas pasadas</div><div class="pf-seasons">'
             + elo.pastSeasons.map((s) => `<div class="pf-season"><span class="pf-season-m">${esc(monthLabel(s.month))}</span><span class="pf-season-r">${RANK_ICON(s.rank)} · ${s.rating}</span></div>`).join('')
@@ -501,6 +497,7 @@
 
       b.innerHTML = html;
       b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => showResults(Number(el.dataset.id), null, () => renderProfile())));
+      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => renderEloDetail(elo));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -509,6 +506,41 @@
         b.querySelectorAll('.pf-bar-w, .pf-bar-l').forEach((bar) => { bar.style.width = bar.dataset.w + '%'; });
       }));
     } catch (e) { const b = $('#body'); if (b) { b.classList.add('muted'); b.textContent = e.message; } }
+  }
+
+  // Season match history (opened from the profile's Elo banner). One card per game:
+  // opponent + tournament/date, with the ±Elo on the right (green/red, colour-bordered).
+  // Games that didn't count show a short grey note (BYE / Sin rival / …) and no number.
+  const ELO_NOTE = { bye: 'BYE', lateLoss: 'Entrada tardía', doubleLoss: 'Doble derrota', guest: 'Sin rival', other: 'No cuenta' };
+  function renderEloDetail(elo) {
+    stopPoll();
+    root.classList.remove('results');
+    const cards = (elo.matches || []).slice().reverse().map((mt) => {
+      const sub = [mt.tournament, dateLabel(mt.date)].filter(Boolean).join(' · ');
+      if (mt.counted) {
+        const cls = mt.delta >= 0 ? 'win' : 'loss';
+        return `<div class="pf-match ${cls}">
+          <span class="pf-match-main"><span class="pf-match-opp">${esc(mt.opponent)}</span><span class="pf-match-sub">${esc(sub)}</span></span>
+          <span class="pf-match-delta ${mt.delta >= 0 ? 'pos' : 'neg'}">${mt.delta >= 0 ? '+' : ''}${mt.delta}</span>
+        </div>`;
+      }
+      const note = ELO_NOTE[mt.reason] || 'No cuenta';
+      const main = mt.opponent || note;
+      return `<div class="pf-match nc">
+        <span class="pf-match-main"><span class="pf-match-opp">${esc(main)}</span><span class="pf-match-sub">${esc(sub)}</span></span>
+        ${mt.opponent ? `<span class="pf-match-note">${esc(note)}</span>` : ''}
+      </div>`;
+    }).join('');
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Historial · ${esc(monthLabel(elo.season))}</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div class="muted" style="font-size:12.5px;margin:4px 0 12px">Cómo cambió tu rating, partida por partida.</div>
+        <div class="pf-matches">${cards || '<p class="muted" style="text-align:center;padding:18px 0">Sin partidas esta temporada.</p>'}</div>
+      </div>`;
+    $('#back').addEventListener('click', () => renderProfile());
   }
 
   function renderPairing(j, me) {

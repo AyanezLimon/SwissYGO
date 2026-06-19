@@ -268,20 +268,32 @@ html.gate-pending .wrap { visibility: hidden; }
 .lb-table tr.lb-me { background: rgba(130, 216, 235, .10); }
 .lb-table tr.lb-me .lb-name::after { content: ' · tú'; color: var(--gold); font-weight: 700; font-size: 12px; }
 
-/* Profile — Elo season summary, per-match deltas (which games gave points), past seasons. */
-.pf-elo-now { display: flex; align-items: baseline; gap: 10px; background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
-.pf-elo-rank { font-size: 20px; min-width: 1.5em; }
-.pf-elo-rating { font-family: var(--mono); font-weight: 800; font-size: 24px; color: var(--gold); }
+/* Profile — Elo season banner (tap → match history), past seasons recap. */
+.pf-elo-now { width: 100%; text-align: left; font: inherit; cursor: pointer; display: flex; align-items: baseline; gap: 10px;
+  background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; transition: border-color .15s; }
+.pf-elo-now:hover:not([disabled]) { border-color: var(--gold-soft); }
+.pf-elo-now[disabled] { cursor: default; }
+.pf-elo-rank { font-size: 20px; min-width: 1.5em; flex: none; }
+.pf-elo-rating { font-family: var(--mono); font-weight: 800; font-size: 24px; color: var(--gold); flex: none; }
 .pf-elo-cap { color: var(--ink-soft); font-size: 12.5px; }
-.pf-elolog { display: flex; flex-direction: column; }
-.pf-elorow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 2px; border-bottom: 1px solid var(--border-2); font-size: 14px; }
-.pf-elorow:last-child { border-bottom: 0; }
-.pf-elo-opp { color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pf-elo-opp.muted { color: var(--ink-soft); }
-.pf-elo-delta { font-family: var(--mono); font-weight: 700; white-space: nowrap; flex: none; }
-.pf-elo-delta.pos { color: var(--green); }
-.pf-elo-delta.neg { color: var(--crimson); }
-.pf-elo-delta.none { color: var(--ink-faint); font-weight: 400; font-size: 12px; }
+.pf-elo-need { color: var(--ink); font-weight: 600; font-size: 13.5px; }
+.pf-elo-go { margin-left: auto; align-self: center; color: var(--ink-soft); font-size: 12.5px; white-space: nowrap; flex: none; }
+
+/* Match history (Elo detail screen) — cards like "Torneos jugados": opponent +
+   tournament/date, with the ±points (green/red) on the right and a matching
+   colour-bordered cell. Non-counted games are muted with a short grey note. */
+.pf-matches { display: flex; flex-direction: column; gap: 8px; }
+.pf-match { display: flex; align-items: center; gap: 12px; background: var(--field-bg); border: 1px solid var(--border-2); border-left-width: 3px; border-radius: 10px; padding: 10px 12px; }
+.pf-match.win { border-left-color: var(--green); }
+.pf-match.loss { border-left-color: var(--crimson); }
+.pf-match.nc .pf-match-opp { color: var(--ink-soft); font-weight: 500; }
+.pf-match-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.pf-match-opp { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-match-sub { font-size: 12px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-match-delta { font-family: var(--mono); font-weight: 800; font-size: 16px; white-space: nowrap; flex: none; }
+.pf-match-delta.pos { color: var(--green); }
+.pf-match-delta.neg { color: var(--crimson); }
+.pf-match-note { color: var(--ink-faint); font-size: 12.5px; white-space: nowrap; flex: none; }
 .pf-seasons { display: flex; flex-direction: column; gap: 8px; }
 .pf-season { display: flex; align-items: center; justify-content: space-between; background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 10px 12px; }
 .pf-season-m { color: var(--ink); font-weight: 600; text-transform: capitalize; }
