@@ -365,21 +365,13 @@ export default async function tournamentRoutes(app) {
     };
   });
 
-  // Public cross-tournament Elo leaderboard (account players only).
-  // window=all (default) | season (current calendar month, recomputed fresh).
-  const _lbCache = {}; // cacheKey -> { at, data } — small memo so repeat views don't re-scan every finished event
-  app.get('/api/leaderboard', async (req) => {
-    const window = (req.query && req.query.window) === 'season' ? 'season' : 'all';
-    const month = new Date().toISOString().slice(0, 7); // YYYY-MM (UTC)
-    const cacheKey = window === 'season' ? 'season:' + month : 'all';
-    const hit = _lbCache[cacheKey];
-    if (hit && Date.now() - hit.at < 30000) return hit.data;
-
-    let tourneys = db.prepare(`SELECT id, finished_at, created_at, state_json FROM tournaments
-                               WHERE status = 'finished' ORDER BY COALESCE(finished_at, created_at) ASC`).all();
-    if (window === 'season') {
-      tourneys = tourneys.filter((t) => String(t.finished_at || t.created_at || '').slice(0, 7) === month);
-    }
+  // ---- Leaderboard (Elo) helpers ----------------------------------------
+  const monthOf = (t) => String(t.finished_at || t.created_at || '').slice(0, 7); // YYYY-MM
+  const allFinished = () => db.prepare(`SELECT id, finished_at, created_at, state_json FROM tournaments
+                                        WHERE status = 'finished' ORDER BY COALESCE(finished_at, created_at) ASC`).all();
+  // Build computeLeaderboard rows (parsed state + player_id→account map) for a set of
+  // finished tournaments. Guests / TO-added players (no user_id) are left unmapped.
+  function lbRows(tourneys) {
     const users = new Map(db.prepare('SELECT id, username FROM users').all().map((u) => [u.id, u.username]));
     const rows = [];
     for (const t of tourneys) {
@@ -390,8 +382,48 @@ export default async function tournamentRoutes(app) {
       }
       if (pidMap.size) rows.push({ id: t.id, state, pidMap });
     }
-    const data = { window, season: window === 'season' ? month : null, players: computeLeaderboard(rows) };
-    _lbCache[cacheKey] = { at: Date.now(), data };
+    return rows;
+  }
+
+  // Public season leaderboard for one calendar month (default current). Recomputed
+  // fresh per month so the board stays contestable; small memo to avoid re-scans.
+  const _lbCache = {};
+  app.get('/api/leaderboard', async (req) => {
+    const month = /^\d{4}-\d{2}$/.test((req.query && req.query.month) || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+    const hit = _lbCache[month];
+    if (hit && Date.now() - hit.at < 30000) return hit.data;
+    const rows = lbRows(allFinished().filter((t) => monthOf(t) === month));
+    const data = { month, players: computeLeaderboard(rows) };
+    _lbCache[month] = { at: Date.now(), data };
     return data;
+  });
+
+  // The signed-in player's Elo detail: this season's match-by-match log (with the
+  // ±points each game gave, and which didn't count + why) plus a recap of past
+  // seasons (placement + final rating per month they played).
+  app.get('/api/me/elo', { preHandler: requireAuth }, async (req) => {
+    const uid = req.user.id;
+    const finished = allFinished();
+    const myIds = new Set(db.prepare('SELECT tournament_id FROM registrations WHERE user_id = ?').all(uid).map((r) => r.tournament_id));
+    const myMonths = [...new Set(finished.filter((t) => myIds.has(t.id)).map(monthOf))].filter(Boolean).sort().reverse();
+    const cur = new Date().toISOString().slice(0, 7);
+
+    const log = [];
+    const curPlayers = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === cur)), { trackUser: uid, log });
+    const meCur = curPlayers.find((p) => p.userId === uid) || null;
+
+    const pastSeasons = [];
+    for (const m of myMonths) {
+      if (m === cur) continue;
+      const e = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === m))).find((p) => p.userId === uid);
+      if (e) pastSeasons.push({ month: m, rank: e.rank, rating: e.rating, wins: e.wins, losses: e.losses });
+    }
+
+    return {
+      season: cur,
+      current: meCur ? { rank: meCur.rank, rating: meCur.rating, wins: meCur.wins, losses: meCur.losses, games: meCur.games } : null,
+      matches: log,        // chronological; counted entries carry delta/before/after, others carry reason
+      pastSeasons,
+    };
   });
 }
