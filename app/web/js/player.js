@@ -43,6 +43,7 @@
 
   let pollTimer = null;
   let _pollInFlight = false;   // skip a tick if the previous /me is still awaiting (no overlap / out-of-order updates)
+  let _seenInEvent = false;    // have we seen ourselves in the roster this session? (to detect removal vs not-yet-absorbed)
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
@@ -230,7 +231,7 @@
   function showBanner(title, body) {
     let el = document.getElementById('ygo-banner');
     if (!el) { el = document.createElement('div'); el.id = 'ygo-banner'; el.addEventListener('click', () => el.classList.remove('show')); document.body.appendChild(el); }
-    el.innerHTML = '<strong>' + esc(title) + '</strong><span>' + esc(body) + '</span><i aria-hidden="true">✕</i>';
+    el.innerHTML = '<div class="b-txt"><strong>' + esc(title) + '</strong><span>' + esc(body) + '</span></div><i aria-hidden="true">✕</i>';
     requestAnimationFrame(() => el.classList.add('show'));
     if (_bannerTimer) clearTimeout(_bannerTimer);
     _bannerTimer = setTimeout(() => el.classList.remove('show'), 9000);
@@ -261,10 +262,20 @@
     _pollInFlight = true;
     try {
       const me = await API.req('/tournaments/' + j.id + '/me', { auth: !j.guestToken, guestToken: j.guestToken });
+      // Removal: the registration persists when the TO drops a player, so /me won't
+      // 403. Detect the in→out transition (we were in the roster, now we're not) —
+      // a not-yet-absorbed player has never been "in", so this won't false-fire.
+      if (me.inEvent || me.pairing) _seenInEvent = true;
+      if (me.inEvent === false && _seenInEvent) {
+        stopPoll(); setJoined(null);
+        renderJoin('El organizador te retiró del torneo.');
+        return;
+      }
       if (me.status === 'finished') {
         stopPoll();
         const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
-        showResults(j.id, j, () => { setJoined(null); renderJoin(); }, live);
+        setJoined(null); // tournament's over — end the session so a refresh goes to the /u/ home, not back here
+        showResults(j.id, j, () => renderJoin(), live, me.name); // me.name = tournament name (j.name is the player's)
         return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
       }
       if (me.pairing && me.currentRound !== _lastRound) {
@@ -313,7 +324,7 @@
   // Results = the WEB VIEW: the HTML card identical to the shareable image.
   // A small caption above shows the player's own placement (the card mirrors the
   // image exactly, so it doesn't single anyone out). "Compartir" renders the PNG.
-  async function showResults(id, j, onBack, notify) {
+  async function showResults(id, j, onBack, notify, tname) {
     stopPoll();
     root.classList.remove('results');
     root.innerHTML = '<div class="card"><div class="muted">Cargando resultados…</div></div>';
@@ -321,7 +332,7 @@
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
       const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
-      if (notify) notifyFinished(j && j.name, pub, myRow); // live finish → alert (sound/OS/banner), gated by the bell pref
+      if (notify) notifyFinished(tname, pub, myRow); // live finish → alert (sound/OS/banner), gated by the bell pref
       root.classList.add('results'); // wider layout for the results card
       root.innerHTML = '';
       if (myRow) {
@@ -464,7 +475,7 @@
     $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
   }
 
-  function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; poll(); pollTimer = setInterval(poll, 4000); }
+  function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; _seenInEvent = false; poll(); pollTimer = setInterval(poll, 4000); }
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && joined()) poll(); });
 
@@ -555,6 +566,10 @@
     if (await routeIfOrganizer()) return;       // organizer → bounced to the console
     const _sp = new URLSearchParams(location.search);
     const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
+    // The deep-link code has served its purpose once captured — strip it from the URL
+    // so a later refresh behaves like a plain /u/ visit (resume an active join, or home)
+    // instead of re-opening that tournament's card.
+    if (location.search || location.hash) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
     if (joined()) startPoll();
     else if (pre.length === 5) openByCode(pre);
     else renderJoin(null, pre);
