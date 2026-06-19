@@ -224,7 +224,11 @@ export default async function tournamentRoutes(app) {
         };
       }
     }
-    return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing };
+    // inEvent: is this participant still in the organizer's player list? Used by the
+    // player page to detect a removal (a registration persists when the TO removes a
+    // player from state_json, so /me wouldn't otherwise 403).
+    const inEvent = (state.players || []).some((p) => p.id === reg.player_id);
+    return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing, inEvent };
   });
 
   app.get('/api/me/tournaments', { preHandler: requireAuth }, async (req) => {
