@@ -206,7 +206,50 @@ html.gate-pending .wrap { visibility: hidden; }
   #tournament-meta, #reg-input-row { grid-template-columns: 1fr; }
 }
 
-/* Player page (/u/) theme toggle — fixed top-right (no header to host it). On
-   narrow screens the card is full-width, so clear space above it for the toggle. */
-.theme-switch.u-theme { position: fixed; top: 10px; right: 12px; z-index: 60; margin: 0; padding: 6px; }
-@media (max-width: 560px) { .theme-switch.u-theme { top: 6px; right: 8px; } #player { padding-top: 48px; } }
+/* ── Player page (/u/) overlays ──────────────────────────────────────────────
+   Layering on this page (no header to host controls): the top-right control
+   cluster sits at z-index 60, the alert banner above it at 80, and the gate
+   modal-overlay (styles.css) is highest. Keep new overlays within this scale. */
+
+/* One fixed flex cluster holds the theme + bell toggles, so they never overlap
+   and a future control just extends the row (no per-button magic offsets). */
+.u-controls { position: fixed; top: 10px; right: 12px; z-index: 60; display: flex; align-items: center; gap: 8px; }
+@media (max-width: 560px) { .u-controls { top: 6px; right: 8px; } #player { padding-top: 48px; } }
+.u-controls .theme-switch.u-theme { position: static; margin: 0; padding: 6px; }
+
+/* Notifications bell toggle. Solid gold bell when ON; desaturated bell + a red
+   slash when muted. The slash is an in-SVG <line>, so it lives in the icon's own
+   viewBox and always aligns even if the bell path changes. */
+.notif-switch.u-notif {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 30px; padding: 0; line-height: 0;
+  background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; cursor: pointer;
+}
+.notif-switch.u-notif:hover { border-color: var(--gold-soft); }
+.notif-switch.u-notif svg { width: 17px; height: 17px; display: block; }
+.notif-switch.u-notif svg .bell { fill: var(--gold); }
+.notif-switch.u-notif svg .slash { display: none; stroke: var(--crimson); stroke-width: 2.4; stroke-linecap: round; }
+.notif-switch.u-notif.off svg .bell { fill: var(--ink-faint); }   /* desaturated when muted */
+.notif-switch.u-notif.off svg .slash { display: inline; }          /* crossed-out when muted */
+
+/* Visible keyboard focus for both toggles (mouse clicks stay ringless). */
+.u-controls .theme-switch:focus-visible, .notif-switch.u-notif:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 2px;
+}
+
+/* Player alert banner (round start / tournament finished) — fixed top toast that
+   covers the foreground case (browsers suppress OS notifications for a visible tab). */
+#ygo-banner {
+  position: fixed; left: 0; right: 0; top: 12px; z-index: 80;
+  width: min(520px, calc(100% - 24px)); margin: 0 auto;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel-2); border: 1px solid var(--gold); border-radius: 12px;
+  padding: 12px 14px; color: var(--ink); box-shadow: 0 12px 34px rgba(0, 0, 0, .5);
+  transform: translateY(-150%); opacity: 0;
+  transition: transform .32s cubic-bezier(.22, 1, .36, 1), opacity .32s; cursor: pointer;
+}
+#ygo-banner.show { transform: translateY(0); opacity: 1; }
+#ygo-banner strong { font-weight: 800; }
+#ygo-banner span { color: var(--ink-soft); flex: 1; min-width: 0; }
+#ygo-banner i { color: var(--ink-faint); font-style: normal; font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { #ygo-banner { transition: opacity .2s; transform: none; } }

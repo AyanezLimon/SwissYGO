@@ -6,7 +6,7 @@
   const root = document.getElementById('player');
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
   const $ = (s, r = document) => r.querySelector(s);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // Fun guest names: Sustantivo + Adjetivo + número (e.g. "JarronEsponjoso76").
   // Semillas: Yu-Gi-Oh, videojuegos, objetos, lugares y cosas silly.
   const FB_NOUNS = [
@@ -42,6 +42,7 @@
   };
 
   let pollTimer = null;
+  let _pollInFlight = false;   // skip a tick if the previous /me is still awaiting (no overlap / out-of-order updates)
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
@@ -195,34 +196,77 @@
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
     try { _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (_audioCtx.state === 'suspended') _audioCtx.resume(); } catch {}
   }
-  function beep() {
+  // Per-player preference (the bell toggle); default ON. Gates ALL alerting below.
+  function notifEnabled() { try { return localStorage.getItem('ygo_notif') !== '0'; } catch { return true; } }
+
+  // Two-note chime — more noticeable than a single beep. No-ops if audio is locked.
+  function chime() {
     try {
       if (!_audioCtx) return;
-      const o = _audioCtx.createOscillator(), g = _audioCtx.createGain();
-      o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.06;
-      o.connect(g); g.connect(_audioCtx.destination);
-      o.start(); o.stop(_audioCtx.currentTime + 0.18);
+      const t0 = _audioCtx.currentTime;
+      [[880, 0], [1320, 0.16]].forEach(([f, dt]) => {
+        const o = _audioCtx.createOscillator(), g = _audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + dt);
+        g.gain.exponentialRampToValueAtTime(0.07, t0 + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.16);
+        o.connect(g); g.connect(_audioCtx.destination);
+        o.start(t0 + dt); o.stop(t0 + dt + 0.2);
+      });
     } catch {}
   }
-  function notifyRound(me) {
-    const body = me.pairing.isBye ? 'Descansas (BYE)'
-      : me.pairing.lateLoss ? 'Entrada tardía'
-      : 'Mesa ' + me.pairing.table + (me.pairing.opponent ? ' · vs ' + me.pairing.opponent : '');
-    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch {}
-    beep();
+  // OS notification: brand crest icon, stays until tapped, click focuses this tab.
+  function osNotify(title, body, tag) {
     try {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Ronda ' + me.currentRound + ' — ' + (me.name || 'Torneo'), { body, tag: 'ygo-round', renotify: true });
-      }
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const icon = (window.BRAND && BRAND.crest) || undefined;
+      const n = new Notification(title, { body, tag, renotify: true, requireInteraction: true, icon, badge: icon });
+      n.onclick = () => { try { window.focus(); } catch {} n.close(); };
     } catch {}
+  }
+  // In-app banner — browsers often suppress OS notifications while the tab is
+  // visible, so a fixed toast covers the foreground case. Auto-dismisses; tap to close.
+  let _bannerTimer = null;
+  function showBanner(title, body) {
+    let el = document.getElementById('ygo-banner');
+    if (!el) { el = document.createElement('div'); el.id = 'ygo-banner'; el.addEventListener('click', () => el.classList.remove('show')); document.body.appendChild(el); }
+    el.innerHTML = '<strong>' + esc(title) + '</strong><span>' + esc(body) + '</span><i aria-hidden="true">✕</i>';
+    requestAnimationFrame(() => el.classList.add('show'));
+    if (_bannerTimer) clearTimeout(_bannerTimer);
+    _bannerTimer = setTimeout(() => el.classList.remove('show'), 9000);
+  }
+  const roundBody = (me) => me.pairing.isBye ? 'Descansas esta ronda (BYE)'
+    : me.pairing.lateLoss ? 'Entrada tardía · derrota en esta ronda'
+    : 'Mesa ' + me.pairing.table + (me.pairing.opponent ? ' · vs ' + me.pairing.opponent : '');
+  function notifyRound(me) {
+    if (!notifEnabled()) return;
+    const title = 'Ronda ' + me.currentRound + (me.maxRounds ? '/' + me.maxRounds : '') + ' — ' + (me.name || 'Torneo');
+    const body = roundBody(me);
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch {}
+    chime(); osNotify(title, body, 'ygo-round'); showBanner(title, body);
+  }
+  function notifyFinished(name, pub, myRow) {
+    if (!notifEnabled()) return;
+    const title = 'Torneo finalizado' + (name ? ' — ' + name : '');
+    const total = (pub && pub.standings) ? pub.standings.length : '?';
+    const body = myRow ? 'Terminaste ' + RANK_ICON(myRow.rank) + ' de ' + total + ' · ' + myRow.wins + '-' + myRow.losses : 'Resultados disponibles';
+    try { if (navigator.vibrate) navigator.vibrate([90, 50, 90, 50, 160]); } catch {}
+    chime(); osNotify(title, body, 'ygo-finished'); showBanner(title, body);
   }
 
   // ---- pairing screen ----------------------------------------------------
   async function poll() {
     const j = joined(); if (!j) return;
+    if (_pollInFlight) return;   // a previous tick is still in flight — don't overlap
+    _pollInFlight = true;
     try {
       const me = await API.req('/tournaments/' + j.id + '/me', { auth: !j.guestToken, guestToken: j.guestToken });
-      if (me.status === 'finished') { stopPoll(); showResults(j.id, j, () => { setJoined(null); renderJoin(); }); return; }
+      if (me.status === 'finished') {
+        stopPoll();
+        const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
+        showResults(j.id, j, () => { setJoined(null); renderJoin(); }, live);
+        return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
+      }
       if (me.pairing && me.currentRound !== _lastRound) {
         if (_lastRound !== -1 && me.currentRound > _lastRound) notifyRound(me);
         _lastRound = me.currentRound;
@@ -231,6 +275,8 @@
     } catch (e) {
       if (e.status === 403) renderJoin('Ya no estás inscrito en ese torneo.');
       // other errors: keep last view, retry next tick
+    } finally {
+      _pollInFlight = false;
     }
   }
 
@@ -267,7 +313,7 @@
   // Results = the WEB VIEW: the HTML card identical to the shareable image.
   // A small caption above shows the player's own placement (the card mirrors the
   // image exactly, so it doesn't single anyone out). "Compartir" renders the PNG.
-  async function showResults(id, j, onBack) {
+  async function showResults(id, j, onBack, notify) {
     stopPoll();
     root.classList.remove('results');
     root.innerHTML = '<div class="card"><div class="muted">Cargando resultados…</div></div>';
@@ -275,6 +321,7 @@
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
       const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
+      if (notify) notifyFinished(j && j.name, pub, myRow); // live finish → alert (sound/OS/banner), gated by the bell pref
       root.classList.add('results'); // wider layout for the results card
       root.innerHTML = '';
       if (myRow) {
@@ -417,7 +464,7 @@
     $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
   }
 
-  function startPoll() { stopPoll(); _lastRound = -1; poll(); pollTimer = setInterval(poll, 4000); }
+  function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; poll(); pollTimer = setInterval(poll, 4000); }
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && joined()) poll(); });
 
@@ -427,6 +474,13 @@
   function applyTheme(theme) {
     if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else document.documentElement.removeAttribute('data-theme');
+  }
+  // Shared fixed cluster (top-right) for the page's toggles — both mount here so
+  // they line up via flex gap instead of independent fixed offsets.
+  function uControls() {
+    let c = document.getElementById('u-controls');
+    if (!c) { c = document.createElement('div'); c.id = 'u-controls'; c.className = 'u-controls'; document.body.appendChild(c); }
+    return c;
   }
   function mountThemeToggle() {
     if (document.getElementById('theme-toggle')) return;
@@ -440,20 +494,69 @@
       applyTheme(next);
       try { localStorage.setItem('ygo_theme', next); } catch (e) {}
     });
-    document.body.appendChild(btn);
+    uControls().appendChild(btn);
+  }
+
+  // ---- notifications toggle (bell) --------------------------------------
+  // A one-press mute switch for round/finish alerts. Standard affordance: a solid
+  // gold bell when ON; desaturated + a red slash when OFF. Enabling it (re)primes
+  // OS permission/audio within the click gesture.
+  function mountNotifToggle() {
+    if (document.getElementById('notif-toggle')) return;
+    const btn = document.createElement('button');
+    btn.className = 'notif-switch u-notif'; btn.id = 'notif-toggle'; btn.type = 'button';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="bell" d="M12 2a6 6 0 0 0-6 6v3.6L4.3 15A1 1 0 0 0 5.2 16.5h13.6A1 1 0 0 0 19.7 15L18 11.6V8a6 6 0 0 0-6-6Zm0 20a2.8 2.8 0 0 0 2.8-2.8H9.2A2.8 2.8 0 0 0 12 22Z"/><line class="slash" x1="4" y1="4" x2="20" y2="20"/></svg>';
+    const sync = () => {
+      const on = notifEnabled();
+      btn.classList.toggle('off', !on);
+      btn.title = on ? 'Notificaciones activadas — toca para silenciar' : 'Notificaciones silenciadas — toca para activar';
+      btn.setAttribute('aria-label', btn.title);
+      btn.setAttribute('aria-pressed', String(on));
+    };
+    btn.addEventListener('click', () => {
+      const next = !notifEnabled();
+      try { localStorage.setItem('ygo_notif', next ? '1' : '0'); } catch {}
+      if (next) primeNotifications();   // enabling: unlock audio + request OS permission within this gesture
+      sync();
+      if (next) showBanner('Notificaciones activadas', 'Te avisaremos cuando empiece tu ronda.');
+    });
+    sync();
+    uControls().prepend(btn);   // bell sits left of the theme toggle
   }
 
   // ---- boot --------------------------------------------------------------
   mountThemeToggle();
+  mountNotifToggle();
   // Prime audio + notification permission on the first user gesture, regardless of
   // how the player entered (join-by-code, resume, deep link). Each fires once.
   document.addEventListener('pointerdown', primeNotifications, { once: true });
   document.addEventListener('keydown', primeNotifications, { once: true });
+
+  // An organizer administers; they don't play — so a TO must never sit on /u/.
+  // The stored role can be stale right after an upgrade (a freshly-promoted player
+  // was last seen as 'player'), so re-check with the server and, if this account is
+  // an organizer, send them to the console (/). Guests/players stay. Mirror of the
+  // console's applyView(), which routes players/guests the other way (→ /u/).
+  async function routeIfOrganizer() {
+    let tok = null; try { tok = localStorage.getItem('ygo_token'); } catch {}
+    if (!tok) return false;                     // guest / no account → stays on /u/
+    try {
+      const r = await API.me();
+      const role = r && r.user && r.user.role;
+      if (role) { try { localStorage.setItem('ygo_role', role); } catch {} } // keep stored role fresh
+      if (role === 'to') { location.replace('/'); return true; }
+    } catch (e) { console.warn('[u] role check failed, staying on /u/:', e && e.message); /* offline or expired session: staying here is the safe fallback (players use /u/) */ }
+    return false;
+  }
+
   // A shared link (/u/?torneo=CODE, also ?code= / #CODE) opens that tournament's
   // detail card automatically; otherwise show the join screen.
-  const _sp = new URLSearchParams(location.search);
-  const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
-  if (joined()) startPoll();
-  else if (pre.length === 5) openByCode(pre);
-  else renderJoin(null, pre);
+  (async () => {
+    if (await routeIfOrganizer()) return;       // organizer → bounced to the console
+    const _sp = new URLSearchParams(location.search);
+    const pre = (_sp.get('code') || _sp.get('torneo') || location.hash.replace('#', '')).toUpperCase();
+    if (joined()) startPoll();
+    else if (pre.length === 5) openByCode(pre);
+    else renderJoin(null, pre);
+  })();
 })();
