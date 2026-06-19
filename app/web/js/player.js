@@ -230,7 +230,7 @@
   function showBanner(title, body) {
     let el = document.getElementById('ygo-banner');
     if (!el) { el = document.createElement('div'); el.id = 'ygo-banner'; el.addEventListener('click', () => el.classList.remove('show')); document.body.appendChild(el); }
-    el.innerHTML = '<strong>' + esc(title) + '</strong><span>' + esc(body) + '</span><i aria-hidden="true">✕</i>';
+    el.innerHTML = '<div class="b-txt"><strong>' + esc(title) + '</strong><span>' + esc(body) + '</span></div><i aria-hidden="true">✕</i>';
     requestAnimationFrame(() => el.classList.add('show'));
     if (_bannerTimer) clearTimeout(_bannerTimer);
     _bannerTimer = setTimeout(() => el.classList.remove('show'), 9000);
@@ -264,7 +264,7 @@
       if (me.status === 'finished') {
         stopPoll();
         const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
-        showResults(j.id, j, () => { setJoined(null); renderJoin(); }, live);
+        showResults(j.id, j, () => { setJoined(null); renderJoin(); }, live, me.name); // me.name = tournament name (j.name is the player's)
         return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
       }
       if (me.pairing && me.currentRound !== _lastRound) {
@@ -313,7 +313,7 @@
   // Results = the WEB VIEW: the HTML card identical to the shareable image.
   // A small caption above shows the player's own placement (the card mirrors the
   // image exactly, so it doesn't single anyone out). "Compartir" renders the PNG.
-  async function showResults(id, j, onBack, notify) {
+  async function showResults(id, j, onBack, notify, tname) {
     stopPoll();
     root.classList.remove('results');
     root.innerHTML = '<div class="card"><div class="muted">Cargando resultados…</div></div>';
@@ -321,7 +321,7 @@
       const pub = await API.req('/tournaments/' + id + '/public', { auth: !(j && j.guestToken), guestToken: j && j.guestToken });
       const mine = (j && j.name) || uname() || null;
       const myRow = mine ? pub.standings.find((s) => s.name === mine) : null;
-      if (notify) notifyFinished(j && j.name, pub, myRow); // live finish → alert (sound/OS/banner), gated by the bell pref
+      if (notify) notifyFinished(tname, pub, myRow); // live finish → alert (sound/OS/banner), gated by the bell pref
       root.classList.add('results'); // wider layout for the results card
       root.innerHTML = '';
       if (myRow) {
