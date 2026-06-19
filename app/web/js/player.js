@@ -6,7 +6,7 @@
   const root = document.getElementById('player');
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
   const $ = (s, r = document) => r.querySelector(s);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // Fun guest names: Sustantivo + Adjetivo + número (e.g. "JarronEsponjoso76").
   // Semillas: Yu-Gi-Oh, videojuegos, objetos, lugares y cosas silly.
   const FB_NOUNS = [
@@ -42,6 +42,7 @@
   };
 
   let pollTimer = null;
+  let _pollInFlight = false;   // skip a tick if the previous /me is still awaiting (no overlap / out-of-order updates)
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
@@ -256,13 +257,15 @@
   // ---- pairing screen ----------------------------------------------------
   async function poll() {
     const j = joined(); if (!j) return;
+    if (_pollInFlight) return;   // a previous tick is still in flight — don't overlap
+    _pollInFlight = true;
     try {
       const me = await API.req('/tournaments/' + j.id + '/me', { auth: !j.guestToken, guestToken: j.guestToken });
       if (me.status === 'finished') {
         stopPoll();
         const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
         showResults(j.id, j, () => { setJoined(null); renderJoin(); }, live);
-        return;
+        return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
       }
       if (me.pairing && me.currentRound !== _lastRound) {
         if (_lastRound !== -1 && me.currentRound > _lastRound) notifyRound(me);
@@ -272,6 +275,8 @@
     } catch (e) {
       if (e.status === 403) renderJoin('Ya no estás inscrito en ese torneo.');
       // other errors: keep last view, retry next tick
+    } finally {
+      _pollInFlight = false;
     }
   }
 
@@ -459,7 +464,7 @@
     $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
   }
 
-  function startPoll() { stopPoll(); _lastRound = -1; poll(); pollTimer = setInterval(poll, 4000); }
+  function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; poll(); pollTimer = setInterval(poll, 4000); }
   function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && joined()) poll(); });
 
@@ -540,7 +545,7 @@
       const role = r && r.user && r.user.role;
       if (role) { try { localStorage.setItem('ygo_role', role); } catch {} } // keep stored role fresh
       if (role === 'to') { location.replace('/'); return true; }
-    } catch (e) { /* offline or expired session → stay on /u/ */ }
+    } catch (e) { console.warn('[u] role check failed, staying on /u/:', e && e.message); /* offline or expired session: staying here is the safe fallback (players use /u/) */ }
     return false;
   }
 
