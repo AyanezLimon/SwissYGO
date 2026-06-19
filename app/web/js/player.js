@@ -470,6 +470,13 @@
     if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
     else document.documentElement.removeAttribute('data-theme');
   }
+  // Shared fixed cluster (top-right) for the page's toggles — both mount here so
+  // they line up via flex gap instead of independent fixed offsets.
+  function uControls() {
+    let c = document.getElementById('u-controls');
+    if (!c) { c = document.createElement('div'); c.id = 'u-controls'; c.className = 'u-controls'; document.body.appendChild(c); }
+    return c;
+  }
   function mountThemeToggle() {
     if (document.getElementById('theme-toggle')) return;
     const btn = document.createElement('button');
@@ -482,7 +489,7 @@
       applyTheme(next);
       try { localStorage.setItem('ygo_theme', next); } catch (e) {}
     });
-    document.body.appendChild(btn);
+    uControls().appendChild(btn);
   }
 
   // ---- notifications toggle (bell) --------------------------------------
@@ -493,7 +500,7 @@
     if (document.getElementById('notif-toggle')) return;
     const btn = document.createElement('button');
     btn.className = 'notif-switch u-notif'; btn.id = 'notif-toggle'; btn.type = 'button';
-    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a6 6 0 0 0-6 6v3.6L4.3 15A1 1 0 0 0 5.2 16.5h13.6A1 1 0 0 0 19.7 15L18 11.6V8a6 6 0 0 0-6-6Zm0 20a2.8 2.8 0 0 0 2.8-2.8H9.2A2.8 2.8 0 0 0 12 22Z"/></svg>';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="bell" d="M12 2a6 6 0 0 0-6 6v3.6L4.3 15A1 1 0 0 0 5.2 16.5h13.6A1 1 0 0 0 19.7 15L18 11.6V8a6 6 0 0 0-6-6Zm0 20a2.8 2.8 0 0 0 2.8-2.8H9.2A2.8 2.8 0 0 0 12 22Z"/><line class="slash" x1="4" y1="4" x2="20" y2="20"/></svg>';
     const sync = () => {
       const on = notifEnabled();
       btn.classList.toggle('off', !on);
@@ -509,7 +516,7 @@
       if (next) showBanner('Notificaciones activadas', 'Te avisaremos cuando empiece tu ronda.');
     });
     sync();
-    document.body.appendChild(btn);
+    uControls().prepend(btn);   // bell sits left of the theme toggle
   }
 
   // ---- boot --------------------------------------------------------------
