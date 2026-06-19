@@ -130,7 +130,7 @@ html.gate-pending .wrap { visibility: hidden; }
 .pf-ring .track { fill: none; stroke: var(--border-2); stroke-width: 11; }
 .pf-ring .prog { fill: none; stroke: var(--gold); stroke-width: 11; stroke-linecap: round;
   transition: stroke-dashoffset 1.15s cubic-bezier(.22, 1, .36, 1); }            /* clockwise fill */
-.pf-ring .center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.pf-ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .pf-ring .center .pct { font-size: 38px; font-weight: 800; color: var(--gold); line-height: 1; }
 .pf-ring .center .pct span { font-size: 20px; font-weight: 700; }
 .pf-ring .center .lbl { font-size: 10.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .6px; margin-top: 4px; }
@@ -290,7 +290,7 @@ html.gate-pending .wrap { visibility: hidden; }
 .pf-match-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .pf-match-opp { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-match-sub { font-size: 12px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pf-match-delta { font-family: var(--mono); font-weight: 800; font-size: 16px; white-space: nowrap; flex: none; }
+.pf-match-delta { font-family: var(--mono); font-weight: 800; font-size: 16px; white-space: nowrap; flex: none; min-width: 3em; text-align: right; }
 .pf-match-delta.pos { color: var(--green); }
 .pf-match-delta.neg { color: var(--crimson); }
 .pf-match-note { color: var(--ink-faint); font-size: 12.5px; white-space: nowrap; flex: none; }

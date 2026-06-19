@@ -475,10 +475,9 @@
         html += '<div class="pf-sec-title">Cara a cara</div><div class="pf-h2h">';
         html += st.headToHead.map((h) => {
           const tot = h.wins + h.losses;
-          const wpct = tot ? Math.round((h.wins / tot) * 100) : 0;
           const cls = h.wins > h.losses ? 'pos' : h.wins < h.losses ? 'neg' : '';
           return `<div class="pf-opp">
-            <div class="pf-opp-top"><span class="pf-opp-name">${esc(h.username)}</span><span class="pf-opp-rec ${cls}">${h.wins}-${h.losses} · ${wpct}%</span></div>
+            <div class="pf-opp-top"><span class="pf-opp-name">${esc(h.username)}</span><span class="pf-opp-rec ${cls}">${h.wins}-${h.losses}</span></div>
             <div class="pf-bar"><span class="pf-bar-w" data-w="${tot ? (h.wins / tot) * 100 : 0}"></span><span class="pf-bar-l" data-w="${tot ? (h.losses / tot) * 100 : 0}"></span></div>
           </div>`;
         }).join('');
