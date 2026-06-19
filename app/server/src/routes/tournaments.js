@@ -5,6 +5,7 @@
 import { randomBytes } from 'node:crypto';
 import { requireAuth, requireTO } from '../auth.js';
 import { finalStandings } from '../lib/tiebreak.js';
+import { computeLeaderboard } from '../lib/leaderboard.js';
 
 function genJoinCode() {
   // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
@@ -362,5 +363,35 @@ export default async function tournamentRoutes(app) {
       byTournament,
       headToHead: [...h2h.values()].sort((a, b) => (b.wins + b.losses) - (a.wins + a.losses)),
     };
+  });
+
+  // Public cross-tournament Elo leaderboard (account players only).
+  // window=all (default) | season (current calendar month, recomputed fresh).
+  const _lbCache = {}; // cacheKey -> { at, data } — small memo so repeat views don't re-scan every finished event
+  app.get('/api/leaderboard', async (req) => {
+    const window = (req.query && req.query.window) === 'season' ? 'season' : 'all';
+    const month = new Date().toISOString().slice(0, 7); // YYYY-MM (UTC)
+    const cacheKey = window === 'season' ? 'season:' + month : 'all';
+    const hit = _lbCache[cacheKey];
+    if (hit && Date.now() - hit.at < 30000) return hit.data;
+
+    let tourneys = db.prepare(`SELECT id, finished_at, created_at, state_json FROM tournaments
+                               WHERE status = 'finished' ORDER BY COALESCE(finished_at, created_at) ASC`).all();
+    if (window === 'season') {
+      tourneys = tourneys.filter((t) => String(t.finished_at || t.created_at || '').slice(0, 7) === month);
+    }
+    const users = new Map(db.prepare('SELECT id, username FROM users').all().map((u) => [u.id, u.username]));
+    const rows = [];
+    for (const t of tourneys) {
+      let state; try { state = JSON.parse(t.state_json); } catch { continue; }
+      const pidMap = new Map();
+      for (const r of db.prepare('SELECT player_id, user_id FROM registrations WHERE tournament_id = ? AND user_id IS NOT NULL').all(t.id)) {
+        pidMap.set(r.player_id, { userId: r.user_id, username: users.get(r.user_id) || ('user#' + r.user_id) });
+      }
+      if (pidMap.size) rows.push({ id: t.id, state, pidMap });
+    }
+    const data = { window, season: window === 'season' ? month : null, players: computeLeaderboard(rows) };
+    _lbCache[cacheKey] = { at: Date.now(), data };
+    return data;
   });
 }

@@ -73,6 +73,7 @@
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
         ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
       </div>`;
 
     $('#join').addEventListener('click', () => doJoin($('#code').value));
@@ -81,6 +82,7 @@
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
+    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => renderLeaderboard());
     loadActive();
   }
 
@@ -357,6 +359,49 @@
   }
 
   const RANK_ICON = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : (r ? '#' + r : '—'));
+
+  // ---- leaderboard (Clasificación) --------------------------------------
+  // Public cross-tournament Elo ranking (account players only). Toggle Histórico
+  // (all-time) / Temporada (current month). The viewer's own row is highlighted.
+  let _lbWindow = 'all';
+  async function renderLeaderboard() {
+    stopPoll();
+    root.classList.remove('results');
+    const tab = (w, label) => `<button class="lb-tab${_lbWindow === w ? ' active' : ''}" data-w="${w}" type="button">${label}</button>`;
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">🏆 Clasificación</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div class="lb-tabs" style="margin:12px 0">${tab('all', 'Histórico')}${tab('season', 'Temporada')}</div>
+        <div id="lb-body" class="muted" style="margin-top:6px">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', () => renderJoin());
+    root.querySelectorAll('.lb-tab').forEach((b) => b.addEventListener('click', () => { _lbWindow = b.dataset.w; renderLeaderboard(); }));
+    try {
+      const data = await API.req('/leaderboard?window=' + _lbWindow, { auth: false });
+      const me = (uname() || '').toLowerCase();
+      const body = $('#lb-body'); body.classList.remove('muted');
+      if (!data.players.length) {
+        body.innerHTML = '<p class="muted" style="font-size:13px;text-align:center;padding:18px 0">Aún no hay suficientes partidas para un ranking.'
+          + (_lbWindow === 'season' ? '<br>Nadie ha completado torneos este mes.' : '') + '</p>';
+        return;
+      }
+      body.innerHTML = '<table class="lb-table"><thead><tr><th></th><th>Jugador</th><th class="r">Rating</th><th class="r">W-L</th></tr></thead><tbody>'
+        + data.players.map((p) => `
+          <tr class="${me && p.username.toLowerCase() === me ? 'lb-me' : ''}">
+            <td class="lb-rank">${medal(p.rank)}</td>
+            <td class="lb-name">${esc(p.username)}</td>
+            <td class="lb-rating">${p.rating}</td>
+            <td class="lb-rec">${p.wins}-${p.losses}</td>
+          </tr>`).join('') + '</tbody></table>'
+        + (_lbWindow === 'season' && data.season ? `<div class="muted" style="font-size:12px;text-align:center;margin-top:10px">Temporada ${esc(data.season)}</div>` : '');
+    } catch (e) {
+      const body = $('#lb-body'); body.classList.remove('muted');
+      body.innerHTML = `<p class="gate-error">${esc(e.message)}</p>`;
+    }
+  }
 
   async function renderProfile() {
     stopPoll();
