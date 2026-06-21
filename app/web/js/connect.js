@@ -61,18 +61,30 @@
     const tb = document.querySelector('.toolbar');
     if (!tb || !tb.querySelector('#reset-all')) return; // only the file toolbar
     let btn = document.getElementById('toolbar-publish');
-    if (!(hasSession() && isTO())) { if (btn) btn.remove(); return; }
+    let saveBtn = document.getElementById('toolbar-save');
+    if (!(hasSession() && isTO())) { if (btn) btn.remove(); if (saveBtn) saveBtn.remove(); return; }
     if (!btn) {
       btn = document.createElement('button');
       btn.id = 'toolbar-publish'; btn.type = 'button';
       tb.insertBefore(btn, tb.querySelector('.spacer') || tb.querySelector('#reset-all')); // group with the utilities, left of the spacer (keeps destructive "Nuevo Torneo" apart)
     }
     if (isCloud()) {
+      // "💾 Guardar" only makes sense once published; sits left of the code button.
+      if (!saveBtn) {
+        saveBtn = document.createElement('button');
+        saveBtn.id = 'toolbar-save'; saveBtn.type = 'button';
+        saveBtn.className = 'btn btn-sm';
+        saveBtn.textContent = '💾 Guardar';
+        saveBtn.title = 'Guardar este torneo en el servidor ahora';
+        saveBtn.onclick = saveNow;
+        tb.insertBefore(saveBtn, btn);
+      }
       btn.className = 'btn btn-sm';
       btn.textContent = 'Código ' + state.cloud.code;
       btn.title = 'Ver código y enlace';
       btn.onclick = () => showCodeModal(state.cloud.code);
     } else {
+      if (saveBtn) saveBtn.remove();
       btn.className = 'btn btn-sm btn-gold';
       btn.textContent = '☁ Publicar';
       btn.title = 'Publicar para que jugadores se inscriban';
@@ -258,10 +270,15 @@
     let t;
     try { t = await API.req('/tournaments/' + id); }
     catch (e) { if (window.showToast) showToast('No se pudo abrir el torneo: ' + e.message, true); return; }
-    const open = () => {
+    const open = async () => {
+      await flushSync();                       // push any unsent change to the CURRENT tournament before swapping it out
       const base = window.emptyState ? window.emptyState() : {};
       state = Object.assign(base, t.state || {});
-      state.cloud = { id: t.id, code: t.join_code };
+      // Keep the synced cloud metadata — especially the `removed` tombstones; only
+      // re-pin id/code from the authoritative response. Replacing state.cloud with a
+      // bare { id, code } dropped `removed`, so the absorb poll resurrected players
+      // the TO had deleted (the reported "deletion not reflected after reload" bug).
+      state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
       stopRegPoll();
       save();                                  // persist locally + push (wrapped)
       if (window.render) render();
@@ -316,6 +333,25 @@
   }
   window.addEventListener('pagehide', flushSync);
   document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
+
+  // Explicit "Guardar": force an immediate, AWAITED push with visible feedback.
+  // The debounced cloudSync above is fail-soft and silent, so a failed sync goes
+  // unnoticed; this button lets the TO confirm the server has the current state
+  // (and surfaces any error) — the "definitive save" for tournament config.
+  async function saveNow() {
+    if (!isCloud()) { if (window.showToast) showToast('Publica el torneo antes de guardarlo en el servidor.', true); return; }
+    clearTimeout(syncTimer); syncTimer = null;  // supersede the pending debounce
+    const btn = document.getElementById('toolbar-save');
+    if (btn) { btn.disabled = true; btn.dataset.label = btn.textContent; btn.textContent = 'Guardando…'; }
+    try {
+      await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name: (state.name && state.name.trim()) || undefined } });
+      if (window.showToast) showToast('Torneo guardado en el servidor.');
+    } catch (e) {
+      if (window.showToast) showToast('No se pudo guardar: ' + e.message, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || '💾 Guardar'; }
+    }
+  }
 
   const ddmmyyyy = (iso) => { const p = String(iso).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso; };
   const todayISO = () => new Date().toISOString().slice(0, 10);
