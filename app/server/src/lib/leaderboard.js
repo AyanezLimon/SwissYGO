@@ -60,12 +60,15 @@ export function computeLeaderboard(rows, opts = {}) {
           if (Sa === 1) { ma.wins++; mb.losses++; } else { ma.losses++; mb.wins++; }
           if (log && involvesUser) {
             const meIsA = a.userId === trackUser;
-            const before = meIsA ? Ra : Rb, after = meIsA ? Ra2 : Rb2;
+            // Round before/after, then derive delta from THOSE — so before+delta=after and
+            // the deltas telescope exactly to the displayed final rating (single source of
+            // truth: rating == 1200 + Σ deltas). Rounding the raw difference instead drifts ±1.
+            const rb = Math.round(meIsA ? Ra : Rb), ra = Math.round(meIsA ? Ra2 : Rb2);
             log.push({
               tournamentId: t.id, tournament: t.name || null, date: t.date || null,
               opponent: names.get(meIsA ? m.p2Id : m.p1Id) || 'Rival',
               counted: true, won: meIsA ? (m.result === 'p1') : (m.result === 'p2'),
-              before: Math.round(before), after: Math.round(after), delta: Math.round(after - before),
+              before: rb, after: ra, delta: ra - rb,
             });
           }
         } else if (log && involvesUser) {
