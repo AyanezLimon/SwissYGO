@@ -348,6 +348,7 @@
       if (window.showToast) showToast('Torneo guardado en el servidor.');
     } catch (e) {
       if (window.showToast) showToast('No se pudo guardar: ' + e.message, true);
+      scheduleSync();  // re-arm the debounced sync we superseded, so the queued attempt isn't lost when the manual PUT fails
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.label || '💾 Guardar'; }
     }
