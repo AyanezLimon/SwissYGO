@@ -47,8 +47,32 @@
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
+  // ---- screen history: hardware/browser Back closes the open screen ---------
+  // The join screen (home) is the base view; profile, leaderboard, the tournament
+  // detail card, results and the Elo history stack on top of it — each as one
+  // history entry. Opening a screen pushes a state; the mobile back gesture / the
+  // browser Back button and the in-app "Volver" buttons all pop it, returning to
+  // the view underneath instead of leaving the app. The stack holds one (bare)
+  // renderer per depth; [0] is the base.
+  const _navStack = [renderJoin];   // base seeded so a deep-linked screen (opened before any home render) can still Back to home
+  function navBase(renderFn) { _navStack.length = 0; _navStack.push(renderFn); } // (re)enter base; clears screen depth
+  function navOpen(renderFn) {                       // open a screen as a Back-able entry
+    _navStack.push(renderFn);
+    try { history.pushState({ uScreen: _navStack.length }, ''); } catch (e) {}
+    renderFn();
+  }
+  function navBack() { if (_navStack.length > 1) history.back(); } // "Volver" → triggers popstate below
+  window.addEventListener('popstate', () => {
+    if (_navStack.length > 1) {
+      _navStack.pop();
+      const top = _navStack[_navStack.length - 1];
+      if (typeof top === 'function') top();          // re-render the view underneath (no push)
+    }
+  });
+
   // ---- join screen -------------------------------------------------------
   function renderJoin(err, codePrefill) {
+    navBase(renderJoin);   // home is the base view — reset any screen depth
     stopPoll();
     root.classList.remove('results');
     const logged = loggedIn();
@@ -81,8 +105,8 @@
     const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); localStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
-    const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
-    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => renderLeaderboard());
+    const h = $('#hist'); if (h) h.addEventListener('click', () => navOpen(renderProfile));
+    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => navOpen(renderLeaderboard));
     loadActive();
   }
 
@@ -100,7 +124,7 @@
           <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
         </div>`).join('');
-      el.querySelectorAll('.tcard').forEach((c, i) => c.addEventListener('click', () => showTournamentCard(list[i])));
+      el.querySelectorAll('.tcard').forEach((c, i) => c.addEventListener('click', () => navOpen(() => showTournamentCard(list[i]))));
     } catch (e) { el.innerHTML = '<p class="muted" style="font-size:13px">No se pudo cargar la lista de torneos.</p>'; }
   }
 
@@ -108,7 +132,7 @@
   async function openByCode(code) {
     try {
       const t = await API.req('/tournaments/by-code/' + encodeURIComponent(code), { auth: false });
-      showTournamentCard(t);
+      navOpen(() => showTournamentCard(t));   // Back from a deep-linked card → the join home
     } catch (e) { renderJoin(e.status === 404 ? 'Código inválido.' : null, code); }
   }
 
@@ -154,8 +178,8 @@
         <button class="btn btn-sm btn-ghost" id="back" style="width:100%;margin-top:10px">← Volver</button>
       </div>`;
     const c = $('#confirm'); if (c) c.addEventListener('click', () => doJoin(t.code));
-    const rs = $('#results'); if (rs) rs.addEventListener('click', () => showResults(t.id, null, () => showTournamentCard(t)));
-    $('#back').addEventListener('click', () => renderJoin());
+    const rs = $('#results'); if (rs) rs.addEventListener('click', () => navOpen(() => showResults(t.id, null, () => showTournamentCard(t))));
+    $('#back').addEventListener('click', navBack);
   }
 
   async function doJoin(code) {
@@ -350,11 +374,11 @@
       actions.innerHTML = '<button class="btn btn-gold btn-sm" id="share">📤 Compartir</button><button class="btn btn-sm btn-ghost" id="back">← Volver</button>';
       root.appendChild(actions);
       $('#share').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
-      $('#back').addEventListener('click', onBack);
+      $('#back').addEventListener('click', navBack);
     } catch (e) {
       root.classList.remove('results');
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
-      $('#back').addEventListener('click', onBack);
+      $('#back').addEventListener('click', navBack);
     }
   }
 
@@ -379,7 +403,7 @@
         <div class="muted" id="lb-season" style="font-size:12.5px;margin:4px 0 12px">Temporada</div>
         <div id="lb-body" class="muted">Cargando…</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderJoin());
+    $('#back').addEventListener('click', navBack);
     try {
       const data = await API.req('/leaderboard', { auth: false });
       const seasonEl = $('#lb-season'); if (seasonEl) seasonEl.textContent = 'Temporada · ' + monthLabel(data.month);
@@ -414,7 +438,7 @@
         </div>
         <div id="body" class="muted" style="margin-top:16px">Cargando…</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderJoin());
+    $('#back').addEventListener('click', navBack);
     try {
       const st = await API.req('/me/stats');
       const r = st.record;
@@ -496,8 +520,8 @@
       html += '</div>';
 
       b.innerHTML = html;
-      b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => showResults(Number(el.dataset.id), null, () => renderProfile())));
-      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => renderEloDetail(elo));
+      b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => navOpen(() => showResults(Number(el.dataset.id), null, () => renderProfile()))));
+      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => navOpen(() => renderEloDetail(elo)));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -540,7 +564,7 @@
         <div class="muted" style="font-size:12.5px;margin:4px 0 12px">Cómo cambió tu rating, partida por partida.</div>
         <div class="pf-matches">${cards || '<p class="muted" style="text-align:center;padding:18px 0">Sin partidas esta temporada.</p>'}</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderProfile());
+    $('#back').addEventListener('click', navBack);
   }
 
   function renderPairing(j, me) {
