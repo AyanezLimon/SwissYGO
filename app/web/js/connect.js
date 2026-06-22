@@ -48,7 +48,7 @@
       // The publish/code control lives in the file toolbar (see mountToolbarCloudBtn),
       // so the header only carries the account + "Torneos" panel.
       const cloud = isOrganizer() ? `<button class="btn btn-sm" data-acc="panel" title="${isTO() ? 'Administrar cualquier torneo' : 'Tus torneos'}">Torneos</button>` : '';
-      ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
+      ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="account" title="Tu correo y cuenta">Cuenta</button><button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
     } else {
       ctl.innerHTML = `<span class="who">Invitado</span><button class="btn btn-sm btn-ghost" data-acc="login">Iniciar sesión</button>`;
@@ -102,7 +102,37 @@
     if (b.dataset.acc === 'publish') publish();
     if (b.dataset.acc === 'code') showCodeModal(isCloud() ? state.cloud.code : '');
     if (b.dataset.acc === 'panel') showTournamentsPanel();
+    if (b.dataset.acc === 'account') showAccountModal();
   });
+
+  // Add/change the account's email (self-service). Re-checks the current password.
+  async function showAccountModal() {
+    const m = makeModal(400);
+    m.body.innerHTML = '<h3 class="modal-title">Mi cuenta</h3><p class="modal-msg">Cargando…</p>';
+    let cur = null;
+    try { const me = await API.me(); cur = me.user.email || null; } catch (e) {}
+    m.body.innerHTML = `
+      <h3 class="modal-title">Mi cuenta</h3>
+      <p class="modal-msg" style="margin-bottom:12px">Correo actual: <b>${cur ? esc(cur) : 'sin correo'}</b><br>
+        <span style="font-size:12px;color:var(--ink-soft)">Se usa para restablecer tu contraseña.</span></p>
+      <div class="gate-field"><label>${cur ? 'Nuevo correo' : 'Agregar correo'}</label><input type="text" id="ac-email" autocomplete="email" autocapitalize="none" spellcheck="false" value="${cur ? esc(cur) : ''}"></div>
+      <div class="gate-field"><label>Contraseña actual</label><input type="password" id="ac-pass" autocomplete="current-password"></div>
+      <div class="gate-error" id="ac-error"></div>
+      <button class="btn btn-gold" id="ac-save" type="button" style="width:100%">Guardar correo</button>
+      <button class="btn btn-ghost btn-sm" data-close type="button" style="width:100%;margin-top:8px">Cancelar</button>`;
+    m.body.querySelector('#ac-save').addEventListener('click', async () => {
+      const err = m.body.querySelector('#ac-error'); err.textContent = '';
+      const email = m.body.querySelector('#ac-email').value.trim();
+      const password = m.body.querySelector('#ac-pass').value;
+      if (!email) { err.textContent = 'Escribe un correo.'; return; }
+      if (!password) { err.textContent = 'Ingresa tu contraseña actual.'; return; }
+      const btn = m.body.querySelector('#ac-save'); btn.disabled = true;
+      try {
+        await API.req('/auth/email', { method: 'POST', body: { email, password } });
+        m.body.innerHTML = '<h3 class="modal-title">Listo</h3><p class="modal-msg" style="margin:8px 0 14px">Tu correo se actualizó.</p><button class="btn btn-gold" data-close type="button" style="width:100%">Cerrar</button>';
+      } catch (e) { err.textContent = e.message || 'No se pudo guardar.'; btn.disabled = false; }
+    });
+  }
 
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function makeModal(maxW = 420) {

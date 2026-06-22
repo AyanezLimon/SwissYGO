@@ -98,8 +98,24 @@ export default async function authRoutes(app) {
 
   // Re-reads the role from the DB (so an admin change takes effect on next /me).
   app.get('/api/auth/me', { preHandler: requireAuth }, async (req, reply) => {
-    const row = db.prepare('SELECT id, username, role, disabled FROM users WHERE id = ?').get(req.user.id);
+    const row = db.prepare('SELECT id, username, role, disabled, email FROM users WHERE id = ?').get(req.user.id);
     if (!row || row.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
-    return { user: { id: row.id, username: row.username, role: row.role } };
+    return { user: { id: row.id, username: row.username, role: row.role, email: row.email || null } };
+  });
+
+  // Add or change the account's email (self-service). Re-checks the current password
+  // (sensitive change) and enforces uniqueness. Lets a user who signed up without an
+  // email add one so they can use password reset (#35).
+  app.post('/api/auth/email', { preHandler: requireAuth }, async (req, reply) => {
+    const email = (req.body?.email || '').trim().toLowerCase(); // normalize (emails are case-insensitive)
+    const password = req.body?.password || '';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return reply.code(400).send({ error: 'Correo inválido.' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!row || !(await verifyPassword(password, row.password_hash))) return reply.code(401).send({ error: 'Contraseña incorrecta.' });
+    if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(email, req.user.id)) {
+      return reply.code(409).send({ error: 'Ese correo ya está registrado.' });
+    }
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, req.user.id);
+    return { ok: true, email };
   });
 }
