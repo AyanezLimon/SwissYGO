@@ -814,12 +814,8 @@
     e.preventDefault();
     e.stopImmediatePropagation();
     const id = state.cloud.id;
-    const active = !state.finished;
-    const msg = active
-      ? 'Se borrarán los jugadores y rondas. Este torneo está PUBLICADO: se cerrará para los jugadores (ya no podrán inscribirse ni ver emparejamientos).'
-      : 'Se borrarán todos los jugadores y rondas actuales. Esta acción no se puede deshacer.';
+    const msg = 'Se borrarán los cambios locales no guardados (jugadores, rondas y configuración). El torneo publicado en el servidor permanecerá sin cambios. Esta acción no se puede deshacer.';
     const reset = async () => {
-      if (active) { try { await API.req('/tournaments/' + id + '/finish', { method: 'POST' }); } catch { /* best-effort close */ } }
       stopRegPoll();
       state = window.emptyState ? window.emptyState() : {};
       roundsManuallySet = false;
