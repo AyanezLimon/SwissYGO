@@ -500,19 +500,30 @@
       const reports = await API.req('/tournaments/' + state.cloud.id + '/reports');
       if (!reports || !reports.length) return;
       let applied = 0;
+      const resolved = []; // report ids whose result is now in `state` (apply or already there)
       for (const rep of reports) {
         const round = (state.rounds || []).find((r) => r.roundNumber === rep.round_number);
         const m = round && (round.matches || []).find((x) => x.p2Id && [x.p1Id, x.p2Id].slice().sort().join('|') === rep.match_key);
-        if (m && !m.isReported && !m.isBye && !m.isLateLoss) {
+        if (!m || m.isBye || m.isLateLoss) continue; // unknown / non-reportable → leave the report alone
+        if (!m.isReported) {
           m.result = rep.result;   // 'p1' | 'p2' | 'doubleLoss' (same fields app.js's reportResult sets)
           m.isReported = true;
           applied++;
         }
-        // resolved either way (applied, or the match was already reported) → clear it
-        try { await API.req('/tournaments/' + state.cloud.id + '/reports/' + rep.id, { method: 'DELETE' }); } catch (e) {}
+        resolved.push(rep.id);
       }
+      if (!resolved.length) return;
+      // PERSIST FIRST, DELETE AFTER: only remove a report once the state carrying its
+      // result is saved on the server. Deleting before a successful PUT could lose a
+      // confirmed result for good (gone from result_reports AND not in state_json).
+      save(); // local cache
+      try {
+        await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name: (state.name && state.name.trim()) || undefined } });
+      } catch (e) {
+        return; // PUT failed → keep the reports; the next poll tick retries (idempotent)
+      }
+      for (const id of resolved) { try { await API.req('/tournaments/' + state.cloud.id + '/reports/' + id, { method: 'DELETE' }); } catch (e) {} }
       if (applied) {
-        save();
         if (window.render) render();
         if (window.showToast) showToast(applied === 1 ? 'Resultado confirmado por los jugadores aplicado.' : applied + ' resultados de jugadores aplicados.');
       }
