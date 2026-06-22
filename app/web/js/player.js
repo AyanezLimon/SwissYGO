@@ -47,32 +47,36 @@
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
-  // ---- screen history: hardware/browser Back closes the open screen ---------
-  // The join screen (home) is the base view; profile, leaderboard, the tournament
+  // ---- screen history: hardware/browser Back (and Forward) drive the view ----
+  // The join screen (home) is the base; profile, leaderboard, the tournament
   // detail card, results and the Elo history stack on top of it — each as one
-  // history entry. Opening a screen pushes a state; the mobile back gesture / the
-  // browser Back button and the in-app "Volver" buttons all pop it, returning to
-  // the view underneath instead of leaving the app. The stack holds one (bare)
-  // renderer per depth; [0] is the base.
-  const _navStack = [renderJoin];   // base seeded so a deep-linked screen (opened before any home render) can still Back to home
-  function navBase(renderFn) { _navStack.length = 0; _navStack.push(renderFn); } // (re)enter base; clears screen depth
-  function navOpen(renderFn) {                       // open a screen as a Back-able entry
+  // history entry. `_navStack` holds one (bare) renderer per depth ([0] = base);
+  // `_navIndex` is the depth of the entry on screen. Opening a screen pushes a
+  // state carrying its depth. popstate reconciles to whatever entry the browser
+  // moved to — so it renders the right view for BOTH Back and Forward (rather than
+  // blindly popping). Entries aren't discarded on Back, so Forward restores them;
+  // branching (open a new screen after going back) truncates the stale forward
+  // entries to match the browser. base seeded so a deep-linked screen still Backs home.
+  const _navStack = [renderJoin];
+  let _navIndex = 0;
+  function navReset() { _navStack.length = 1; _navStack[0] = renderJoin; _navIndex = 0; } // (re)enter base (join/leave/finish)
+  function navOpen(renderFn) {                       // open a screen as a new history entry
+    _navStack.length = _navIndex + 1;                 // drop forward entries when branching
     _navStack.push(renderFn);
-    try { history.pushState({ uScreen: _navStack.length }, ''); } catch (e) {}
+    _navIndex = _navStack.length - 1;
+    try { history.pushState({ uScreen: _navIndex }, ''); } catch (e) {}
     renderFn();
   }
-  function navBack() { if (_navStack.length > 1) history.back(); } // "Volver" → triggers popstate below
-  window.addEventListener('popstate', () => {
-    if (_navStack.length > 1) {
-      _navStack.pop();
-      const top = _navStack[_navStack.length - 1];
-      if (typeof top === 'function') top();          // re-render the view underneath (no push)
-    }
+  function navBack() { if (_navIndex > 0) history.back(); } // "Volver" → triggers popstate below
+  window.addEventListener('popstate', (e) => {
+    const want = (e && e.state && typeof e.state.uScreen === 'number') ? e.state.uScreen : 0;
+    _navIndex = Math.max(0, Math.min(want, _navStack.length - 1)); // clamp: a stale entry still renders a valid view
+    const fn = _navStack[_navIndex];
+    if (typeof fn === 'function') fn();              // render the view for this entry (Back or Forward)
   });
 
   // ---- join screen -------------------------------------------------------
   function renderJoin(err, codePrefill) {
-    navBase(renderJoin);   // home is the base view — reset any screen depth
     stopPoll();
     root.classList.remove('results');
     const logged = loggedIn();
@@ -200,6 +204,7 @@
         res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
         setJoined({ id: res.id, name: res.display_name || name, guestToken: res.guest_token });
       }
+      navReset();   // entering the event = base view; clear any screen depth (e.g. the card we joined from)
       startPoll();
     } catch (e) {
       if (btn) btn.disabled = false;
@@ -294,6 +299,7 @@
       if (me.inEvent || me.pairing) _seenInEvent = true;
       if (me.inEvent === false && _seenInEvent) {
         stopPoll(); setJoined(null);
+        navReset();
         renderJoin('El organizador te retiró del torneo.');
         return;
       }
@@ -301,7 +307,7 @@
         stopPoll();
         const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
         setJoined(null); // tournament's over — end the session so a refresh goes to the /u/ home, not back here
-        showResults(j.id, j, () => renderJoin(), live, me.name); // me.name = tournament name (j.name is the player's)
+        navReset(); navOpen(() => showResults(j.id, j, () => renderJoin(), live, me.name)); // results as a screen → Back/Volver → home
         return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
       }
       if (me.pairing && me.currentRound !== _lastRound) {
@@ -600,7 +606,7 @@
         #player .round{ color:var(--ink-soft); font-size:13px; letter-spacing:.4px; text-transform:uppercase; }
         #player .vs{ font-size:18px; color:var(--ink); }
       </style>`;
-    $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
+    $('#leave').addEventListener('click', () => { setJoined(null); navReset(); renderJoin(); });
   }
 
   function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; _seenInEvent = false; poll(); pollTimer = setInterval(poll, 4000); }
