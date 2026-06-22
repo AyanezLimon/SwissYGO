@@ -1,0 +1,89 @@
+name: Project card sync
+
+# Keeps the "SwissYGO — develop" Project (issue cards) in sync with the PRs linked
+# to each issue (the issue's Development section, i.e. `Closes #N` in a PR body):
+#   - PR opened/reopened  → linked issue card → In Progress
+#   - PR closed/merged    → if ALL of the issue's linked PRs are closed → close the
+#                           issue (the project's built-in "Item closed → Done"
+#                           workflow then moves the card to Done).
+# This is needed because we merge into `develop` (not the default branch), so the
+# native "Closes #N" auto-close never fires on its own.
+#
+# Requires repo secret PROJECT_TOKEN: a PAT with `project` + `repo` scope (the
+# default GITHUB_TOKEN cannot write a user-owned Projects v2 board).
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const PROJECT_ID   = 'PVT_kwHOAgVxEc4BbTu5';
+            const STATUS_FIELD = 'PVTSSF_lAHOAgVxEc4BbTu5zhWFGbg';
+            const IN_PROGRESS  = '47fc9ee4';
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const action = context.payload.action;
+
+            // Issues this PR closes (its "Development" links, from `Closes #N`).
+            const linked = await github.graphql(`
+              query($owner:String!,$repo:String!,$num:Int!){
+                repository(owner:$owner,name:$repo){
+                  pullRequest(number:$num){
+                    closingIssuesReferences(first:20){ nodes{ id number } } } } }`,
+              { owner, repo, num: pr.number });
+            const issues = linked.repository.pullRequest.closingIssuesReferences.nodes;
+            if (!issues.length) { core.info('PR has no linked issues; nothing to sync.'); return; }
+
+            const projectItemId = async (issueId) => {
+              const r = await github.graphql(`
+                query($id:ID!){ node(id:$id){ ... on Issue {
+                  projectItems(first:20){ nodes{ id project{ id } } } } } }`, { id: issueId });
+              const it = r.node.projectItems.nodes.find((n) => n.project.id === PROJECT_ID);
+              return it ? it.id : null;
+            };
+            const setInProgress = async (issueId) => {
+              let itemId = await projectItemId(issueId);
+              if (!itemId) {
+                const a = await github.graphql(`
+                  mutation($p:ID!,$c:ID!){ addProjectV2ItemById(input:{projectId:$p,contentId:$c}){ item{ id } } }`,
+                  { p: PROJECT_ID, c: issueId });
+                itemId = a.addProjectV2ItemById.item.id;
+              }
+              await github.graphql(`
+                mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){
+                  updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }`,
+                { p: PROJECT_ID, i: itemId, f: STATUS_FIELD, o: IN_PROGRESS });
+            };
+
+            for (const iss of issues) {
+              if (action === 'opened' || action === 'reopened') {
+                await setInProgress(iss.id);
+                core.info(`#${iss.number} → In Progress`);
+              } else if (action === 'closed') {
+                // ALL PRs linked to this issue (incl. already-closed) must be closed.
+                const r = await github.graphql(`
+                  query($id:ID!){ node(id:$id){ ... on Issue {
+                    closedByPullRequestsReferences(first:50, includeClosedPrs:true){ nodes{ state } } } } }`,
+                  { id: iss.id });
+                const prs = r.node.closedByPullRequestsReferences.nodes;
+                const allClosed = prs.length > 0 && prs.every((p) => p.state !== 'OPEN');
+                if (allClosed) {
+                  await github.rest.issues.update({ owner, repo, issue_number: iss.number, state: 'closed' });
+                  core.info(`#${iss.number} closed (all linked PRs closed) → card → Done`);
+                } else {
+                  core.info(`#${iss.number} still has open PRs; leaving as-is.`);
+                }
+              }
+            }
