@@ -213,7 +213,18 @@ export default async function tournamentRoutes(app) {
       return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, late: lateOpen });
     }
 
-    // Guest: no persistent identity, so no resume — registration must be open.
+    // Guest: identity is the per-tournament guest_token saved in the browser. If this
+    // browser already holds a token for THIS tournament, RESUME that registration
+    // instead of inserting a duplicate (mirrors the account resume above) — fixes the
+    // "(1)/(2)" duplicate guests created on re-confirmation. Resolved before the open
+    // gate so a guest can recover their slot even after registration closed.
+    const gt = req.headers['x-guest-token'];
+    if (gt) {
+      const existing = db.prepare('SELECT player_id, display_name FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt);
+      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, guest_token: gt };
+    }
+
+    // No matching token → a fresh guest registration (registration must be open).
     if (!open) return reply.code(409).send({ error: closedMsg });
     const name = (req.body?.name || '').trim().slice(0, 40);
     if (!name) return reply.code(400).send({ error: 'Indica un nombre para inscribirte como invitado.' });

@@ -193,7 +193,11 @@
     const errEl = $('#perr');
     if (code.length !== 5) { if (errEl) errEl.textContent = 'El código tiene 5 caracteres.'; return; }
     primeNotifications(); // within the click gesture: unlock audio + ask for permission
-    const btn = $('#join'); if (btn) btn.disabled = true;
+    // Disable BOTH the home "Unirme" and the card's "Confirmar registro" while the
+    // request is in flight — a double-tap on #confirm was firing two /join POSTs
+    // before the guest_token was stored, creating duplicate registrations.
+    const btns = ['#join', '#confirm'].map((s) => $(s)).filter(Boolean);
+    btns.forEach((b) => { b.disabled = true; });
     try {
       let res;
       if (loggedIn()) {
@@ -203,13 +207,16 @@
       } else {
         const name = ($('#gname') && $('#gname').value.trim()) || guestName();
         try { sessionStorage.setItem('ygo_guest_name', name); } catch {}
-        res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
+        // Send any guest_token this browser already holds → the server resumes that
+        // registration if it's for THIS tournament (no duplicate (1)/(2) on re-confirm).
+        const prev = joined();
+        res = await API.req('/tournaments/join', { method: 'POST', auth: false, guestToken: (prev && prev.guestToken) || undefined, body: { code, name } });
         setJoined({ id: res.id, name: res.display_name || name, guestToken: res.guest_token });
       }
       navReset();   // entering the event = base view; clear any screen depth (e.g. the card we joined from)
       startPoll();
     } catch (e) {
-      if (btn) btn.disabled = false;
+      btns.forEach((b) => { b.disabled = false; });
       if (errEl) errEl.textContent = e.message || 'No se pudo unir.';
     }
   }
