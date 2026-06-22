@@ -43,19 +43,20 @@ export default async function tournamentRoutes(app) {
   // ---- TO (owner) ----
   app.post('/api/tournaments', { preHandler: requireTO }, async (req, reply) => {
     const name = (req.body?.name || '').trim() || 'Torneo';
+    const ranked = req.body?.ranked === false ? 0 : 1; // default ranked; casual events opt out
     let code = genJoinCode();
     while (db.prepare('SELECT 1 FROM tournaments WHERE join_code = ?').get(code)) code = genJoinCode();
     const info = db
-      .prepare('INSERT INTO tournaments (to_user_id, name, join_code, status, state_json) VALUES (?, ?, ?, ?, ?)')
-      .run(req.user.id, name, code, 'setup', emptyStateJson());
-    return reply.code(201).send({ id: info.lastInsertRowid, name, join_code: code, status: 'setup' });
+      .prepare('INSERT INTO tournaments (to_user_id, name, join_code, status, state_json, ranked) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(req.user.id, name, code, 'setup', emptyStateJson(), ranked);
+    return reply.code(201).send({ id: info.lastInsertRowid, name, join_code: code, status: 'setup', ranked: !!ranked });
   });
 
   // Admin panel: EVERY tournament (any TO administers any event), newest-active
   // first. Includes round progress, timer state and creator so the TO can pick.
   app.get('/api/tournaments', { preHandler: requireTO }, async () => {
     const rows = db
-      .prepare(`SELECT t.id, t.name, t.join_code, t.status, t.created_at, t.finished_at, t.state_json, u.username AS owner
+      .prepare(`SELECT t.id, t.name, t.join_code, t.status, t.created_at, t.finished_at, t.state_json, t.ranked, u.username AS owner
                 FROM tournaments t LEFT JOIN users u ON u.id = t.to_user_id
                 ORDER BY (t.status = 'finished') ASC, t.created_at DESC`)
       .all();
@@ -70,7 +71,7 @@ export default async function tournamentRoutes(app) {
       }
       return {
         id: r.id, name: r.name, join_code: r.join_code, status: r.status, owner: r.owner || null,
-        created_at: r.created_at, finished_at: r.finished_at,
+        created_at: r.created_at, finished_at: r.finished_at, ranked: !!r.ranked,
         players: (s.players || []).length, currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0,
         timer,
       };
@@ -80,7 +81,7 @@ export default async function tournamentRoutes(app) {
   app.get('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
-    return { id: row.id, name: row.name, join_code: row.join_code, status: row.status, state: JSON.parse(row.state_json) };
+    return { id: row.id, name: row.name, join_code: row.join_code, status: row.status, ranked: !!row.ranked, state: JSON.parse(row.state_json) };
   });
 
   app.put('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
@@ -101,6 +102,11 @@ export default async function tournamentRoutes(app) {
     // only in state_json, which is mutable). The TO's renames ride along here.
     const name = (typeof req.body?.name === 'string' && req.body.name.trim()) ? req.body.name.trim().slice(0, 80) : null;
     if (name && name !== row.name) db.prepare('UPDATE tournaments SET name = ? WHERE id = ?').run(name, row.id);
+    // `ranked` is only editable before the event starts — never retroactively, so a
+    // finished/in-progress tournament can't be reclassified and shift past ratings.
+    if (typeof req.body?.ranked === 'boolean' && status === 'setup') {
+      db.prepare('UPDATE tournaments SET ranked = ? WHERE id = ?').run(req.body.ranked ? 1 : 0, row.id);
+    }
     return { ok: true, status };
   });
 
@@ -270,19 +276,19 @@ export default async function tournamentRoutes(app) {
       roundNumber: r.roundNumber,
       matches: r.matches.map((m) => ({ bye: !!m.isBye, p1: pname(m.p1Id), p2: m.isBye ? null : pname(m.p2Id), result: m.result, reported: !!m.isReported })),
     }));
-    return { name: t.name, status: t.status, finished_at: t.finished_at, date: state.eventDate || null, note: state.note || '', currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
+    return { name: t.name, status: t.status, ranked: !!t.ranked, finished_at: t.finished_at, date: state.eventDate || null, note: state.note || '', currentRound: state.currentRound, maxRounds: state.maxRounds, standings, rounds };
   });
 
   // Public list of active tournaments (accepting registration or running) so
   // players can pick one. Join codes are intentionally shown.
   app.get('/api/tournaments/active', async () => {
     const rows = db
-      .prepare("SELECT id, name, join_code, status, created_at, state_json FROM tournaments WHERE status IN ('setup','running') ORDER BY created_at DESC LIMIT 50")
+      .prepare("SELECT id, name, join_code, status, created_at, state_json, ranked FROM tournaments WHERE status IN ('setup','running') ORDER BY created_at DESC LIMIT 50")
       .all();
     return rows.map((r) => {
       let s = {}; try { s = JSON.parse(r.state_json); } catch {}
       return {
-        id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at,
+        id: r.id, name: r.name, code: r.join_code, status: r.status, created_at: r.created_at, ranked: !!r.ranked,
         date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
         currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0, lateOpen: isLateOpen(s),
       };
@@ -297,7 +303,7 @@ export default async function tournamentRoutes(app) {
     if (!t) return reply.code(404).send({ error: 'Código inválido.' });
     let s = {}; try { s = JSON.parse(t.state_json); } catch {}
     return {
-      id: t.id, name: t.name, code: t.join_code, status: t.status,
+      id: t.id, name: t.name, code: t.join_code, status: t.status, ranked: !!t.ranked,
       date: s.eventDate || null, players: (s.players || []).length, note: s.note || '',
       currentRound: s.currentRound || 0, maxRounds: s.maxRounds || 0, lateOpen: isLateOpen(s),
     };
@@ -367,8 +373,10 @@ export default async function tournamentRoutes(app) {
 
   // ---- Leaderboard (Elo) helpers ----------------------------------------
   const monthOf = (t) => String(t.finished_at || t.created_at || '').slice(0, 7); // YYYY-MM
+  // Only RANKED finished tournaments feed the Elo engine; casual events are excluded
+  // here, so they never affect the public board, season standings, or /me/elo.
   const allFinished = () => db.prepare(`SELECT id, name, finished_at, created_at, state_json FROM tournaments
-                                        WHERE status = 'finished' ORDER BY COALESCE(finished_at, created_at) ASC`).all();
+                                        WHERE status = 'finished' AND ranked = 1 ORDER BY COALESCE(finished_at, created_at) ASC`).all();
   // Build computeLeaderboard rows (parsed state + player_id→account map) for a set of
   // finished tournaments. Guests / TO-added players (no user_id) are left unmapped.
   // name/date ride along so the per-match log can show where each game was played.

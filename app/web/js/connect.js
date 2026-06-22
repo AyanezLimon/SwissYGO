@@ -178,7 +178,7 @@
         return `<tr>
           <td><div class="tp-name">${esc(t.name)}${here ? ' <span class="pill pill-ok">Abierto</span>' : ''}</div>
             <div class="tp-sub"><code class="tcode">${esc(t.join_code)}</code>${t.owner ? ' · ' + esc(t.owner) : ''}</div></td>
-          <td><span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${statusLabel(t.status)}</span></td>
+          <td><span class="pill ${t.status === 'finished' ? 'pill-ok' : 'pill-pend'}">${statusLabel(t.status)}</span>${t.ranked === false ? ' <span class="pill pill-casual" title="No cuenta para el ranking">Casual</span>' : ''}</td>
           <td class="tp-num">${round}</td><td class="tp-num">${t.players}</td><td class="tp-day">${day(t.created_at)}</td>
           <td class="tp-acts"><button class="btn btn-sm" data-act="open" data-id="${t.id}"${here ? ' disabled' : ''}>${here ? 'Actual' : 'Abrir'}</button>
             <button class="btn btn-sm btn-ghost" data-act="res" data-id="${t.id}">Resultados</button></td></tr>`;
@@ -279,6 +279,7 @@
       // bare { id, code } dropped `removed`, so the absorb poll resurrected players
       // the TO had deleted (the reported "deletion not reflected after reload" bug).
       state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
+      state.ranked = t.ranked !== false;       // authoritative ranked flag (column, not state_json)
       stopRegPoll();
       save();                                  // persist locally + push (wrapped)
       if (window.render) render();
@@ -365,21 +366,41 @@
   function wireTournamentFields() {
     const nameEl = document.getElementById('tournament-name');
     const dateEl = document.getElementById('tournament-date');
+    const rankedEl = document.getElementById('tournament-ranked');
     if (nameEl && dateEl && !tfWired) {
       tfWired = true;
       nameEl.addEventListener('input', () => { state.name = nameEl.value.trim(); save(); });
       dateEl.addEventListener('change', () => { state.eventDate = dateEl.value || todayISO(); save(); });
+      // "Cuenta para el ranking": editable only before the event starts. While
+      // cloud-linked + in setup, persist the change to the server immediately (it
+      // lives in the tournaments.ranked column, not state_json).
+      if (rankedEl) rankedEl.addEventListener('change', async () => {
+        if (state.started) { rankedEl.checked = state.ranked !== false; return; } // locked once started
+        state.ranked = rankedEl.checked;
+        save();
+        if (isCloud()) {
+          try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name: (state.name && state.name.trim()) || undefined, ranked: state.ranked } }); }
+          catch (e) { if (window.showToast) showToast('No se pudo cambiar el modo: ' + e.message, true); }
+        }
+      });
     }
     syncTournamentFields();
   }
   function syncTournamentFields() {
     const nameEl = document.getElementById('tournament-name');
     const dateEl = document.getElementById('tournament-date');
+    const rankedEl = document.getElementById('tournament-ranked');
     if (nameEl && document.activeElement !== nameEl) {
       nameEl.value = state.name || '';
       nameEl.placeholder = 'Torneo - ' + ddmmyyyy(todayISO());
     }
     if (dateEl && document.activeElement !== dateEl) dateEl.value = state.eventDate || todayISO();
+    if (rankedEl) {
+      rankedEl.checked = state.ranked !== false;        // default ranked
+      rankedEl.disabled = !!state.started;              // can't reclassify after it starts
+      const lbl = document.getElementById('ranked-label');
+      if (lbl) lbl.style.opacity = state.started ? '0.55' : '';
+    }
   }
 
   // Publish reads the already-filled Registro fields — no extra form. Empty name →
@@ -391,11 +412,14 @@
     const date = (dateEl && dateEl.value) || todayISO();
     const typed = nameEl ? nameEl.value.trim() : '';
     const name = typed || ('Torneo - ' + ddmmyyyy(date));
+    const rankedEl = document.getElementById('tournament-ranked');
+    const ranked = rankedEl ? rankedEl.checked : true;
     try {
-      const r = await API.req('/tournaments', { method: 'POST', body: { name } });
+      const r = await API.req('/tournaments', { method: 'POST', body: { name, ranked } });
       state.cloud = { id: r.id, code: r.join_code };
       state.name = typed;              // live name (empty → /u/ falls back to stored name)
       state.eventDate = date;          // planned event date, travels in state_json
+      state.ranked = r.ranked !== false; // authoritative from the server
       save();                          // local + first cloud push (wrapped)
       startRegPoll();
       renderAccount();
@@ -630,6 +654,7 @@
     try { await absorbRegistrations(); } catch { /* fall through: start with what we have */ }
     draining = false; btn.disabled = false;
     if (window.startTournament) startTournament();
+    syncTournamentFields(); // lock the "ranked" toggle now that the event has started
   }, true);
 
   // When the TO removes a self-registered player ("Eliminar"), tombstone that

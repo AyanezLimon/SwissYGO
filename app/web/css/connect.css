@@ -298,3 +298,7 @@ html.gate-pending .wrap { visibility: hidden; }
 .pf-season { display: flex; align-items: center; justify-content: space-between; background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 10px 12px; }
 .pf-season-m { color: var(--ink); font-weight: 600; text-transform: capitalize; }
 .pf-season-r { font-family: var(--mono); color: var(--gold); font-weight: 700; }
+
+/* "Casual" tournament badge — a non-ranked event that doesn't affect Elo. Neutral
+   grey so it reads as informational, not a status. (.pill base lives in styles.css) */
+.pill-casual { background: rgba(150,155,170,.14); color: var(--ink-soft); border: 1px solid rgba(150,155,170,.34); }
