@@ -95,7 +95,7 @@
         list.map((t) => `<div class="tcard" data-code="${esc(t.code)}" data-open="${t.status === 'setup' ? '1' : '0'}">
           <div class="row" style="justify-content:space-between;align-items:center">
             <b>${esc(t.name)}</b>
-            <span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span>
+            <span style="display:flex;gap:6px;align-items:center">${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span></span>
           </div>
           <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
@@ -146,9 +146,9 @@
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
           <h2 style="margin:0">${esc(t.name)}</h2>
-          <span class="pill ${pill}">${label}</span>
+          <span style="display:flex;gap:6px;align-items:center;flex-shrink:0">${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${pill}">${label}</span></span>
         </div>
-        <div class="muted" style="font-size:12.5px;margin:6px 0 12px">${meta}</div>
+        <div class="muted" style="font-size:12.5px;margin:6px 0 12px">${meta}${t.ranked === false ? ' · <span style="color:var(--ink-soft)">no cuenta para el ranking</span>' : ''}</div>
         ${t.note ? `<div style="background:var(--field-bg);border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--ink-soft);white-space:pre-wrap">${esc(t.note)}</div>` : ''}
         <div style="margin-top:14px">${action}</div>
         <button class="btn btn-sm btn-ghost" id="back" style="width:100%;margin-top:10px">← Volver</button>
