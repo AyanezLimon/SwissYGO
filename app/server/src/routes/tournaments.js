@@ -42,6 +42,23 @@ export default async function tournamentRoutes(app) {
   // An official 'to' administers ANY tournament; a 'casual' organizer only its own.
   const canManage = (req, row) => req.userRole === 'to' || row.to_user_id === req.user.id;
 
+  // Resolve the caller's participant slot in tournament t: account via JWT, or guest
+  // via x-guest-token. Returns the player_id or null. (Shared by /me and reporting.)
+  async function participantId(req, t) {
+    let pid = null;
+    try { await req.jwtVerify(); const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id); if (r) pid = r.player_id; } catch { /* not an account */ }
+    if (!pid) { const gt = req.headers['x-guest-token']; if (gt) { const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt); if (r) pid = r.player_id; } }
+    return pid;
+  }
+  // The player's current-round, reportable (non-bye, two-player) match in `state`.
+  function currentMatchFor(state, playerId) {
+    const round = (state.rounds || []).find((r) => r.roundNumber === state.currentRound);
+    if (!round) return null;
+    const m = (round.matches || []).find((x) => (x.p1Id === playerId || x.p2Id === playerId) && x.p2Id && !x.isBye && !x.isLateLoss);
+    if (!m) return null;
+    return { match: m, roundNumber: round.roundNumber, isP1: m.p1Id === playerId, key: [m.p1Id, m.p2Id].slice().sort().join('|') };
+  }
+
   // ---- TO (owner) ----
   app.post('/api/tournaments', { preHandler: requireOrganizer }, async (req, reply) => {
     const name = (req.body?.name || '').trim() || 'Torneo';
@@ -238,6 +255,18 @@ export default async function tournamentRoutes(app) {
           result: m.result,
           reported: !!m.isReported,
         };
+        // Pending player-filed report for this match (so the UI can show
+        // "waiting for confirmation" / "confirm your rival's result").
+        if (!m.isBye && !m.isLateLoss && m.p2Id && !m.isReported) {
+          const key = [m.p1Id, m.p2Id].slice().sort().join('|');
+          const rep = db.prepare('SELECT reporter_id, result, confirmed FROM result_reports WHERE tournament_id = ? AND round_number = ? AND match_key = ?').get(t.id, round.roundNumber, key);
+          if (rep) pairing.report = {
+            mine: rep.reporter_id === reg.player_id,                 // did I file it?
+            doubleLoss: rep.result === 'doubleLoss',
+            iWon: rep.result !== 'doubleLoss' && ((rep.result === 'p1') === (m.p1Id === reg.player_id)),
+            confirmed: !!rep.confirmed,
+          };
+        }
       }
     }
     // inEvent: is this participant still in the organizer's player list? Used by the
@@ -245,6 +274,72 @@ export default async function tournamentRoutes(app) {
     // player from state_json, so /me wouldn't otherwise 403).
     const inEvent = (state.players || []).some((p) => p.id === reg.player_id);
     return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing, inEvent };
+  });
+
+  // ---- Player-driven result reporting -----------------------------------
+  // Players never write state_json. The WINNER files a claim (or either player a
+  // double-loss); the OPPONENT confirms; the TO console absorbs confirmed claims
+  // into state_json. All identity + match-membership checks run here on the server.
+
+  // Winner reports the result of their current-round match. body: { outcome:'win'|'doubleLoss' }
+  app.post('/api/tournaments/:id/report', async (req, reply) => {
+    const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(Number(req.params.id));
+    if (!t) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+    if (t.status !== 'running') return reply.code(409).send({ error: 'El torneo no está en curso.' });
+    const pid = await participantId(req, t);
+    if (!pid) return reply.code(403).send({ error: 'No estás inscrito en este torneo.' });
+    const cm = currentMatchFor(JSON.parse(t.state_json), pid);
+    if (!cm) return reply.code(409).send({ error: 'No tienes una partida activa esta ronda.' });
+    if (cm.match.isReported) return reply.code(409).send({ error: 'Esta partida ya tiene resultado.' });
+    const outcome = req.body?.outcome;
+    let result;
+    if (outcome === 'win') result = cm.isP1 ? 'p1' : 'p2';   // you can ONLY report that YOU won
+    else if (outcome === 'doubleLoss') result = 'doubleLoss';
+    else return reply.code(400).send({ error: 'Resultado inválido.' });
+    // A new claim replaces any pending one and resets confirmation (corrections /
+    // disputes → the opponent must (re)confirm).
+    db.prepare(`INSERT INTO result_reports (tournament_id, round_number, match_key, reporter_id, result)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(tournament_id, round_number, match_key)
+                DO UPDATE SET reporter_id=excluded.reporter_id, result=excluded.result, confirmed=0, confirmer_id=NULL, confirmed_at=NULL, created_at=datetime('now')`)
+      .run(t.id, cm.roundNumber, cm.key, pid, result);
+    return { ok: true, result, awaitingConfirmation: true };
+  });
+
+  // Opponent confirms (or rejects) the pending claim. body: { accept:true|false }
+  app.post('/api/tournaments/:id/report/confirm', async (req, reply) => {
+    const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(Number(req.params.id));
+    if (!t) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+    if (t.status !== 'running') return reply.code(409).send({ error: 'El torneo no está en curso.' });
+    const pid = await participantId(req, t);
+    if (!pid) return reply.code(403).send({ error: 'No estás inscrito en este torneo.' });
+    const cm = currentMatchFor(JSON.parse(t.state_json), pid);
+    if (!cm) return reply.code(409).send({ error: 'No tienes una partida activa esta ronda.' });
+    const rep = db.prepare('SELECT * FROM result_reports WHERE tournament_id = ? AND round_number = ? AND match_key = ?').get(t.id, cm.roundNumber, cm.key);
+    if (!rep) return reply.code(409).send({ error: 'No hay un resultado por confirmar.' });
+    if (rep.reporter_id === pid) return reply.code(409).send({ error: 'Quien reporta no confirma; espera a tu rival.' });
+    if (req.body?.accept === false) {
+      db.prepare('DELETE FROM result_reports WHERE id = ?').run(rep.id);
+      return { ok: true, confirmed: false, rejected: true };
+    }
+    db.prepare("UPDATE result_reports SET confirmed=1, confirmer_id=?, confirmed_at=datetime('now') WHERE id = ?").run(pid, rep.id);
+    return { ok: true, confirmed: true };
+  });
+
+  // TO console: confirmed reports to absorb into state_json (then DELETE applied ones).
+  app.get('/api/tournaments/:id/reports', { preHandler: requireOrganizer }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
+    if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
+    return db.prepare('SELECT id, round_number, match_key, result FROM result_reports WHERE tournament_id = ? AND confirmed = 1 ORDER BY confirmed_at').all(row.id);
+  });
+
+  app.delete('/api/tournaments/:id/reports/:rid', { preHandler: requireOrganizer }, async (req, reply) => {
+    const row = findOr404(Number(req.params.id), reply);
+    if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
+    db.prepare('DELETE FROM result_reports WHERE id = ? AND tournament_id = ?').run(Number(req.params.rid), row.id);
+    return { ok: true };
   });
 
   app.get('/api/me/tournaments', { preHandler: requireAuth }, async (req) => {
