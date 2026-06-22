@@ -29,6 +29,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in the environment or app/.env}
       # Admin tool password (LAN-only). If empty, the admin API is disabled.
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Transactional email (password reset) via Resend. If RESEND_API_KEY is empty,
+      # sending is a no-op (reset codes won't be delivered until it's set).
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
     volumes:
       # Kept OUTSIDE the Caddy web root (/DATA/AppData/swissygo-dev) so the SQLite
       # DB is never served publicly.
