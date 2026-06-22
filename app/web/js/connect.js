@@ -496,6 +496,11 @@
     }
     state.players.push(player);
   }
+  // A player whose id was minted by a /join registration: account `u<id>-<b36>`
+  // or guest `g-<hex8>-<b36>` (see tournaments.js /join). A TO-added MANUAL player
+  // has a uid() UUID and NO registrations row — so this shape is what lets us
+  // reconcile registration deletions without ever touching manual players.
+  const isRegOriginId = (id) => /^u\d+-[a-z0-9]+$/i.test(id) || /^g-[0-9a-f]{8}-[a-z0-9]+$/i.test(id);
   async function absorbRegistrations() {
     if (!regWindowOpen()) return;
     try {
@@ -512,12 +517,28 @@
         else state.players.push({ id: r.player_id, name: r.display_name, dropped: false, hasReceivedBye: false, userId: r.user_id || null });
         n++;
       }
-      if (n) {
+      // Reconcile DELETIONS (setup only): a registration removed externally (admin
+      // tool / DB) is gone from `regs`, but its absorbed player lingers in
+      // state.players. Drop it — but ONLY a registration-origin id (manual uid()
+      // players have no row and must stay) and ONLY before the event starts, where
+      // the roster is just state.players (during a running event the player may be
+      // in generated rounds; that removal is the TO's explicit call, left alone).
+      let removedN = 0;
+      if (!state.started) {
+        const live = new Set(regs.map((r) => r.player_id));
+        const before = state.players.length;
+        state.players = state.players.filter((p) => !(isRegOriginId(p.id) && !live.has(p.id)));
+        removedN = before - state.players.length;
+      }
+      if (n || removedN) {
         save();
         if (window.render) render();
-        if (window.showToast) showToast(late
+        if (n && window.showToast) showToast(late
           ? n + (n === 1 ? ' jugador entró tarde (derrota por ronda jugada).' : ' jugadores entraron tarde (derrota por ronda jugada).')
           : n + (n === 1 ? ' jugador se inscribió.' : ' jugadores se inscribieron.'));
+        if (removedN && window.showToast) showToast(removedN === 1
+          ? 'Se quitó 1 jugador cuya inscripción fue eliminada.'
+          : 'Se quitaron ' + removedN + ' jugadores cuyas inscripciones fueron eliminadas.');
       }
     } catch (e) { /* ignore transient poll errors */ }
   }
