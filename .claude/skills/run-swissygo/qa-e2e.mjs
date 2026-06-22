@@ -14,7 +14,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'screenshots-e2e');
 const BASE = process.env.BASE || 'https://torneodev.elbunkers.com';
 const TO_USER = process.env.QA_TO_USER || 'qa-to';
-const TO_PASS = process.env.QA_TO_PASS || 'qa-pass-123';
+if (!process.env.QA_TO_PASS) { console.error('Set QA_TO_PASS (QA TO account password) in the env.'); process.exit(1); }
+const TO_PASS = process.env.QA_TO_PASS;
 const VP = { width: 1280, height: 950 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
