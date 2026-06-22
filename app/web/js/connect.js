@@ -441,14 +441,20 @@
   // players only register). Runs during setup AND while the event is running with
   // rounds left — the latter absorbs newcomers as LATE ENTRIES.
   const lateOpen = () => isCloud() && state.started && !state.finished && (state.rounds || []).length < state.maxRounds;
-  const regPollActive = () => isCloud() && !state.finished && (!state.started || lateOpen());
+  const regWindowOpen = () => isCloud() && !state.finished && (!state.started || lateOpen()); // when self-registrations are absorbed
+  const cloudPollActive = () => isCloud() && !state.finished;                                  // poll through setup AND running (the latter absorbs result reports)
   function startRegPoll() {
     stopRegPoll();
-    if (!regPollActive()) return;
-    regPollTimer = setInterval(absorbRegistrations, 4000);
-    absorbRegistrations();
+    if (!cloudPollActive()) return;
+    regPollTimer = setInterval(cloudPollTick, 4000);
+    cloudPollTick();
   }
   function stopRegPoll() { if (regPollTimer) { clearInterval(regPollTimer); regPollTimer = null; } }
+  function cloudPollTick() {
+    if (!cloudPollActive()) { stopRegPoll(); return; }
+    if (regWindowOpen()) absorbRegistrations();
+    if (state.started && !state.finished) absorbReports();
+  }
   // Late entry (official rule): the player joins a running event with a loss for
   // each round already generated, then gets paired from the next round. Uses the
   // registration's player_id so the player's /me poll matches their slot.
@@ -461,7 +467,7 @@
     state.players.push(player);
   }
   async function absorbRegistrations() {
-    if (!regPollActive()) { stopRegPoll(); return; }
+    if (!regWindowOpen()) return;
     try {
       const regs = await API.req('/tournaments/' + state.cloud.id + '/registrations');
       const removed = (state.cloud && state.cloud.removed) || [];
@@ -482,6 +488,33 @@
         if (window.showToast) showToast(late
           ? n + (n === 1 ? ' jugador entró tarde (derrota por ronda jugada).' : ' jugadores entraron tarde (derrota por ronda jugada).')
           : n + (n === 1 ? ' jugador se inscribió.' : ' jugadores se inscribieron.'));
+      }
+    } catch (e) { /* ignore transient poll errors */ }
+  }
+
+  // Absorb player-confirmed results into state_json (single-writer: players file a
+  // result + confirm it; the TO is the only writer, so we apply confirmed reports to
+  // the matching matches here — mirroring app.js reportResult — then delete them.
+  async function absorbReports() {
+    try {
+      const reports = await API.req('/tournaments/' + state.cloud.id + '/reports');
+      if (!reports || !reports.length) return;
+      let applied = 0;
+      for (const rep of reports) {
+        const round = (state.rounds || []).find((r) => r.roundNumber === rep.round_number);
+        const m = round && (round.matches || []).find((x) => x.p2Id && [x.p1Id, x.p2Id].slice().sort().join('|') === rep.match_key);
+        if (m && !m.isReported && !m.isBye && !m.isLateLoss) {
+          m.result = rep.result;   // 'p1' | 'p2' | 'doubleLoss' (same fields app.js's reportResult sets)
+          m.isReported = true;
+          applied++;
+        }
+        // resolved either way (applied, or the match was already reported) → clear it
+        try { await API.req('/tournaments/' + state.cloud.id + '/reports/' + rep.id, { method: 'DELETE' }); } catch (e) {}
+      }
+      if (applied) {
+        save();
+        if (window.render) render();
+        if (window.showToast) showToast(applied === 1 ? 'Resultado confirmado por los jugadores aplicado.' : applied + ' resultados de jugadores aplicados.');
       }
     } catch (e) { /* ignore transient poll errors */ }
   }

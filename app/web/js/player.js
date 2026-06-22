@@ -556,13 +556,30 @@
     } else if (me.pairing.isBye) {
       body = `<div class="round">Ronda ${me.currentRound} de ${me.maxRounds}</div><div class="big">Descansas (BYE)</div><p class="muted">Ganas la ronda automáticamente.</p>`;
     } else {
-      const res = me.pairing.reported
-        ? `<span class="pill ${me.pairing.result === 'p1' || me.pairing.result === 'p2' ? 'pill-ok' : 'pill-drop'}">Resultado reportado</span>`
-        : `<span class="pill pill-pend">En juego</span>`;
+      const p = me.pairing, rep = p.report;
+      let controls;
+      if (p.reported) {
+        controls = `<span class="pill pill-ok">Resultado registrado ✓</span>`;
+      } else if (rep && rep.confirmed) {
+        controls = `<span class="pill pill-ok">Confirmado ✓</span><p class="muted" style="font-size:12px;margin-top:8px">El organizador lo registrará en un momento.</p>`;
+      } else if (rep && rep.mine) {
+        controls = `<span class="pill pill-pend">Esperando confirmación</span><p class="muted" style="font-size:12px;margin-top:8px">Reportaste ${rep.doubleLoss ? 'doble derrota' : 'tu victoria'}. Tu rival debe confirmar.</p>`;
+      } else if (rep && !rep.mine) {
+        const claim = rep.doubleLoss ? '<b>doble derrota</b> (nadie gana)' : `que ganó <b>${esc(p.opponent || 'tu rival')}</b>`;
+        controls = `<p class="muted" style="font-size:13px;margin-bottom:10px">Tu rival reportó ${claim}. ¿Es correcto?</p>
+          <div class="row" style="gap:8px;justify-content:center">
+            <button class="btn btn-gold btn-sm" id="rep-confirm">Confirmar</button>
+            <button class="btn btn-sm btn-ghost" id="rep-reject">No</button></div>`;
+      } else {
+        controls = `<p class="muted" style="font-size:13px;margin-bottom:10px">Al terminar la partida, reporta el resultado:</p>
+          <div class="row" style="gap:8px;justify-content:center">
+            <button class="btn btn-gold btn-sm" id="rep-win">Gané</button>
+            <button class="btn btn-sm btn-ghost" id="rep-dl">Doble derrota</button></div>`;
+      }
       body = `<div class="round">Ronda ${me.currentRound} de ${me.maxRounds}</div>
-              <div class="big">Mesa ${me.pairing.table}</div>
-              <div class="vs">vs <b>${esc(me.pairing.opponent || '—')}</b></div>
-              <div style="margin-top:12px">${res}</div>`;
+              <div class="big">Mesa ${p.table}</div>
+              <div class="vs">vs <b>${esc(p.opponent || '—')}</b></div>
+              <div style="margin-top:14px">${controls}</div>`;
     }
     root.innerHTML = `
       <div class="card" style="text-align:center">
@@ -577,6 +594,18 @@
         #player .vs{ font-size:18px; color:var(--ink); }
       </style>`;
     $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
+    // Player-driven result reporting: winner reports, opponent confirms. Each action
+    // hits the server (which validates identity + match), then we re-poll to refresh.
+    const sendReport = async (path, payload) => {
+      try { await API.req('/tournaments/' + j.id + path, { method: 'POST', auth: !j.guestToken, guestToken: j.guestToken, body: payload }); }
+      catch (e) { showToast(e.message || 'No se pudo enviar.', true); return; }
+      poll();
+    };
+    const bindRep = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('click', fn); };
+    bindRep('rep-win', () => sendReport('/report', { outcome: 'win' }));
+    bindRep('rep-dl', () => sendReport('/report', { outcome: 'doubleLoss' }));
+    bindRep('rep-confirm', () => sendReport('/report/confirm', { accept: true }));
+    bindRep('rep-reject', () => sendReport('/report/confirm', { accept: false }));
   }
 
   function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; _seenInEvent = false; poll(); pollTimer = setInterval(poll, 4000); }
