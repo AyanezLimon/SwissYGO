@@ -659,7 +659,7 @@
       const r = await API.me();
       const role = r && r.user && r.user.role;
       if (role) { try { localStorage.setItem('ygo_role', role); } catch {} } // keep stored role fresh
-      if (role === 'to') { location.replace('/'); return true; }
+      if (role === 'to' || role === 'casual') { location.replace('/'); return true; } // any organizer → console
     } catch (e) { console.warn('[u] role check failed, staying on /u/:', e && e.message); /* offline or expired session: staying here is the safe fallback (players use /u/) */ }
     return false;
   }

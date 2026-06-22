@@ -32,3 +32,19 @@ export async function requireTO(req, reply) {
   if (!row || row.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
   if (row.role !== 'to') return reply.code(403).send({ error: 'Solo los organizadores pueden hacer esto.' });
 }
+
+/* Hosting routes open to ANY organizer: 'to' (official — may run ranked + casual
+ * events, administers any tournament) or 'casual' (casual-only — creates unranked
+ * events and administers only its own). Stashes the live role on req.userRole so
+ * handlers can scope by capability/ownership. */
+export async function requireOrganizer(req, reply) {
+  try {
+    await req.jwtVerify();
+  } catch {
+    return reply.code(401).send({ error: 'Autenticación requerida.' });
+  }
+  const row = req.server.db.prepare('SELECT role, disabled FROM users WHERE id = ?').get(req.user.id);
+  if (!row || row.disabled) return reply.code(401).send({ error: 'Sesión inválida.' });
+  if (row.role !== 'to' && row.role !== 'casual') return reply.code(403).send({ error: 'Solo los organizadores pueden hacer esto.' });
+  req.userRole = row.role; // 'to' | 'casual'
+}

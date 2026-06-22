@@ -31,7 +31,7 @@ export default async function adminRoutes(app) {
   app.patch('/admin/users/:id', { preHandler: guard }, async (req, reply) => {
     const { role, disabled } = req.body || {};
     const sets = [], vals = [];
-    if (role === 'to' || role === 'player') { sets.push('role = ?'); vals.push(role); }
+    if (role === 'to' || role === 'player' || role === 'casual') { sets.push('role = ?'); vals.push(role); }
     if (disabled === 0 || disabled === 1 || disabled === true || disabled === false) {
       sets.push('disabled = ?'); vals.push(disabled ? 1 : 0);
     }

@@ -11,7 +11,9 @@
   const isGuest = () => { try { return sessionStorage.getItem(LS_GUEST) === '1'; } catch { return false; } };
   const username = () => { try { return localStorage.getItem(LS_USER) || ''; } catch { return ''; } };
   const role = () => { try { return localStorage.getItem(LS_ROLE) || 'player'; } catch { return 'player'; } };
-  const isTO = () => hasSession() && role() === 'to';
+  const isTO = () => hasSession() && role() === 'to';                                   // official: ranked-capable, admins any event
+  const isCasual = () => hasSession() && role() === 'casual';                            // casual-only: unranked, own events
+  const isOrganizer = () => hasSession() && (role() === 'to' || role() === 'casual');    // either → gets the console
   const setGuest = (v) => { try { v ? sessionStorage.setItem(LS_GUEST, '1') : sessionStorage.removeItem(LS_GUEST); } catch {} };
   const setUser = (u) => { try { u ? localStorage.setItem(LS_USER, u) : localStorage.removeItem(LS_USER); } catch {} };
   const setRole = (r) => { try { r ? localStorage.setItem(LS_ROLE, r) : localStorage.removeItem(LS_ROLE); } catch {} };
@@ -24,7 +26,7 @@
       setUser(r.user.username); setRole(r.user.role);
       renderAccount();
       applyView();
-      if (isCloud() && isTO()) startRegPoll(); // self-gates (setup or late-entry window)
+      if (isCloud() && isOrganizer()) startRegPoll(); // self-gates (setup or late-entry window)
     } catch (e) {
       if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); }
       applyView(); // fall back to stored role when offline
@@ -45,7 +47,7 @@
     if (hasSession()) {
       // The publish/code control lives in the file toolbar (see mountToolbarCloudBtn),
       // so the header only carries the account + "Torneos" panel.
-      const cloud = isTO() ? `<button class="btn btn-sm" data-acc="panel" title="Administrar cualquier torneo">Torneos</button>` : '';
+      const cloud = isOrganizer() ? `<button class="btn btn-sm" data-acc="panel" title="${isTO() ? 'Administrar cualquier torneo' : 'Tus torneos'}">Torneos</button>` : '';
       ctl.innerHTML = `<span class="who">Hola, <b class="uname"></b></span>${cloud}<button class="btn btn-sm btn-ghost" data-acc="logout">Salir</button>`;
       ctl.querySelector('.uname').textContent = username() || 'usuario';
     } else {
@@ -62,7 +64,7 @@
     if (!tb || !tb.querySelector('#reset-all')) return; // only the file toolbar
     let btn = document.getElementById('toolbar-publish');
     let saveBtn = document.getElementById('toolbar-save');
-    if (!(hasSession() && isTO())) { if (btn) btn.remove(); if (saveBtn) saveBtn.remove(); return; }
+    if (!(hasSession() && isOrganizer())) { if (btn) btn.remove(); if (saveBtn) saveBtn.remove(); return; }
     if (!btn) {
       btn = document.createElement('button');
       btn.id = 'toolbar-publish'; btn.type = 'button';
@@ -396,10 +398,16 @@
     }
     if (dateEl && document.activeElement !== dateEl) dateEl.value = state.eventDate || todayISO();
     if (rankedEl) {
-      rankedEl.checked = state.ranked !== false;        // default ranked
-      rankedEl.disabled = !!state.started;              // can't reclassify after it starts
+      const casual = isCasual();                        // casual organizers can't run ranked events
+      rankedEl.checked = casual ? false : (state.ranked !== false); // default ranked
+      rankedEl.disabled = casual || !!state.started;    // can't reclassify after it starts (or ever, if casual)
       const lbl = document.getElementById('ranked-label');
-      if (lbl) lbl.style.opacity = state.started ? '0.55' : '';
+      if (lbl) {
+        lbl.style.opacity = (casual || state.started) ? '0.55' : '';
+        lbl.title = casual
+          ? 'Tu cuenta de organizador casual solo crea torneos que no afectan el Elo.'
+          : 'Si lo desactivas, las partidas no afectan el Elo (modo casual). Solo se puede cambiar antes de iniciar.';
+      }
     }
   }
 
@@ -625,7 +633,7 @@
   // Account players and guests are routed to the player page (/u/); unauthenticated
   // visitors get the login/register/guest gate.
   function applyView() {
-    if (hasSession() && isTO()) {              // organizer → console
+    if (hasSession() && isOrganizer()) {       // organizer (official or casual) → console
       closeGate();
       document.documentElement.classList.remove('gate-pending');
       return;
