@@ -101,6 +101,7 @@
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
         ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="acct" type="button" style="width:100%;margin-top:10px">⚙ Mi cuenta</button>' : ''}
         <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
       </div>`;
 
@@ -110,6 +111,7 @@
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', () => navOpen(renderProfile));
+    const ac = $('#acct'); if (ac) ac.addEventListener('click', () => navOpen(renderAccountScreen));
     const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => navOpen(renderLeaderboard));
     loadActive();
   }
@@ -386,6 +388,43 @@
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
       $('#back').addEventListener('click', navBack);
     }
+  }
+
+  // ---- account: add/change email ----------------------------------------
+  async function renderAccountScreen() {
+    stopPoll();
+    root.classList.remove('results');
+    root.innerHTML = `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Mi cuenta</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div id="ac-body" class="muted" style="margin-top:10px">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', navBack);
+    let cur = null;
+    try { const me = await API.req('/auth/me'); cur = me.user.email || null; } catch (e) {}
+    const body = $('#ac-body'); body.classList.remove('muted');
+    body.innerHTML = `
+      <p style="font-size:13px;margin:0 0 12px">Correo actual: <b>${cur ? esc(cur) : 'sin correo'}</b><br>
+        <span class="muted" style="font-size:12px">Se usa para restablecer tu contraseña.</span></p>
+      <div class="gate-field"><label>${cur ? 'Nuevo correo' : 'Agregar correo'}</label><input type="text" id="ac-email" autocomplete="email" autocapitalize="none" spellcheck="false" value="${cur ? esc(cur) : ''}"></div>
+      <div class="gate-field"><label>Contraseña actual</label><input type="password" id="ac-pass" autocomplete="current-password"></div>
+      <div class="gate-error" id="ac-error"></div>
+      <button class="btn btn-gold" id="ac-save" type="button" style="width:100%">Guardar correo</button>`;
+    $('#ac-save').addEventListener('click', async () => {
+      const err = $('#ac-error'); err.textContent = '';
+      const email = $('#ac-email').value.trim();
+      const password = $('#ac-pass').value;
+      if (!email) { err.textContent = 'Escribe un correo.'; return; }
+      if (!password) { err.textContent = 'Ingresa tu contraseña actual.'; return; }
+      const btn = $('#ac-save'); btn.disabled = true;
+      try {
+        await API.req('/auth/email', { method: 'POST', body: { email, password } });
+        body.innerHTML = '<p style="font-size:14px;margin:0">✅ Tu correo se actualizó.</p>';
+      } catch (e) { err.textContent = e.message || 'No se pudo guardar.'; btn.disabled = false; }
+    });
   }
 
   const RANK_ICON = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : (r ? '#' + r : '—'));
