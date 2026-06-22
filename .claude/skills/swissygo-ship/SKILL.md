@@ -50,6 +50,27 @@ heavy deps, no per-push Docker churn beyond the API image.
 5. **Codex reviews.** Fix worthwhile comments; decline others with a stated reason in the reply.
 6. After the owner **merges**, the merge commit triggers deploys — then run **`swissygo-verify`**.
 
+## Project board (issue-centric — applies to ANY agent working this repo)
+
+Work is tracked on the GitHub Project **https://github.com/users/AyanezLimon/projects/1**.
+The rule: **cards are issues; PRs are associated to a card via the issue's
+Development section** (a `Closes #N` reference) — PRs are NOT added as their own cards,
+and cards are never deleted. Follow this regardless of which agent/tooling you use.
+
+- **Before working a backlog item, check for an existing card** (`gh issue list
+  --search "…"`); reuse it — do not create duplicates. Only if none exists, create the
+  issue first (`gh issue create … --label v2-backlog`), then it shows on the board.
+- **Open the PR with `Closes #N` in its body while the PR is OPEN** → that links it to
+  the issue's Development section automatically. (A keyword added to an already-merged
+  PR does not link; that has to be done in the GitHub UI.)
+- **Cards are the living design spec.** When a design aspect is discussed and a
+  decision/agreement is reached, **update the issue body** (`gh issue edit N --body …`)
+  so the cards stay an accurate, documented record of each feature.
+- Status moves (Todo → In Progress → Done) and any manual linking are the owner's to
+  make. Don't restructure the board. (We merge to `develop`, not the default branch, so
+  `Closes #N` links but does NOT auto-close the issue — the card moves to Done manually
+  or via the optional `chore/project-card-sync` Action.)
+
 ## Deploys (auto on push/merge to develop)
 
 - `app/web/**` → **Deploy Web** (rsync file copy; near-instant, no restart).
