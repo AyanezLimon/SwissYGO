@@ -3,7 +3,7 @@
  * GET /api/tournaments/:id/me. Pairing/standings are computed client-side from
  * the same state blob, so the server just persists and serves it. */
 import { randomBytes } from 'node:crypto';
-import { requireAuth, requireTO } from '../auth.js';
+import { requireAuth, requireOrganizer } from '../auth.js';
 import { finalStandings } from '../lib/tiebreak.js';
 import { computeLeaderboard, MIN_GAMES as LB_MIN_GAMES } from '../lib/leaderboard.js';
 
@@ -31,19 +31,22 @@ export default async function tournamentRoutes(app) {
   // read endpoints (so the UI never advertises a join the server would reject).
   const isLateOpen = (s) => !!s.started && !s.finished && (s.rounds || []).length < (s.maxRounds || 0);
 
-  // Any TO can administer ANY tournament (the TO role is system-wide, not per-event),
-  // so console endpoints gate on the `to` role (requireTO) and only 404 here.
-  // `to_user_id` is kept purely as "who created it" metadata.
+  // Console endpoints gate on requireOrganizer ('to' or 'casual'). An official 'to'
+  // administers ANY tournament (the role is system-wide); a 'casual' organizer only
+  // its own (canManage). `to_user_id` is "who created it" — meaningful for casual scoping.
   const findOr404 = (id, reply) => {
     const row = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
     if (!row) { reply.code(404).send({ error: 'Torneo no encontrado.' }); return null; }
     return row;
   };
+  // An official 'to' administers ANY tournament; a 'casual' organizer only its own.
+  const canManage = (req, row) => req.userRole === 'to' || row.to_user_id === req.user.id;
 
   // ---- TO (owner) ----
-  app.post('/api/tournaments', { preHandler: requireTO }, async (req, reply) => {
+  app.post('/api/tournaments', { preHandler: requireOrganizer }, async (req, reply) => {
     const name = (req.body?.name || '').trim() || 'Torneo';
-    const ranked = req.body?.ranked === false ? 0 : 1; // default ranked; casual events opt out
+    // Casual organizers can ONLY create unranked events; official TOs choose (default ranked).
+    const ranked = req.userRole === 'casual' ? 0 : (req.body?.ranked === false ? 0 : 1);
     let code = genJoinCode();
     while (db.prepare('SELECT 1 FROM tournaments WHERE join_code = ?').get(code)) code = genJoinCode();
     const info = db
@@ -54,12 +57,13 @@ export default async function tournamentRoutes(app) {
 
   // Admin panel: EVERY tournament (any TO administers any event), newest-active
   // first. Includes round progress, timer state and creator so the TO can pick.
-  app.get('/api/tournaments', { preHandler: requireTO }, async () => {
-    const rows = db
-      .prepare(`SELECT t.id, t.name, t.join_code, t.status, t.created_at, t.finished_at, t.state_json, t.ranked, u.username AS owner
-                FROM tournaments t LEFT JOIN users u ON u.id = t.to_user_id
-                ORDER BY (t.status = 'finished') ASC, t.created_at DESC`)
-      .all();
+  app.get('/api/tournaments', { preHandler: requireOrganizer }, async (req) => {
+    const mineOnly = req.userRole === 'casual'; // casual organizers see only their own events
+    const sql = `SELECT t.id, t.name, t.join_code, t.status, t.created_at, t.finished_at, t.state_json, t.ranked, u.username AS owner
+                 FROM tournaments t LEFT JOIN users u ON u.id = t.to_user_id
+                 ${mineOnly ? 'WHERE t.to_user_id = ?' : ''}
+                 ORDER BY (t.status = 'finished') ASC, t.created_at DESC`;
+    const rows = mineOnly ? db.prepare(sql).all(req.user.id) : db.prepare(sql).all();
     const now = Date.now();
     return rows.map((r) => {
       let s = {}; try { s = JSON.parse(r.state_json); } catch {}
@@ -78,15 +82,17 @@ export default async function tournamentRoutes(app) {
     });
   });
 
-  app.get('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
+  app.get('/api/tournaments/:id', { preHandler: requireOrganizer }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
     return { id: row.id, name: row.name, join_code: row.join_code, status: row.status, ranked: !!row.ranked, state: JSON.parse(row.state_json) };
   });
 
-  app.put('/api/tournaments/:id', { preHandler: requireTO }, async (req, reply) => {
+  app.put('/api/tournaments/:id', { preHandler: requireOrganizer }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
     const state = req.body?.state;
     if (!state || typeof state !== 'object') return reply.code(400).send({ error: 'state inválido.' });
     const status = state.finished ? 'finished' : state.started ? 'running' : 'setup';
@@ -105,14 +111,16 @@ export default async function tournamentRoutes(app) {
     // `ranked` is only editable before the event starts — never retroactively, so a
     // finished/in-progress tournament can't be reclassified and shift past ratings.
     if (typeof req.body?.ranked === 'boolean' && status === 'setup') {
-      db.prepare('UPDATE tournaments SET ranked = ? WHERE id = ?').run(req.body.ranked ? 1 : 0, row.id);
+      const r = req.userRole === 'casual' ? 0 : (req.body.ranked ? 1 : 0); // casual can never set ranked
+      db.prepare('UPDATE tournaments SET ranked = ? WHERE id = ?').run(r, row.id);
     }
     return { ok: true, status };
   });
 
-  app.post('/api/tournaments/:id/finish', { preHandler: requireTO }, async (req, reply) => {
+  app.post('/api/tournaments/:id/finish', { preHandler: requireOrganizer }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
     const state = JSON.parse(row.state_json);
     state.finished = true;
     db.prepare("UPDATE tournaments SET state_json = ?, status = 'finished', finished_at = datetime('now') WHERE id = ?")
@@ -120,9 +128,10 @@ export default async function tournamentRoutes(app) {
     return { ok: true };
   });
 
-  app.get('/api/tournaments/:id/registrations', { preHandler: requireTO }, async (req, reply) => {
+  app.get('/api/tournaments/:id/registrations', { preHandler: requireOrganizer }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
+    if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
     // display_name covers both accounts and guests; guest_token is never exposed.
     return db
       .prepare('SELECT player_id, display_name, user_id, joined_at FROM registrations WHERE tournament_id = ? ORDER BY joined_at')

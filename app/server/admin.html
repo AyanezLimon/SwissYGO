@@ -21,6 +21,7 @@
   th { color:var(--soft); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
   .tag { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); }
   .tag.to { color:var(--gold); border-color:#56b9d0; } .tag.player { color:var(--soft); }
+  .tag.casual { color:#9fb0c0; border-color:#5a6b7a; }
   .tag.off { color:var(--crimson); border-color:#5a2a28; } .tag.on { color:var(--green); border-color:#2f5a32; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .err { color:var(--crimson); min-height:18px; margin-top:8px; }
@@ -108,11 +109,15 @@
       $('#rows').innerHTML = users.map(u => `
         <tr data-id="${u.id}">
           <td>${esc(u.username)}${u.email ? `<div style="color:var(--soft);font-size:12px">${esc(u.email)}</div>` : ''}</td>
-          <td><span class="tag ${u.role}">${u.role === 'to' ? 'Organizador' : 'Jugador'}</span></td>
+          <td><span class="tag ${u.role}">${u.role === 'to' ? 'Organizador' : u.role === 'casual' ? 'Casual' : 'Jugador'}</span></td>
           <td><span class="tag ${u.disabled ? 'off' : 'on'}">${u.disabled ? 'Deshabilitado' : 'Activo'}</span></td>
           <td style="color:var(--soft);font-size:12.5px">${esc((u.created_at||'').replace('T',' ').slice(0,16))}</td>
           <td class="actions">
-            <button data-act="role">${u.role === 'to' ? '↓ Jugador' : '↑ Organizador'}</button>
+            <select data-act="role" title="Rol del usuario">
+              <option value="player" ${u.role === 'player' ? 'selected' : ''}>Jugador</option>
+              <option value="casual" ${u.role === 'casual' ? 'selected' : ''}>Org. casual</option>
+              <option value="to" ${u.role === 'to' ? 'selected' : ''}>Organizador</option>
+            </select>
             <button data-act="disable">${u.disabled ? 'Activar' : 'Deshabilitar'}</button>
             <button data-act="pw">Contraseña</button>
             <button class="btn-danger" data-act="del">Eliminar</button>
@@ -209,14 +214,20 @@
     } catch (err) { $('#err').textContent = err.message; }
   });
 
+  // Role is a 3-way <select> (change), not a toggle button.
+  $('#rows').addEventListener('change', async (e) => {
+    const sel = e.target.closest('select[data-act="role"]'); if (!sel) return;
+    const id = sel.closest('tr').dataset.id;
+    try { await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ role: sel.value }) }); load(); }
+    catch (err) { $('#err').textContent = err.message; }
+  });
+
   $('#rows').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-act]'); if (!btn) return;
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
     const tr = btn.closest('tr'); const id = tr.dataset.id;
-    const roleNow = tr.querySelector('.tag').classList.contains('to') ? 'to' : 'player';
     const isOff = tr.children[2].textContent.trim() === 'Deshabilitado';
     try {
-      if (btn.dataset.act === 'role') await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ role: roleNow === 'to' ? 'player' : 'to' }) });
-      else if (btn.dataset.act === 'disable') await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ disabled: !isOff }) });
+      if (btn.dataset.act === 'disable') await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ disabled: !isOff }) });
       else if (btn.dataset.act === 'pw') { const p = prompt('Nueva contraseña (mín. 6):'); if (!p) return; await api('/admin/users/' + id + '/password', { method: 'POST', body: JSON.stringify({ password: p }) }); alert('Contraseña actualizada.'); return; }
       else if (btn.dataset.act === 'del') { if (!confirm('¿Eliminar este usuario?')) return; await api('/admin/users/' + id, { method: 'DELETE' }); }
       load();
