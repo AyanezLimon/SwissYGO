@@ -12,20 +12,21 @@ export default async function authRoutes(app) {
   const db = app.db;
 
   app.post('/api/auth/register', async (req, reply) => {
-    const { username, password, email } = req.body || {};
+    const { username, password } = req.body || {};
+    const email = (req.body?.email || '').trim().toLowerCase() || null; // normalize (emails are case-insensitive)
     if (!username || !password || password.length < 6) {
       return reply.code(400).send({ error: 'Usuario y contraseña (mín. 6) requeridos.' });
     }
     const exists = db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
     if (exists) return reply.code(409).send({ error: 'Ese usuario ya existe.' });
-    if (email && db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+    if (email && db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(email)) {
       return reply.code(409).send({ error: 'Ese correo ya está registrado.' });
     }
 
     const hash = await hashPassword(password);
     const info = db
       .prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
-      .run(username, email || null, hash); // role defaults to 'player'
+      .run(username, email, hash); // role defaults to 'player'
     const user = { id: info.lastInsertRowid, username, role: 'player' };
     const token = await reply.jwtSign(user);
     return reply.code(201).send({ token, user });
@@ -47,9 +48,9 @@ export default async function authRoutes(app) {
   // Request a code. ALWAYS returns 200 (never reveal whether the email exists).
   // Only accounts with an email on file can receive one.
   app.post('/api/auth/forgot', async (req, reply) => {
-    const email = (req.body?.email || '').trim();
+    const email = (req.body?.email || '').trim().toLowerCase();
     if (email) {
-      const u = db.prepare('SELECT id, username FROM users WHERE email = ?').get(email);
+      const u = db.prepare('SELECT id, username FROM users WHERE email = ? COLLATE NOCASE').get(email);
       if (u && !db.prepare('SELECT disabled FROM users WHERE id = ?').get(u.id)?.disabled) {
         const code = String(randomInt(0, 1000000)).padStart(6, '0');
         const codeHash = await hashPassword(code);
@@ -74,13 +75,13 @@ export default async function authRoutes(app) {
   // Consume a code + set a new password. Generic errors (no enumeration); the code
   // is single-use and burns after RESET_MAX_TRIES wrong attempts.
   app.post('/api/auth/reset', async (req, reply) => {
-    const email = (req.body?.email || '').trim();
+    const email = (req.body?.email || '').trim().toLowerCase();
     const code = String(req.body?.code || '').trim();
     const password = req.body?.password || '';
     if (!email || !code || password.length < 6) {
       return reply.code(400).send({ error: 'Datos inválidos (la contraseña debe tener mín. 6 caracteres).' });
     }
-    const u = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const u = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email);
     const row = u && db.prepare("SELECT * FROM password_resets WHERE user_id = ? AND used = 0 AND expires_at > datetime('now') ORDER BY id DESC").get(u.id);
     if (!row) return reply.code(400).send({ error: 'Código inválido o expirado.' });
     if (!(await verifyPassword(code, row.code_hash))) {
