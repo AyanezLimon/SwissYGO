@@ -28,6 +28,8 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
         run: |
           [ -n "$JWT_SECRET" ] || { echo "::error::Missing repo secret JWT_SECRET."; exit 1; }
           docker compose -f app/docker-compose.yml up -d --build

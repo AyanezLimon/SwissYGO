@@ -611,7 +611,8 @@
           <div class="gate-error" id="gate-error"></div>
           <button class="btn btn-gold" type="submit" id="gate-submit" style="width:100%">Entrar</button>
         </form>
-        <button class="btn btn-ghost btn-sm" id="gate-guest" type="button" style="width:100%;margin-top:12px">Ingresar como invitado</button>
+        <button class="btn btn-ghost btn-sm" id="gate-forgot" type="button" style="width:100%;margin-top:8px;font-size:12.5px">¿Olvidaste tu contraseña?</button>
+        <button class="btn btn-ghost btn-sm" id="gate-guest" type="button" style="width:100%;margin-top:8px">Ingresar como invitado</button>
       </div>`;
     document.body.appendChild(g);
     requestAnimationFrame(() => g.classList.add('open')); // play the modal open animation
@@ -622,6 +623,7 @@
       setMode(t.dataset.gt, g, true);
     });
     g.querySelector('#gate-form').addEventListener('submit', (e) => { e.preventDefault(); submit(g); });
+    g.querySelector('#gate-forgot').addEventListener('click', () => showResetModal(g.querySelector('#gate-email').value.trim()));
     g.querySelector('#gate-guest').addEventListener('click', () => { setGuest(true); renderAccount(); applyView(); });
     setMode('login', g, false);
     setTimeout(() => g.querySelector('#gate-user').focus(), 60);
@@ -647,6 +649,7 @@
     mode = m;
     g.querySelectorAll('#gate-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.gt === m));
     g.querySelector('#gate-email-wrap').hidden = m !== 'register';
+    g.querySelector('#gate-forgot').hidden = m !== 'login'; // reset only makes sense from the login tab
     g.querySelector('#gate-submit').textContent = m === 'register' ? 'Crear cuenta' : 'Entrar';
     g.querySelector('#gate-pass').setAttribute('autocomplete', m === 'register' ? 'new-password' : 'current-password');
     g.querySelector('#gate-error').textContent = '';
@@ -693,6 +696,55 @@
       errEl.textContent = err.status ? err.message : 'No se pudo conectar con el servidor.';
       btn.disabled = false;
     }
+  }
+
+  // Self-service password reset: email → 6-digit code + new password. /auth/forgot
+  // always 200s (no enumeration), so step 1 always advances to step 2.
+  function showResetModal(prefillEmail) {
+    const m = makeModal(400);
+    m.body.innerHTML = `
+      <h3 class="modal-title">Restablecer contraseña</h3>
+      <p class="modal-msg" id="rs-msg" style="margin-bottom:14px">Te enviaremos un código de 6 dígitos al correo de tu cuenta.</p>
+      <div class="gate-field"><label>Correo</label><input type="text" id="rs-email" autocomplete="email" autocapitalize="none" spellcheck="false" value="${esc(prefillEmail || '')}"></div>
+      <div id="rs-step2" hidden>
+        <div class="gate-field"><label>Código (6 dígitos)</label><input type="text" id="rs-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" style="font-family:var(--mono);letter-spacing:6px;text-align:center"></div>
+        <div class="gate-field"><label>Nueva contraseña</label><input type="password" id="rs-pass" autocomplete="new-password"></div>
+      </div>
+      <div class="gate-error" id="rs-error"></div>
+      <button class="btn btn-gold" id="rs-go" type="button" style="width:100%">Enviar código</button>
+      <button class="btn btn-ghost btn-sm" data-close type="button" style="width:100%;margin-top:8px">Cancelar</button>`;
+    let step = 1;
+    const err = m.body.querySelector('#rs-error');
+    const go = m.body.querySelector('#rs-go');
+    go.addEventListener('click', async () => {
+      err.textContent = '';
+      const email = m.body.querySelector('#rs-email').value.trim();
+      if (step === 1) {
+        if (!email) { err.textContent = 'Escribe tu correo.'; return; }
+        go.disabled = true;
+        try { await API.req('/auth/forgot', { method: 'POST', auth: false, body: { email } }); } catch (e) { /* never reveal — advance anyway */ }
+        go.disabled = false;
+        step = 2;
+        m.body.querySelector('#rs-step2').hidden = false;
+        m.body.querySelector('#rs-msg').textContent = 'Si el correo está registrado, te enviamos un código (vence en 15 min). Escríbelo y tu nueva contraseña.';
+        m.body.querySelector('#rs-email').setAttribute('readonly', '');
+        go.textContent = 'Restablecer';
+        m.body.querySelector('#rs-code').focus();
+      } else {
+        const code = m.body.querySelector('#rs-code').value.trim();
+        const pass = m.body.querySelector('#rs-pass').value;
+        if (code.length !== 6) { err.textContent = 'El código tiene 6 dígitos.'; return; }
+        if (pass.length < 6) { err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; return; }
+        go.disabled = true;
+        try {
+          await API.req('/auth/reset', { method: 'POST', auth: false, body: { email, code, password: pass } });
+          m.body.innerHTML = '<h3 class="modal-title">¡Listo!</h3><p class="modal-msg" style="margin:8px 0 14px">Tu contraseña se actualizó. Ya puedes iniciar sesión.</p><button class="btn btn-gold" data-close type="button" style="width:100%">Iniciar sesión</button>';
+        } catch (e) {
+          err.textContent = e.message || 'No se pudo restablecer.';
+          go.disabled = false;
+        }
+      }
+    });
   }
 
   function closeGate() {
