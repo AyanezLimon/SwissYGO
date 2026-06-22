@@ -47,6 +47,34 @@
   const uname = () => { try { return localStorage.getItem('ygo_username') || ''; } catch { return ''; } };
   const fmtDate = (s) => String(s || '').replace('T', ' ').slice(0, 16);
 
+  // ---- screen history: hardware/browser Back (and Forward) drive the view ----
+  // The join screen (home) is the base; profile, leaderboard, the tournament
+  // detail card, results and the Elo history stack on top of it — each as one
+  // history entry. `_navStack` holds one (bare) renderer per depth ([0] = base);
+  // `_navIndex` is the depth of the entry on screen. Opening a screen pushes a
+  // state carrying its depth. popstate reconciles to whatever entry the browser
+  // moved to — so it renders the right view for BOTH Back and Forward (rather than
+  // blindly popping). Entries aren't discarded on Back, so Forward restores them;
+  // branching (open a new screen after going back) truncates the stale forward
+  // entries to match the browser. base seeded so a deep-linked screen still Backs home.
+  const _navStack = [renderJoin];
+  let _navIndex = 0;
+  function navReset() { _navStack.length = 1; _navStack[0] = renderJoin; _navIndex = 0; } // (re)enter base (join/leave/finish)
+  function navOpen(renderFn) {                       // open a screen as a new history entry
+    _navStack.length = _navIndex + 1;                 // drop forward entries when branching
+    _navStack.push(renderFn);
+    _navIndex = _navStack.length - 1;
+    try { history.pushState({ uScreen: _navIndex }, ''); } catch (e) {}
+    renderFn();
+  }
+  function navBack() { if (_navIndex > 0) history.back(); } // "Volver" → triggers popstate below
+  window.addEventListener('popstate', (e) => {
+    const want = (e && e.state && typeof e.state.uScreen === 'number') ? e.state.uScreen : 0;
+    _navIndex = Math.max(0, Math.min(want, _navStack.length - 1)); // clamp: a stale entry still renders a valid view
+    const fn = _navStack[_navIndex];
+    if (typeof fn === 'function') fn();              // render the view for this entry (Back or Forward)
+  });
+
   // ---- join screen -------------------------------------------------------
   function renderJoin(err, codePrefill) {
     stopPoll();
@@ -81,8 +109,8 @@
     const lo = $('#logout'); if (lo) lo.addEventListener('click', () => { API.token.clear(); try { localStorage.removeItem('ygo_username'); localStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
-    const h = $('#hist'); if (h) h.addEventListener('click', renderProfile);
-    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => renderLeaderboard());
+    const h = $('#hist'); if (h) h.addEventListener('click', () => navOpen(renderProfile));
+    const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => navOpen(renderLeaderboard));
     loadActive();
   }
 
@@ -100,7 +128,7 @@
           <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
         </div>`).join('');
-      el.querySelectorAll('.tcard').forEach((c, i) => c.addEventListener('click', () => showTournamentCard(list[i])));
+      el.querySelectorAll('.tcard').forEach((c, i) => c.addEventListener('click', () => navOpen(() => showTournamentCard(list[i]))));
     } catch (e) { el.innerHTML = '<p class="muted" style="font-size:13px">No se pudo cargar la lista de torneos.</p>'; }
   }
 
@@ -108,7 +136,7 @@
   async function openByCode(code) {
     try {
       const t = await API.req('/tournaments/by-code/' + encodeURIComponent(code), { auth: false });
-      showTournamentCard(t);
+      navOpen(() => showTournamentCard(t));   // Back from a deep-linked card → the join home
     } catch (e) { renderJoin(e.status === 404 ? 'Código inválido.' : null, code); }
   }
 
@@ -154,8 +182,8 @@
         <button class="btn btn-sm btn-ghost" id="back" style="width:100%;margin-top:10px">← Volver</button>
       </div>`;
     const c = $('#confirm'); if (c) c.addEventListener('click', () => doJoin(t.code));
-    const rs = $('#results'); if (rs) rs.addEventListener('click', () => showResults(t.id, null, () => showTournamentCard(t)));
-    $('#back').addEventListener('click', () => renderJoin());
+    const rs = $('#results'); if (rs) rs.addEventListener('click', () => navOpen(() => showResults(t.id, null, () => showTournamentCard(t))));
+    $('#back').addEventListener('click', navBack);
   }
 
   async function doJoin(code) {
@@ -176,6 +204,7 @@
         res = await API.req('/tournaments/join', { method: 'POST', auth: false, body: { code, name } });
         setJoined({ id: res.id, name: res.display_name || name, guestToken: res.guest_token });
       }
+      navReset();   // entering the event = base view; clear any screen depth (e.g. the card we joined from)
       startPoll();
     } catch (e) {
       if (btn) btn.disabled = false;
@@ -270,6 +299,7 @@
       if (me.inEvent || me.pairing) _seenInEvent = true;
       if (me.inEvent === false && _seenInEvent) {
         stopPoll(); setJoined(null);
+        navReset();
         renderJoin('El organizador te retiró del torneo.');
         return;
       }
@@ -277,7 +307,7 @@
         stopPoll();
         const live = _lastRound !== -1; // we saw at least one live round this session → real transition, worth notifying
         setJoined(null); // tournament's over — end the session so a refresh goes to the /u/ home, not back here
-        showResults(j.id, j, () => renderJoin(), live, me.name); // me.name = tournament name (j.name is the player's)
+        navReset(); navOpen(() => showResults(j.id, j, () => renderJoin(), live, me.name)); // results as a screen → Back/Volver → home
         return; // finally still runs; stopPoll already halted the loop, so "finished" fires once
       }
       if (me.pairing && me.currentRound !== _lastRound) {
@@ -350,11 +380,11 @@
       actions.innerHTML = '<button class="btn btn-gold btn-sm" id="share">📤 Compartir</button><button class="btn btn-sm btn-ghost" id="back">← Volver</button>';
       root.appendChild(actions);
       $('#share').addEventListener('click', (e) => shareResultsImage(pub, e.currentTarget));
-      $('#back').addEventListener('click', onBack);
+      $('#back').addEventListener('click', navBack);
     } catch (e) {
       root.classList.remove('results');
       root.innerHTML = `<div class="card"><p class="gate-error">${esc(e.message)}</p><button class="btn btn-sm btn-ghost" id="back" style="width:100%">← Volver</button></div>`;
-      $('#back').addEventListener('click', onBack);
+      $('#back').addEventListener('click', navBack);
     }
   }
 
@@ -379,7 +409,7 @@
         <div class="muted" id="lb-season" style="font-size:12.5px;margin:4px 0 12px">Temporada</div>
         <div id="lb-body" class="muted">Cargando…</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderJoin());
+    $('#back').addEventListener('click', navBack);
     try {
       const data = await API.req('/leaderboard', { auth: false });
       const seasonEl = $('#lb-season'); if (seasonEl) seasonEl.textContent = 'Temporada · ' + monthLabel(data.month);
@@ -414,7 +444,7 @@
         </div>
         <div id="body" class="muted" style="margin-top:16px">Cargando…</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderJoin());
+    $('#back').addEventListener('click', navBack);
     try {
       const st = await API.req('/me/stats');
       const r = st.record;
@@ -496,8 +526,8 @@
       html += '</div>';
 
       b.innerHTML = html;
-      b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => showResults(Number(el.dataset.id), null, () => renderProfile())));
-      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => renderEloDetail(elo));
+      b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => navOpen(() => showResults(Number(el.dataset.id), null, () => renderProfile()))));
+      const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => navOpen(() => renderEloDetail(elo)));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -540,7 +570,7 @@
         <div class="muted" style="font-size:12.5px;margin:4px 0 12px">Cómo cambió tu rating, partida por partida.</div>
         <div class="pf-matches">${cards || '<p class="muted" style="text-align:center;padding:18px 0">Sin partidas esta temporada.</p>'}</div>
       </div>`;
-    $('#back').addEventListener('click', () => renderProfile());
+    $('#back').addEventListener('click', navBack);
   }
 
   function renderPairing(j, me) {
@@ -576,7 +606,7 @@
         #player .round{ color:var(--ink-soft); font-size:13px; letter-spacing:.4px; text-transform:uppercase; }
         #player .vs{ font-size:18px; color:var(--ink); }
       </style>`;
-    $('#leave').addEventListener('click', () => { setJoined(null); renderJoin(); });
+    $('#leave').addEventListener('click', () => { setJoined(null); navReset(); renderJoin(); });
   }
 
   function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; _seenInEvent = false; poll(); pollTimer = setInterval(poll, 4000); }
