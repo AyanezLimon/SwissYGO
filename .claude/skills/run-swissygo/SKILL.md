@@ -97,7 +97,8 @@ node .claude/skills/run-swissygo/qa-e2e.mjs         # creds: QA_TO_USER / QA_TO_
 
 `qa-e2e.mjs` only writes its **own** qa tournament (owned by the TO account); it leaves
 dev-clutter tournaments named `QA-E2E …` you can delete from the LAN admin page → Torneos tab.
-Both default to the `qa-to` / `qa-player` accounts (password `qa-pass-123`) on torneodev.
+Both default to the `qa-to` / `qa-player` accounts on torneodev; supply the password via env
+vars (`QA_TO_PASS` / `QA_PLAYER_PASS`) — it is not committed.
 
 ## Gotchas
 

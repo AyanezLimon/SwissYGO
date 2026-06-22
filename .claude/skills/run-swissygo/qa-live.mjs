@@ -14,7 +14,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'screenshots-live');
 const BASE = process.env.BASE || 'https://torneodev.elbunkers.com';
 const PLAYER_USER = process.env.QA_PLAYER_USER || 'qa-player';
-const PLAYER_PASS = process.env.QA_PLAYER_PASS || 'qa-pass-123';
+if (!process.env.QA_PLAYER_PASS) { console.error('Set QA_PLAYER_PASS (QA player account password) in the env.'); process.exit(1); }
+const PLAYER_PASS = process.env.QA_PLAYER_PASS;
 const VIEWPORT = { width: 1280, height: 900 };
 const shots = [];
 
