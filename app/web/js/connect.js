@@ -26,11 +26,37 @@
       setUser(r.user.username); setRole(r.user.role);
       renderAccount();
       applyView();
-      if (isCloud() && isOrganizer()) startRegPoll(); // self-gates (setup or late-entry window)
+      if (isCloud() && isOrganizer()) { await pullCloudStateOnBoot(); startRegPoll(); } // self-gates (setup or late-entry window)
     } catch (e) {
       if (e.status === 401) { API.token.clear(); setUser(''); setRole(''); stopRegPoll(); renderAccount(); }
       applyView(); // fall back to stored role when offline
     }
+  }
+
+  // On boot the in-memory `state` came from localStorage (app.js load()) and may be
+  // STALE — the server is the durable source of truth (the tournament could have
+  // changed from another device/tab, or via a data fix). Pull the authoritative
+  // state and adopt it BEFORE we poll or let the TO save, so a plain refresh never
+  // shows — or, on the next save, re-pushes — outdated data (the localStorage cache
+  // could otherwise clobber the server). Fail-soft: if the API is unreachable we keep
+  // the local copy, so the offline flow still works. Mirrors loadTournament's adopt,
+  // minus the confirm + tab switch (it's the same tournament the TO already had open).
+  async function pullCloudStateOnBoot() {
+    if (!isCloud()) return;
+    let t;
+    try { t = await API.req('/tournaments/' + state.cloud.id); }
+    catch (e) { return; } // offline / 404 → keep the local cache, don't disrupt
+    if (!t || !t.state) return;
+    const base = window.emptyState ? window.emptyState() : {};
+    state = Object.assign(base, t.state);
+    // t.state.cloud already carries the synced metadata (incl. `removed` tombstones);
+    // just re-pin id/code, and take ranked from its authoritative column.
+    state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
+    state.ranked = t.ranked !== false;
+    save();                 // correct the local cache (+ push, a no-op since it equals the server)
+    if (window.render) render();
+    renderAccount();
+    syncTournamentFields();
   }
 
   // ---- header account control -------------------------------------------
