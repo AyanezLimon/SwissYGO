@@ -646,7 +646,10 @@
     g.querySelector('#gate-form').addEventListener('submit', (e) => { e.preventDefault(); submit(g); });
     g.querySelector('#gate-forgot').addEventListener('click', () => showResetModal(g.querySelector('#gate-email').value.trim()));
     g.querySelector('#gate-guest').addEventListener('click', () => { setGuest(true); renderAccount(); applyView(); });
-    setMode('login', g, false);
+    // Deep link: /#crear (e.g. from the /u/ "Crear cuenta" prompt on a ranked event)
+    // opens straight on the register tab; otherwise default to sign-in.
+    const wantRegister = /^#(crear|register|signup)$/i.test(location.hash || '');
+    setMode(wantRegister ? 'register' : 'login', g, false);
     setTimeout(() => g.querySelector('#gate-user').focus(), 60);
   }
 

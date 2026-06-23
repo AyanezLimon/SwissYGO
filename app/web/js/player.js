@@ -182,16 +182,24 @@
       ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Te inscribes como <b>${esc(uname() || 'tu cuenta')}</b></div>`
       : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`)
       + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">${btnLabel}</button>`;
+    // Ranked tournaments require an account (guests have no persistent Elo). For a
+    // guest, the join form is replaced by a sign-in / create-account prompt — the
+    // server enforces the same rule (403 ranked_requires_account) as a backstop.
+    const needsAccount = (t.ranked !== false) && !logged;
+    const authRequiredBlock = '<div class="muted" style="font-size:13px;margin-bottom:12px">🔒 <b>Torneo clasificatorio.</b> Necesitas una cuenta para registrarte — los invitados solo pueden entrar a torneos casuales.</div>'
+      + '<button class="btn btn-gold" id="goSignin" style="width:100%">Iniciar sesión</button>'
+      + '<button class="btn btn-sm btn-ghost" id="goSignup" style="width:100%;margin-top:10px">Crear cuenta</button>';
     let action;
     if (t.status === 'setup') {
-      action = joinControls('Confirmar registro');
+      action = needsAccount ? authRequiredBlock : joinControls('Confirmar registro');
     } else if (t.status === 'finished') {
       action = '<button class="btn btn-gold" id="results" style="width:100%">Ver resultados</button>';
     } else if (t.lateOpen) {
       // Running but rounds remain → late entry (official rule: a loss per played round).
       // t.lateOpen is the server's own gate signal — UI can't advertise a 409.
-      action = `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Este torneo ya comenzó (Ronda ${t.currentRound}/${t.maxRounds}). Puedes entrar como <b>entrada tardía</b>: recibes una derrota por cada ronda ya jugada y te emparejan desde la próxima.</div>`
-        + joinControls('Entrar como entrada tardía');
+      action = needsAccount ? authRequiredBlock
+        : `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Este torneo ya comenzó (Ronda ${t.currentRound}/${t.maxRounds}). Puedes entrar como <b>entrada tardía</b>: recibes una derrota por cada ronda ya jugada y te emparejan desde la próxima.</div>`
+          + joinControls('Entrar como entrada tardía');
     } else {
       action = '<div class="muted" style="font-size:13px;text-align:center;padding:6px 0">El registro cerró y no quedan rondas por jugar.</div>';
     }
@@ -211,8 +219,19 @@
       </div>`;
     const c = $('#confirm'); if (c) c.addEventListener('click', () => doJoin(t.code));
     const rs = $('#results'); if (rs) rs.addEventListener('click', () => navOpen(() => showResults(t.id, null, () => showTournamentCard(t))));
+    const gsi = $('#goSignin'); if (gsi) gsi.addEventListener('click', () => goToGate(false));
+    const gsu = $('#goSignup'); if (gsu) gsu.addEventListener('click', () => goToGate(true));
     $('#back').addEventListener('click', navBack);
     markCardRegistered(t);   // already in? → swap the join form for an "inscrito"/withdraw state
+  }
+
+  // Leave the guest flow and go to the landing gate (/) to sign in or create an
+  // account. Clears the guest session markers (like the home "Iniciar sesión") so
+  // the gate shows instead of auto-entering the guest console; register=true
+  // deep-links the gate's "Crear cuenta" tab via the #crear hash (read by connect.js).
+  function goToGate(register) {
+    try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {}
+    location.href = register ? '/#crear' : '/';
   }
 
   // If the caller is already registered in this tournament, replace the join form
@@ -292,6 +311,9 @@
       startPoll();
     } catch (e) {
       btns.forEach((b) => { b.disabled = false; });
+      // Guest typed a ranked tournament's code on the home → open its card, which
+      // shows the "necesitas una cuenta" prompt + sign-in / create-account buttons.
+      if (e && e.code === 'ranked_requires_account') { openByCode(code); return; }
       if (errEl) errEl.textContent = e.message || 'No se pudo unir.';
     }
   }
