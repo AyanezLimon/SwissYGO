@@ -302,3 +302,15 @@ html.gate-pending .wrap { visibility: hidden; }
 /* "Casual" tournament badge — a non-ranked event that doesn't affect Elo. Neutral
    grey so it reads as informational, not a status. (.pill base lives in styles.css) */
 .pill-casual { background: rgba(150,155,170,.14); color: var(--ink-soft); border: 1px solid rgba(150,155,170,.34); }
+
+/* Toggle switch — a drop-in restyle for a <input type="checkbox"> (the input stays,
+   so all JS/labels work unchanged; we hide it and draw a slider). Used for the
+   tournament settings (ranked / Elo-seed). Gold when on, matches the dark theme. */
+.switch { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; width: 40px; height: 22px; }
+.switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.switch .slider { position: absolute; inset: 0; background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 999px; transition: background .15s, border-color .15s; pointer-events: none; }
+.switch .slider::before { content: ''; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; border-radius: 50%; background: var(--ink-soft); transition: transform .15s, background .15s; }
+.switch input:checked + .slider { background: rgba(212,175,55,.30); border-color: var(--gold); }
+.switch input:checked + .slider::before { transform: translateY(-50%) translateX(18px); background: var(--gold); }
+.switch input:disabled + .slider { opacity: .5; }
+.switch input:focus-visible + .slider { outline: 2px solid var(--gold); outline-offset: 2px; }
