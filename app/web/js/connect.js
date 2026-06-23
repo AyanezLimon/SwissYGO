@@ -414,6 +414,14 @@
           try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name: (state.name && state.name.trim()) || undefined, ranked: state.ranked } }); }
           catch (e) { if (window.showToast) showToast('No se pudo cambiar el modo: ' + e.message, true); }
         }
+        syncTournamentFields();   // ranked off → hide the Elo-seed option
+      });
+      // Elo-seed (#39): seeds the 1st round by Elo (ranked only). Lives in state_json
+      // (no column), so a plain save() syncs it. Locked once the event starts.
+      const eloEl = document.getElementById('tournament-elo-seed');
+      if (eloEl) eloEl.addEventListener('change', () => {
+        if (state.started) { eloEl.checked = state.eloSeed === true; return; }
+        state.eloSeed = eloEl.checked; save();
       });
     }
     syncTournamentFields();
@@ -439,6 +447,12 @@
           : 'Si lo desactivas, las partidas no afectan el Elo (modo casual). Solo se puede cambiar antes de iniciar.';
       }
     }
+    // Elo-seed option: only meaningful on ranked events (#39).
+    const eloWrap = document.getElementById('elo-seed-wrap');
+    const eloEl = document.getElementById('tournament-elo-seed');
+    const rankedNow = !isCasual() && state.ranked !== false;
+    if (eloWrap) eloWrap.hidden = !rankedNow;
+    if (eloEl) { eloEl.checked = state.eloSeed === true; eloEl.disabled = !!state.started; }
   }
 
   // Publish reads the already-filled Registro fields — no extra form. Empty name →
@@ -501,10 +515,38 @@
   // has a uid() UUID and NO registrations row — so this shape is what lets us
   // reconcile registration deletions without ever touching manual players.
   const isRegOriginId = (id) => /^u\d+-[a-z0-9]+$/i.test(id) || /^g-[0-9a-f]{8}-[a-z0-9]+$/i.test(id);
+
+  // ---- #39 Elo-seed matchmaking -----------------------------------------
+  // app.js calls window.shuffle ONLY to seed the FIRST round (later rounds sort by
+  // standings; pairBacktrack handles no-rematch). When the per-tournament Elo-seed
+  // setting is on (ranked only) we replace that coin-flip with an Elo-ordered seed:
+  // sort by rating but with a ±MARGIN jitter, so near-equal players don't always
+  // meet their exact neighbour (the TO wanted a band, not a fixed ladder). Clear
+  // favourites still sit on top; early-season ratings (all ~base) stay near-random.
+  // No other pairing behaviour changes. _eloByUser is refreshed from each /registrations
+  // poll (account user_id → current-season rating); unrated/guest/manual → base.
+  const _eloByUser = new Map();
+  const ELO_SEED_BASE = 1200, ELO_SEED_MARGIN = 40;
+  const eloSeedActive = () => typeof state !== 'undefined' && state && state.eloSeed === true && state.ranked !== false && _eloByUser.size > 0;
+  if (typeof window.shuffle === 'function' && !window.shuffle._eloPatched) {
+    const orig = window.shuffle;
+    window.shuffle = function (arr) {
+      if (eloSeedActive() && Array.isArray(arr) && arr.length > 1) {
+        return arr
+          .map((p) => ({ p, k: ((p && p.userId != null && _eloByUser.has(p.userId)) ? _eloByUser.get(p.userId) : ELO_SEED_BASE) + (Math.random() * 2 - 1) * ELO_SEED_MARGIN }))
+          .sort((a, b) => b.k - a.k)
+          .map((x) => x.p);
+      }
+      return orig.apply(this, arguments);
+    };
+    window.shuffle._eloPatched = true;
+  }
+
   async function absorbRegistrations() {
     if (!regWindowOpen()) return;
     try {
       const regs = await API.req('/tournaments/' + state.cloud.id + '/registrations');
+      for (const r of regs) { if (r.user_id != null && typeof r.rating === 'number') _eloByUser.set(r.user_id, r.rating); } // keep Elo-seed map fresh (#39)
       const removed = (state.cloud && state.cloud.removed) || [];
       const late = !!state.started; // running → newcomers enter as late entries
       let n = 0;

@@ -58,6 +58,12 @@
             Cuenta para el ranking
           </label>
         </div>
+        <div style="display:flex; align-items:flex-end;" id="elo-seed-wrap" hidden>
+          <label id="elo-seed-label" for="tournament-elo-seed" title="Usa el Elo para sembrar la 1ª ronda: jugadores de rating similar pueden cruzarse (margen aleatorio). No afecta rondas posteriores ni las reglas Swiss. Solo antes de iniciar." style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; padding-bottom:6px;">
+            <input type="checkbox" id="tournament-elo-seed" style="width:16px; height:16px; cursor:pointer;" />
+            Sembrar 1ª ronda por Elo
+          </label>
+        </div>
       </div>
       <div class="disclosure" id="note-details">
         <button type="button" class="disc-summary" data-action="disclosure" data-target="note-body" aria-expanded="false" aria-controls="note-body">Comentario / Premiación <span class="opt">(opcional · se guarda y exporta)</span><span id="note-badge"></span></button>
@@ -194,7 +200,7 @@
 <script src="js/api.js?v=2"></script>
 <script src="js/brand-logos.js?v=1"></script>
 <script src="js/standings-image.js?v=4"></script>
-<script src="js/connect.js?v=26"></script>
+<script src="js/connect.js?v=27"></script>
 </body>
 </html>
 

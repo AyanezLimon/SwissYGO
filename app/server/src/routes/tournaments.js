@@ -150,9 +150,13 @@ export default async function tournamentRoutes(app) {
     if (!row) return;
     if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
     // display_name covers both accounts and guests; guest_token is never exposed.
-    return db
+    const regs = db
       .prepare('SELECT player_id, display_name, user_id, joined_at FROM registrations WHERE tournament_id = ? ORDER BY joined_at')
       .all(row.id);
+    // Attach each account player's current-season Elo so the console can offer
+    // Elo-seed matchmaking (#39). Guests / TO-added / unrated → null (client = base).
+    const ratings = seasonRatings();
+    return regs.map((r) => ({ ...r, rating: (r.user_id != null && ratings.has(r.user_id)) ? ratings.get(r.user_id) : null }));
   });
 
   // ---- Player ----
@@ -527,6 +531,19 @@ export default async function tournamentRoutes(app) {
       if (pidMap.size) rows.push({ id: t.id, name: t.name, date: t.finished_at || t.created_at, state, pidMap });
     }
     return rows;
+  }
+
+  // Current-season Elo per account (minGames:0, so even <3-game players get a live
+  // rating), briefly memoized — feeds the `rating` attached to /registrations for
+  // the optional Elo-seed matchmaking (#39). Ratings only shift when a tournament
+  // finishes, so a 30s memo is ample even under the console's setup-phase polling.
+  let _seedRatings = { at: 0, month: '', map: null };
+  function seasonRatings() {
+    const month = new Date().toISOString().slice(0, 7);
+    if (_seedRatings.map && _seedRatings.month === month && Date.now() - _seedRatings.at < 30000) return _seedRatings.map;
+    const map = new Map(computeLeaderboard(lbRows(allFinished().filter((t) => monthOf(t) === month)), { minGames: 0 }).map((e) => [e.userId, e.rating]));
+    _seedRatings = { at: Date.now(), month, map };
+    return map;
   }
 
   // Public season leaderboard for one calendar month (default current). Recomputed
