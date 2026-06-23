@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../auth.js';
+import { reassignToAccount, restorePlayer, removePlayer, matchKind } from '../lib/roster.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -123,5 +124,103 @@ export default async function adminRoutes(app) {
     if (!Number.isFinite(k) || k < 1 || k > 100) return reply.code(400).send({ error: 'elo_k debe ser un entero entre 1 y 100.' });
     db.prepare("INSERT INTO settings (key, value) VALUES ('elo_k', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(k));
     return { ok: true, elo_k: k };
+  });
+
+  // ---- Per-tournament roster surgery (#96) ----
+  // Edits BOTH registrations and state_json atomically (the two sides that the
+  // single-writer model otherwise keeps separate). SAFE MODE: ops that would touch
+  // a real pairing in a running event are refused (the state helpers throw → 409).
+  // After a change the TO must reload the console (automatic once #95 ships) so its
+  // localStorage cache adopts the corrected server state.
+  const loadTourney = (id, reply) => {
+    const row = db.prepare('SELECT id, name, status, state_json FROM tournaments WHERE id = ?').get(id);
+    if (!row) { reply.code(404).send({ error: 'Torneo no encontrado.' }); return null; }
+    let state; try { state = JSON.parse(row.state_json); } catch { reply.code(500).send({ error: 'state_json corrupto.' }); return null; }
+    return { row, state };
+  };
+  const writeState = (id, state) => db.prepare('UPDATE tournaments SET state_json = ? WHERE id = ?').run(JSON.stringify(state), id);
+
+  app.get('/admin/tournaments/:id/roster', { preHandler: guard }, async (req, reply) => {
+    const tid = Number(req.params.id);
+    const lt = loadTourney(tid, reply); if (!lt) return;
+    const { row, state } = lt;
+    const regs = db.prepare('SELECT player_id, user_id, display_name, CASE WHEN guest_token IS NULL THEN 0 ELSE 1 END AS is_guest FROM registrations WHERE tournament_id = ?').all(tid);
+    const regByPid = new Map(regs.map((r) => [r.player_id, r]));
+    const inState = new Set((state.players || []).map((p) => p.id));
+    const removed = (state.cloud && state.cloud.removed) || [];
+    const players = (state.players || []).map((p) => {
+      const r = regByPid.get(p.id);
+      return { player_id: p.id, name: p.name, userId: p.userId ?? (r ? r.user_id : null), dropped: !!p.dropped, kind: r ? (r.user_id != null ? 'account' : 'guest') : 'manual', match: matchKind(state, p.id) };
+    });
+    const orphanRegs = regs.filter((r) => !inState.has(r.player_id)).map((r) => ({
+      player_id: r.player_id, user_id: r.user_id, display_name: r.display_name, kind: r.user_id != null ? 'account' : 'guest', tombstoned: removed.includes(r.player_id),
+    }));
+    return { id: tid, name: row.name, status: row.status, started: !!state.started, finished: !!state.finished, currentRound: state.currentRound || 0, players, orphanRegs };
+  });
+
+  // Reassign a slot to an account (e.g. a guest who also created an account). If that
+  // account already has another slot here (a duplicate), it's removed first (safe gate).
+  app.post('/admin/tournaments/:id/roster/reassign', { preHandler: guard }, async (req, reply) => {
+    const tid = Number(req.params.id);
+    const playerId = String(req.body?.player_id || '');
+    const userId = Number(req.body?.user_id);
+    const lt = loadTourney(tid, reply); if (!lt) return;
+    const { state } = lt;
+    const reg = db.prepare('SELECT * FROM registrations WHERE tournament_id=? AND player_id=?').get(tid, playerId);
+    if (!reg) return reply.code(404).send({ error: 'Inscripción no encontrada para ese jugador.' });
+    const user = db.prepare('SELECT id, username FROM users WHERE id=?').get(userId);
+    if (!user) return reply.code(404).send({ error: 'Usuario no encontrado.' });
+    const existing = db.prepare('SELECT * FROM registrations WHERE tournament_id=? AND user_id=?').get(tid, userId);
+    try {
+      db.transaction(() => {
+        if (existing && existing.player_id !== playerId) {
+          if (state.players.some((p) => p.id === existing.player_id)) removePlayer(state, existing.player_id); // throws if in a real match
+          db.prepare('DELETE FROM registrations WHERE tournament_id=? AND player_id=?').run(tid, existing.player_id);
+        }
+        db.prepare('UPDATE registrations SET user_id=?, guest_token=NULL, display_name=? WHERE tournament_id=? AND player_id=?').run(userId, user.username, tid, playerId);
+        reassignToAccount(state, playerId, user.username, userId);
+        writeState(tid, state);
+      })();
+    } catch (e) { return reply.code(409).send({ error: e.message }); }
+    return { ok: true };
+  });
+
+  app.post('/admin/tournaments/:id/roster/restore', { preHandler: guard }, async (req, reply) => {
+    const tid = Number(req.params.id);
+    const playerId = String(req.body?.player_id || '');
+    const lt = loadTourney(tid, reply); if (!lt) return;
+    const { state } = lt;
+    const reg = db.prepare('SELECT * FROM registrations WHERE tournament_id=? AND player_id=?').get(tid, playerId);
+    if (!reg) return reply.code(404).send({ error: 'No hay inscripción para restaurar ese jugador.' });
+    try { restorePlayer(state, reg); writeState(tid, state); }
+    catch (e) { return reply.code(409).send({ error: e.message }); }
+    return { ok: true };
+  });
+
+  app.post('/admin/tournaments/:id/roster/remove', { preHandler: guard }, async (req, reply) => {
+    const tid = Number(req.params.id);
+    const playerId = String(req.body?.player_id || '');
+    const lt = loadTourney(tid, reply); if (!lt) return;
+    const { state } = lt;
+    try {
+      db.transaction(() => {
+        removePlayer(state, playerId); // throws if in a real match
+        db.prepare('DELETE FROM registrations WHERE tournament_id=? AND player_id=?').run(tid, playerId);
+        writeState(tid, state);
+      })();
+    } catch (e) { return reply.code(409).send({ error: e.message }); }
+    return { ok: true };
+  });
+
+  // Delete a dangling registration whose player_id is NOT in the tournament state
+  // (the "removed in console but still in the DB" case). State is untouched.
+  app.delete('/admin/tournaments/:id/roster/orphan/:playerId', { preHandler: guard }, async (req, reply) => {
+    const tid = Number(req.params.id);
+    const playerId = req.params.playerId;
+    const lt = loadTourney(tid, reply); if (!lt) return;
+    if ((lt.state.players || []).some((p) => p.id === playerId)) return reply.code(409).send({ error: 'Ese jugador SÍ está en el torneo; usa "Quitar jugador", no limpiar huérfano.' });
+    const info = db.prepare('DELETE FROM registrations WHERE tournament_id=? AND player_id=?').run(tid, playerId);
+    if (!info.changes) return reply.code(404).send({ error: 'Inscripción no encontrada.' });
+    return { ok: true };
   });
 }

@@ -56,6 +56,7 @@
         <button class="tabbtn" id="tab-tourneys">Torneos</button>
         <button class="tabbtn" id="tab-regs">Inscripciones</button>
         <button class="tabbtn" id="tab-settings">Ajustes</button>
+        <button class="tabbtn" id="tab-roster">Roster</button>
       </div>
       <button id="refresh">Recargar</button>
     </div>
@@ -98,6 +99,36 @@
         Cambiarlo <b>re-evalúa toda la temporada</b>: el leaderboard se recalcula del
         historial de partidas, así que aplica retroactivamente. Rango 1–100.
       </p>
+    </div>
+
+    <div id="view-roster" hidden>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="ros-tourney" style="min-width:240px"></select>
+        <button id="ros-load">Cargar roster</button>
+        <span id="ros-meta" style="color:var(--soft);font-size:12.5px"></span>
+      </div>
+      <p style="color:#9aa;font-size:12px;max-width:640px;margin:.4rem 0 0">Edita ambos lados (inscripciones + estado del torneo) a la vez. En torneos en curso, las operaciones que tocan emparejamientos reales se bloquean (modo seguro). Tras un cambio, recarga la consola del torneo (abrir desde "Torneos").</p>
+      <div id="ros-msg" class="err"></div>
+
+      <div id="ros-reassign" class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;display:none">
+        <strong style="font-size:13px">Reasignar slot → cuenta:</strong>
+        <select id="ros-player" style="min-width:180px"></select>
+        <span>→</span>
+        <select id="ros-user" style="min-width:160px"></select>
+        <button class="btn-gold" id="ros-do-reassign">Reasignar</button>
+      </div>
+
+      <strong id="ros-pcount" style="display:block;margin-top:14px"></strong>
+      <table id="ros-ptable" style="display:none">
+        <thead><tr><th>Jugador</th><th>Tipo</th><th>Slot</th><th>Acciones</th></tr></thead>
+        <tbody id="ros-prows"></tbody>
+      </table>
+
+      <strong id="ros-ocount" style="display:block;margin-top:14px"></strong>
+      <table id="ros-otable" style="display:none">
+        <thead><tr><th>Inscripción</th><th>Tipo</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody id="ros-orows"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -185,7 +216,57 @@
     catch (err) { $('#err').textContent = err.message; }
   }
 
-  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings };
+  // ---- Roster surgery (#96) ----
+  let rosUsers = [];
+  async function loadRosterPicker() {
+    $('#ros-msg').textContent = '';
+    try {
+      const [ts, users] = await Promise.all([api('/admin/tournaments'), api('/admin/users')]);
+      rosUsers = users;
+      $('#ros-tourney').innerHTML = ts.map(t => `<option value="${t.id}">${esc(t.name)} · ${esc(t.code)} · ${esc(t.status)}</option>`).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+  const rosBadge = (k) => `<span class="tag ${k === 'account' ? 'to' : 'player'}">${k}</span>`;
+  async function loadRoster() {
+    const id = $('#ros-tourney').value; if (!id) return;
+    $('#ros-msg').textContent = '';
+    try {
+      const r = await api('/admin/tournaments/' + id + '/roster');
+      $('#ros-meta').textContent = (r.started ? (r.finished ? 'finalizado' : 'en curso · ronda ' + r.currentRound) : 'setup') + ' · ' + r.players.length + ' jugadores';
+      // reassign controls
+      $('#ros-reassign').style.display = 'flex';
+      $('#ros-player').innerHTML = r.players.map(p => `<option value="${esc(p.player_id)}">${esc(p.name)} (${p.kind})</option>`).join('');
+      $('#ros-user').innerHTML = rosUsers.map(u => `<option value="${u.id}">${esc(u.username)}</option>`).join('');
+      // players table
+      $('#ros-pcount').textContent = 'Jugadores en el torneo (' + r.players.length + ')';
+      $('#ros-ptable').style.display = r.players.length ? '' : 'none';
+      $('#ros-prows').innerHTML = r.players.map(p => `
+        <tr data-pid="${esc(p.player_id)}">
+          <td>${esc(p.name)}<div style="color:var(--soft);font-size:12px">${esc(p.player_id)}</div></td>
+          <td>${rosBadge(p.kind)}</td>
+          <td><span class="tag ${p.match === 'real' ? 'to' : 'player'}">${p.match}</span></td>
+          <td class="actions"><button class="btn-danger" data-act="remove">Quitar</button></td>
+        </tr>`).join('');
+      // orphan regs
+      $('#ros-ocount').textContent = 'Inscripciones huérfanas (' + r.orphanRegs.length + ')';
+      $('#ros-otable').style.display = r.orphanRegs.length ? '' : 'none';
+      $('#ros-orows').innerHTML = r.orphanRegs.map(o => `
+        <tr data-pid="${esc(o.player_id)}">
+          <td>${esc(o.display_name || '—')}<div style="color:var(--soft);font-size:12px">${esc(o.player_id)}</div></td>
+          <td>${rosBadge(o.kind)}</td>
+          <td>${o.tombstoned ? '<span class="tag off">removido</span>' : '<span class="tag">colgada</span>'}</td>
+          <td class="actions"><button data-act="restore">Restaurar</button><button class="btn-danger" data-act="clean">Limpiar</button></td>
+        </tr>`).join('');
+    } catch (e) { $('#ros-msg').textContent = e.message; }
+  }
+  async function rosAct(path, opts) {
+    const id = $('#ros-tourney').value;
+    $('#ros-msg').textContent = '';
+    try { await api('/admin/tournaments/' + id + path, opts); loadRoster(); }
+    catch (e) { $('#ros-msg').textContent = e.message; }
+  }
+
+  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings, roster: loadRosterPicker };
   let view = 'users';
   function showView(v) {
     view = v;
@@ -193,10 +274,12 @@
     $('#tab-tourneys').classList.toggle('active', v === 'tourneys');
     $('#tab-regs').classList.toggle('active', v === 'regs');
     $('#tab-settings').classList.toggle('active', v === 'settings');
+    $('#tab-roster').classList.toggle('active', v === 'roster');
     $('#view-users').hidden = v !== 'users';
     $('#view-tourneys').hidden = v !== 'tourneys';
     $('#view-regs').hidden = v !== 'regs';
     $('#view-settings').hidden = v !== 'settings';
+    $('#view-roster').hidden = v !== 'roster';
     loaders[v]();
   }
 
@@ -211,6 +294,26 @@
   $('#tab-tourneys').addEventListener('click', () => showView('tourneys'));
   $('#tab-regs').addEventListener('click', () => showView('regs'));
   $('#tab-settings').addEventListener('click', () => showView('settings'));
+  $('#tab-roster').addEventListener('click', () => showView('roster'));
+
+  $('#ros-load').addEventListener('click', loadRoster);
+  $('#ros-do-reassign').addEventListener('click', () => {
+    const player_id = $('#ros-player').value, user_id = Number($('#ros-user').value);
+    if (!player_id || !user_id) return;
+    rosAct('/roster/reassign', { method: 'POST', body: JSON.stringify({ player_id, user_id }) });
+  });
+  $('#ros-prows').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act="remove"]'); if (!btn) return;
+    const pid = btn.closest('tr').dataset.pid;
+    if (!confirm('¿Quitar a este jugador del torneo (y borrar su inscripción)?')) return;
+    rosAct('/roster/remove', { method: 'POST', body: JSON.stringify({ player_id: pid }) });
+  });
+  $('#ros-orows').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]'); if (!btn) return;
+    const pid = btn.closest('tr').dataset.pid;
+    if (btn.dataset.act === 'restore') rosAct('/roster/restore', { method: 'POST', body: JSON.stringify({ player_id: pid }) });
+    else if (btn.dataset.act === 'clean') { if (confirm('¿Borrar esta inscripción huérfana?')) rosAct('/roster/orphan/' + encodeURIComponent(pid), { method: 'DELETE' }); }
+  });
 
   $('#save-settings').addEventListener('click', async () => {
     const k = parseInt($('#elo-k').value, 10);
