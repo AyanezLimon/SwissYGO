@@ -38,8 +38,14 @@ heavy deps, no per-push Docker churn beyond the API image.
 
 ## Workflow
 
-1. **Branch off `develop`** with a descriptive name (`feat/…`, `fix/…`) — never name it after
-   the reviewer ("codex", "review"). If a change depends on an unmerged PR, stack on that
+0. **PREFLIGHT (every time, before branching):** `git fetch origin --prune`, then branch from
+   **`origin/develop`** directly — never a stale local `develop`. Run `gh pr list --state merged
+   --limit 10` and `--state open` so you KNOW what's already merged vs still in flight. The owner
+   merges without always announcing it; branching on a stale base (thinking a feature is "still
+   in PR" when it actually merged) causes avoidable merge conflicts / duplicate work. See memory
+   `never-assume-repo-state`.
+1. **Branch off `origin/develop`** with a descriptive name (`feat/…`, `fix/…`) — never name it
+   after the reviewer ("codex", "review"). If a change depends on an unmerged PR, stack on that
    branch and set the PR base to it; retarget to `develop` once the base merges.
 2. Implement. Keep code in the surrounding style; match comment density.
 3. **Validate:** `node --check` every changed JS file. If you touched `app/server/migrations/`,
