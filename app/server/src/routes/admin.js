@@ -107,4 +107,21 @@ export default async function adminRoutes(app) {
     if (!info.changes) return reply.code(404).send({ error: 'Inscripción no encontrada.' });
     return { ok: true };
   });
+
+  // ---- Global settings ----
+  // Currently just the Elo K-factor (rating volatility). Changing it re-rates the
+  // whole season on the next leaderboard recompute (the board is derived from match
+  // history, not stored incrementally), so it applies retroactively — by design.
+  app.get('/admin/settings', { preHandler: guard }, async () => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'elo_k'").get();
+    const k = parseInt(row && row.value, 10);
+    return { elo_k: Number.isFinite(k) ? k : 24 };
+  });
+
+  app.patch('/admin/settings', { preHandler: guard }, async (req, reply) => {
+    const k = parseInt(req.body?.elo_k, 10);
+    if (!Number.isFinite(k) || k < 1 || k > 100) return reply.code(400).send({ error: 'elo_k debe ser un entero entre 1 y 100.' });
+    db.prepare("INSERT INTO settings (key, value) VALUES ('elo_k', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(k));
+    return { ok: true, elo_k: k };
+  });
 }

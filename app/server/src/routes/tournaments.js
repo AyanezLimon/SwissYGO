@@ -26,6 +26,14 @@ function emptyStateJson() {
 export default async function tournamentRoutes(app) {
   const db = app.db;
 
+  // Elo K-factor (rating volatility), admin-tunable via the settings table (#91).
+  // Bigger K = larger swings. Changing it re-rates the season on the next recompute
+  // (the board is derived from match history, not stored). Clamps to a sane range.
+  const eloK = () => {
+    try { const r = db.prepare("SELECT value FROM settings WHERE key = 'elo_k'").get(); const n = parseInt(r && r.value, 10); if (Number.isFinite(n) && n >= 1 && n <= 100) return n; } catch {}
+    return 24;
+  };
+
   // Single source of truth for late-entry eligibility: the event is running and
   // at least one more round can be generated. Used by /join (the gate) AND the
   // read endpoints (so the UI never advertises a join the server would reject).
@@ -537,12 +545,13 @@ export default async function tournamentRoutes(app) {
   // rating), briefly memoized — feeds the `rating` attached to /registrations for
   // the optional Elo-seed matchmaking (#39). Ratings only shift when a tournament
   // finishes, so a 30s memo is ample even under the console's setup-phase polling.
-  let _seedRatings = { at: 0, month: '', map: null };
+  let _seedRatings = { at: 0, month: '', k: 0, map: null };
   function seasonRatings() {
     const month = new Date().toISOString().slice(0, 7);
-    if (_seedRatings.map && _seedRatings.month === month && Date.now() - _seedRatings.at < 30000) return _seedRatings.map;
-    const map = new Map(computeLeaderboard(lbRows(allFinished().filter((t) => monthOf(t) === month)), { minGames: 0 }).map((e) => [e.userId, e.rating]));
-    _seedRatings = { at: Date.now(), month, map };
+    const k = eloK();
+    if (_seedRatings.map && _seedRatings.month === month && _seedRatings.k === k && Date.now() - _seedRatings.at < 30000) return _seedRatings.map;
+    const map = new Map(computeLeaderboard(lbRows(allFinished().filter((t) => monthOf(t) === month)), { minGames: 0, k }).map((e) => [e.userId, e.rating]));
+    _seedRatings = { at: Date.now(), month, k, map };
     return map;
   }
 
@@ -551,11 +560,12 @@ export default async function tournamentRoutes(app) {
   const _lbCache = {};
   app.get('/api/leaderboard', async (req) => {
     const month = /^\d{4}-\d{2}$/.test((req.query && req.query.month) || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+    const k = eloK();
     const hit = _lbCache[month];
-    if (hit && Date.now() - hit.at < 30000) return hit.data;
+    if (hit && hit.k === k && Date.now() - hit.at < 30000) return hit.data; // K-aware: an admin K change invalidates the memo
     const rows = lbRows(allFinished().filter((t) => monthOf(t) === month));
-    const data = { month, players: computeLeaderboard(rows) };
-    _lbCache[month] = { at: Date.now(), data };
+    const data = { month, players: computeLeaderboard(rows, { k }) };
+    _lbCache[month] = { at: Date.now(), k, data };
     return data;
   });
 
@@ -569,14 +579,15 @@ export default async function tournamentRoutes(app) {
     const myMonths = [...new Set(finished.filter((t) => myIds.has(t.id)).map(monthOf))].filter(Boolean).sort().reverse();
     const cur = new Date().toISOString().slice(0, 7);
 
+    const k = eloK();
     const log = [];
-    const curPlayers = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === cur)), { trackUser: uid, log });
+    const curPlayers = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === cur)), { trackUser: uid, log, k });
     const meCur = curPlayers.find((p) => p.userId === uid) || null;
 
     const pastSeasons = [];
     for (const m of myMonths) {
       if (m === cur) continue;
-      const e = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === m))).find((p) => p.userId === uid);
+      const e = computeLeaderboard(lbRows(finished.filter((t) => monthOf(t) === m)), { k }).find((p) => p.userId === uid);
       if (e) pastSeasons.push({ month: m, rank: e.rank, rating: e.rating, wins: e.wins, losses: e.losses });
     }
 

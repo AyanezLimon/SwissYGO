@@ -55,6 +55,7 @@
         <button class="tabbtn active" id="tab-users">Usuarios</button>
         <button class="tabbtn" id="tab-tourneys">Torneos</button>
         <button class="tabbtn" id="tab-regs">Inscripciones</button>
+        <button class="tabbtn" id="tab-settings">Ajustes</button>
       </div>
       <button id="refresh">Recargar</button>
     </div>
@@ -82,6 +83,21 @@
         <thead><tr><th>Torneo</th><th>Inscrito</th><th>Tipo</th><th>Unido</th><th>Acciones</th></tr></thead>
         <tbody id="rrows"></tbody>
       </table>
+    </div>
+
+    <div id="view-settings" hidden>
+      <h3 style="margin:.2rem 0">Elo</h3>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <label for="elo-k">Factor K (volatilidad del rating)</label>
+        <input type="number" id="elo-k" min="1" max="100" step="1" style="width:90px" />
+        <button class="btn-gold" id="save-settings">Guardar</button>
+        <span id="settings-msg" style="font-size:13px"></span>
+      </div>
+      <p style="color:#9aa;font-size:12.5px;max-width:560px;margin:.5rem 0 0">
+        Más alto = swings de rating más grandes (el actual por defecto es 24).
+        Cambiarlo <b>re-evalúa toda la temporada</b>: el leaderboard se recalcula del
+        historial de partidas, así que aplica retroactivamente. Rango 1–100.
+      </p>
     </div>
   </div>
 </div>
@@ -163,16 +179,24 @@
     } catch (e) { $('#err').textContent = e.message; }
   }
 
-  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations };
+  async function loadSettings() {
+    $('#settings-msg').textContent = '';
+    try { const s = await api('/admin/settings'); $('#elo-k').value = s.elo_k; }
+    catch (err) { $('#err').textContent = err.message; }
+  }
+
+  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings };
   let view = 'users';
   function showView(v) {
     view = v;
     $('#tab-users').classList.toggle('active', v === 'users');
     $('#tab-tourneys').classList.toggle('active', v === 'tourneys');
     $('#tab-regs').classList.toggle('active', v === 'regs');
+    $('#tab-settings').classList.toggle('active', v === 'settings');
     $('#view-users').hidden = v !== 'users';
     $('#view-tourneys').hidden = v !== 'tourneys';
     $('#view-regs').hidden = v !== 'regs';
+    $('#view-settings').hidden = v !== 'settings';
     loaders[v]();
   }
 
@@ -186,6 +210,17 @@
   $('#tab-users').addEventListener('click', () => showView('users'));
   $('#tab-tourneys').addEventListener('click', () => showView('tourneys'));
   $('#tab-regs').addEventListener('click', () => showView('regs'));
+  $('#tab-settings').addEventListener('click', () => showView('settings'));
+
+  $('#save-settings').addEventListener('click', async () => {
+    const k = parseInt($('#elo-k').value, 10);
+    $('#settings-msg').textContent = '';
+    try {
+      const r = await api('/admin/settings', { method: 'PATCH', body: JSON.stringify({ elo_k: k }) });
+      $('#elo-k').value = r.elo_k;
+      $('#settings-msg').textContent = '✓ Guardado (K = ' + r.elo_k + ')';
+    } catch (err) { $('#settings-msg').textContent = err.message; }
+  });
 
   $('#rrows').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act="del"]'); if (!btn) return;
