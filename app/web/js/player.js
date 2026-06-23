@@ -116,16 +116,34 @@
     loadActive();
   }
 
+  // ---- "am I already registered?" ---------------------------------------
+  // Used to badge the home list and to show the "already in" state on the card
+  // (so a registered user doesn't see a join form again). Account → the server
+  // knows every event they joined (/me/tournaments, any device); everyone → the
+  // active session (joined) plus any per-tournament guest_token this browser kept
+  // (ygo_gtok, keyed by UPPERCASE join code — survives "Salir"/browser close, #73).
+  const gtokForCode = (code) => { try { return JSON.parse(localStorage.getItem('ygo_gtok') || '{}')[String(code || '').toUpperCase()] || null; } catch { return null; } };
+  const gtokDel = (code) => { try { const m = JSON.parse(localStorage.getItem('ygo_gtok') || '{}'); delete m[String(code || '').toUpperCase()]; localStorage.setItem('ygo_gtok', JSON.stringify(m)); } catch {} };
+  async function myRegistrations() {
+    const ids = new Set(), codes = new Set();
+    const j = joined(); if (j && j.id) ids.add(j.id);
+    try { Object.keys(JSON.parse(localStorage.getItem('ygo_gtok') || '{}')).forEach((c) => codes.add(String(c).toUpperCase())); } catch {}
+    if (loggedIn()) { try { (await API.req('/me/tournaments') || []).forEach((t) => ids.add(t.id)); } catch {} }
+    return { ids, codes };
+  }
+  const isMine = (t, reg) => !!(reg && t && ((t.id && reg.ids.has(t.id)) || (t.code && reg.codes.has(String(t.code).toUpperCase()))));
+
   async function loadActive() {
     const el = $('#active'); if (!el) return;
     try {
-      const list = await API.req('/tournaments/active', { auth: false });
+      // Fetch the list and "what am I in" together so each card can show "Inscrito".
+      const [list, reg] = await Promise.all([API.req('/tournaments/active', { auth: false }), myRegistrations()]);
       if (!list.length) { el.innerHTML = '<p class="muted" style="font-size:13px">No hay torneos activos ahora. Usa un código si tienes uno.</p>'; return; }
       el.innerHTML = '<div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Torneos activos</div>' +
         list.map((t) => `<div class="tcard" data-code="${esc(t.code)}" data-open="${t.status === 'setup' ? '1' : '0'}">
           <div class="row" style="justify-content:space-between;align-items:center">
             <b>${esc(t.name)}</b>
-            <span style="display:flex;gap:6px;align-items:center">${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span></span>
+            <span style="display:flex;gap:6px;align-items:center">${isMine(t, reg) ? '<span class="pill pill-bye" title="Ya estás inscrito en este torneo">✓ Inscrito</span>' : ''}${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${t.status === 'setup' ? 'pill-ok' : 'pill-pend'}">${t.status === 'setup' ? 'Registro abierto' : 'En curso'}</span></span>
           </div>
           <div class="muted" style="font-size:12.5px;margin-top:5px">${t.players} jugador(es) · ${esc(fmtDate(t.date || t.created_at))} · código <b style="font-family:var(--mono);letter-spacing:1px">${esc(t.code)}</b></div>
           ${t.note ? `<div class="muted" style="font-size:12.5px;margin-top:5px">${esc(t.note)}</div>` : ''}
@@ -176,16 +194,63 @@
       <div class="card">
         <div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px">
           <h2 style="margin:0">${esc(t.name)}</h2>
-          <span style="display:flex;gap:6px;align-items:center;flex-shrink:0">${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${pill}">${label}</span></span>
+          <span id="cardPills" style="display:flex;gap:6px;align-items:center;flex-shrink:0">${t.ranked === false ? '<span class="pill pill-casual" title="No afecta tu Elo">Casual</span>' : ''}<span class="pill ${pill}">${label}</span></span>
         </div>
         <div class="muted" style="font-size:12.5px;margin:6px 0 12px">${meta}${t.ranked === false ? ' · <span style="color:var(--ink-soft)">no cuenta para el ranking</span>' : ''}</div>
         ${t.note ? `<div style="background:var(--field-bg);border:1px solid var(--border-2);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--ink-soft);white-space:pre-wrap">${esc(t.note)}</div>` : ''}
-        <div style="margin-top:14px">${action}</div>
+        <div id="cardAction" style="margin-top:14px">${action}</div>
         <button class="btn btn-sm btn-ghost" id="back" style="width:100%;margin-top:10px">← Volver</button>
       </div>`;
     const c = $('#confirm'); if (c) c.addEventListener('click', () => doJoin(t.code));
     const rs = $('#results'); if (rs) rs.addEventListener('click', () => navOpen(() => showResults(t.id, null, () => showTournamentCard(t))));
     $('#back').addEventListener('click', navBack);
+    markCardRegistered(t);   // already in? → swap the join form for an "inscrito"/withdraw state
+  }
+
+  // If the caller is already registered in this tournament, replace the join form
+  // (the user shouldn't "confirm" again) with an "Inscrito" badge + the right
+  // action: withdraw while in setup, "Ver mi mesa" once it's running, results when
+  // finished (left as-is). Runs after the sync render so the card never blanks.
+  async function markCardRegistered(t) {
+    const reg = await myRegistrations();
+    if (!isMine(t, reg)) return;
+    const pills = $('#cardPills');
+    if (pills && !pills.querySelector('.pill-bye')) pills.insertAdjacentHTML('afterbegin', '<span class="pill pill-bye" title="Ya estás inscrito">✓ Inscrito</span>');
+    const act = $('#cardAction'); if (!act) return;
+    if (t.status === 'setup') {
+      act.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:10px">✅ <b>Ya estás inscrito</b> en este torneo. Cuando empiece verás aquí tu mesa y rival.</div>'
+        + '<button class="btn btn-danger" id="cardWithdraw" style="width:100%">Retirarme del torneo</button>';
+      wireCardWithdraw(t);
+    } else if (t.status === 'running') {
+      act.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:10px">✅ <b>Ya estás inscrito</b>. El torneo está en curso.</div>'
+        + '<button class="btn btn-gold" id="cardEnter" style="width:100%">Ver mi mesa</button>';
+      const e = $('#cardEnter'); if (e) e.addEventListener('click', () => doJoin(t.code));
+    }
+    // finished → keep "Ver resultados"
+  }
+
+  // Withdraw from the card (setup only), with an inline confirm. Mirrors the
+  // in-event withdraw (#71): DELETE my registration (account via JWT, guest via the
+  // remembered token), drop the local registration/token, back to the home + toast.
+  function wireCardWithdraw(t) {
+    const wd = $('#cardWithdraw'); if (!wd) return;
+    wd.addEventListener('click', () => {
+      wd.outerHTML = '<div class="row" style="gap:8px;justify-content:center">'
+        + '<button class="btn btn-danger btn-sm" id="cw-yes">Sí, retirarme</button>'
+        + '<button class="btn btn-sm btn-ghost" id="cw-no">Cancelar</button></div>';
+      const no = $('#cw-no'); if (no) no.addEventListener('click', () => showTournamentCard(t));
+      const yes = $('#cw-yes'); if (yes) yes.addEventListener('click', async () => {
+        const j = joined();
+        const useAuth = loggedIn();
+        const gtok = (j && j.id === t.id && j.guestToken) || gtokForCode(t.code);
+        try { await API.req('/tournaments/' + t.id + '/registration', { method: 'DELETE', auth: useAuth, guestToken: useAuth ? undefined : gtok }); }
+        catch (e) { showToast(e.message || 'No se pudo retirar.', true); return; }
+        if (j && j.id === t.id) setJoined(null);
+        gtokDel(t.code);
+        navReset(); renderJoin();
+        showToast('Te retiraste del torneo.');
+      });
+    });
   }
 
   async function doJoin(code) {
