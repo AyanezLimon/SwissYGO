@@ -7,6 +7,7 @@ import fastifyJwt from '@fastify/jwt';
 import { openDb } from './db.js';
 import authRoutes from './routes/auth.js';
 import tournamentRoutes from './routes/tournaments.js';
+import cosmeticsRoutes from './routes/cosmetics.js';
 import adminRoutes from './routes/admin.js';
 
 const PORT = Number(process.env.PORT || 8787);
@@ -22,6 +23,7 @@ export function buildApp(db = openDb(DB_PATH)) {
   app.get('/api/health', async () => ({ ok: true, name: 'swissygo', ts: Date.now() }));
   app.register(authRoutes);
   app.register(tournamentRoutes);
+  app.register(cosmeticsRoutes);
   return app;
 }
 

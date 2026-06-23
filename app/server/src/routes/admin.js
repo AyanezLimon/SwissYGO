@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../auth.js';
+import { COSMETICS, exists as cosmeticExists, isBase as cosmeticIsBase } from '../lib/cosmetics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -123,5 +124,35 @@ export default async function adminRoutes(app) {
     if (!Number.isFinite(k) || k < 1 || k > 100) return reply.code(400).send({ error: 'elo_k debe ser un entero entre 1 y 100.' });
     db.prepare("INSERT INTO settings (key, value) VALUES ('elo_k', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(k));
     return { ok: true, elo_k: k };
+  });
+
+  // ---- Cosmetics grants (#37) ----
+  // Base cosmetics belong to everyone implicitly; here the admin grants/revokes the
+  // NON-base ones. Returns the grantable catalog + current grants for the UI.
+  app.get('/admin/cosmetics', { preHandler: guard }, async () => {
+    const grants = db.prepare(`SELECT uc.user_id, uc.cosmetic_id, uc.granted_at, u.username
+                               FROM user_cosmetics uc JOIN users u ON u.id = uc.user_id
+                               ORDER BY uc.granted_at DESC`).all();
+    const label = new Map(COSMETICS.map((c) => [c.id, c.name + ' · ' + c.type]));
+    return {
+      grantable: COSMETICS.filter((c) => !c.base).map((c) => ({ id: c.id, label: c.name + ' · ' + c.type + ' · ' + c.rarity })),
+      grants: grants.map((g) => ({ user_id: g.user_id, username: g.username, cosmetic_id: g.cosmetic_id, cosmetic: label.get(g.cosmetic_id) || g.cosmetic_id, granted_at: g.granted_at })),
+    };
+  });
+
+  app.post('/admin/users/:id/cosmetics', { preHandler: guard }, async (req, reply) => {
+    const cid = String(req.body?.cosmetic_id || '');
+    if (!cosmeticExists(cid)) return reply.code(400).send({ error: 'Cosmético inexistente.' });
+    if (cosmeticIsBase(cid)) return reply.code(400).send({ error: 'Ese cosmético ya es base (lo tiene todo el mundo).' });
+    const uid = Number(req.params.id);
+    if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(uid)) return reply.code(404).send({ error: 'Usuario no encontrado.' });
+    db.prepare('INSERT OR IGNORE INTO user_cosmetics (user_id, cosmetic_id) VALUES (?, ?)').run(uid, cid);
+    return { ok: true };
+  });
+
+  app.delete('/admin/users/:id/cosmetics/:cosmeticId', { preHandler: guard }, async (req, reply) => {
+    const info = db.prepare('DELETE FROM user_cosmetics WHERE user_id = ? AND cosmetic_id = ?').run(Number(req.params.id), req.params.cosmeticId);
+    if (!info.changes) return reply.code(404).send({ error: 'Ese usuario no tenía ese cosmético.' });
+    return { ok: true };
   });
 }
