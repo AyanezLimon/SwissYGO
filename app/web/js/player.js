@@ -181,7 +181,11 @@
     const joinControls = (btnLabel) => (logged
       ? `<div class="muted" style="font-size:12.5px;margin-bottom:10px">Te inscribes como <b>${esc(uname() || 'tu cuenta')}</b></div>`
       : `<div class="gate-field"><label>Tu nombre (invitado)</label><input type="text" id="gname" maxlength="40" value="${esc(guestName())}"></div>`)
-      + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">${btnLabel}</button>`;
+      + `<div class="gate-error" id="perr"></div><button class="btn btn-gold" id="confirm" style="width:100%">${btnLabel}</button>`
+      // Arriving via a shared code link drops a guest straight on this card, with no
+      // way back to the sign-in screen — so offer the account path here too (#70):
+      // create one to keep stats/Elo, or sign in. Guest-only (accounts already in).
+      + (logged ? '' : '<div class="muted" style="font-size:12px;text-align:center;margin-top:12px;line-height:1.5">¿Quieres guardar tus estadísticas y tu Elo?<br><a href="#" id="cardSignup" style="color:var(--gold);font-weight:600">Crear cuenta</a> · <a href="#" id="cardSignin" style="color:var(--gold)">Iniciar sesión</a></div>');
     // Ranked tournaments require an account (guests have no persistent Elo). For a
     // guest, the join form is replaced by a sign-in / create-account prompt — the
     // server enforces the same rule (403 ranked_requires_account) as a backstop.
@@ -221,6 +225,8 @@
     const rs = $('#results'); if (rs) rs.addEventListener('click', () => navOpen(() => showResults(t.id, null, () => showTournamentCard(t))));
     const gsi = $('#goSignin'); if (gsi) gsi.addEventListener('click', () => goToGate(false));
     const gsu = $('#goSignup'); if (gsu) gsu.addEventListener('click', () => goToGate(true));
+    const csi = $('#cardSignin'); if (csi) csi.addEventListener('click', (e) => { e.preventDefault(); goToGate(false); });
+    const csu = $('#cardSignup'); if (csu) csu.addEventListener('click', (e) => { e.preventDefault(); goToGate(true); });
     $('#back').addEventListener('click', navBack);
     markCardRegistered(t);   // already in? → swap the join form for an "inscrito"/withdraw state
   }
