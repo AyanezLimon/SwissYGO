@@ -55,13 +55,13 @@
         <div style="display:flex; align-items:flex-end;">
           <label id="ranked-label" for="tournament-ranked" title="Si lo desactivas, las partidas no afectan el Elo (modo casual). Solo se puede cambiar antes de iniciar." style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; padding-bottom:6px;">
             <span class="switch"><input type="checkbox" id="tournament-ranked" checked /><span class="slider"></span></span>
-            Cuenta para el ranking
+            Torneo clasificatorio
           </label>
         </div>
         <div style="display:flex; align-items:flex-end;" id="elo-seed-wrap" hidden>
-          <label id="elo-seed-label" for="tournament-elo-seed" title="Usa el Elo para sembrar la 1ª ronda: jugadores de rating similar pueden cruzarse (margen aleatorio). No afecta rondas posteriores ni las reglas Swiss. Solo antes de iniciar." style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; padding-bottom:6px;">
+          <label id="elo-seed-label" for="tournament-elo-seed" title="Empareja la 1ª ronda según el nivel (Elo): te tocan rivales de nivel parecido, con algo de azar. No cambia las rondas siguientes ni las reglas Swiss. Solo se puede ajustar antes de iniciar." style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; white-space:nowrap; padding-bottom:6px;">
             <span class="switch"><input type="checkbox" id="tournament-elo-seed" /><span class="slider"></span></span>
-            Sembrar 1ª ronda por Elo
+            Emparejar por nivel (Elo)
           </label>
         </div>
       </div>
