@@ -43,20 +43,33 @@
   // minus the confirm + tab switch (it's the same tournament the TO already had open).
   async function pullCloudStateOnBoot() {
     if (!isCloud()) return;
+    const id = state.cloud.id;
     let t;
-    try { t = await API.req('/tournaments/' + state.cloud.id); }
-    catch (e) { return; } // offline / 404 → keep the local cache, don't disrupt
-    if (!t || !t.state) return;
+    try {
+      t = await API.req('/tournaments/' + id);
+    } catch (e) {
+      // Fail-soft: keep the local cache so the offline flow still works. Log with the
+      // status so an operator can tell offline (no status) from auth/server issues
+      // (401/403/5xx) — but adopting nothing is the safe default either way.
+      console.warn('[boot] kept local cache; server state for tournament ' + id + ' unavailable: ' + (e && (e.status ? 'HTTP ' + e.status : e.message)));
+      return;
+    }
+    if (!t || !t.state) { console.warn('[boot] kept local cache; server returned no state for tournament ' + id); return; }
     const base = window.emptyState ? window.emptyState() : {};
     state = Object.assign(base, t.state);
     // t.state.cloud already carries the synced metadata (incl. `removed` tombstones);
     // just re-pin id/code, and take ranked from its authoritative column.
     state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
     state.ranked = t.ranked !== false;
-    save();                 // correct the local cache (+ push, a no-op since it equals the server)
+    // Persist the adopted state to localStorage WITHOUT pushing it back to the server:
+    // the cloud copy is the source we just read, so a PUT would be a redundant write
+    // (extra request + confusing in logs). Use app.js's unwrapped save (localStorage
+    // only); fall back to the wrapped save only if the handle isn't set yet.
+    (_origSave || window.save)();
     if (window.render) render();
     renderAccount();
     syncTournamentFields();
+    console.info('[boot] adopted server state for tournament ' + id);
   }
 
   // ---- header account control -------------------------------------------
@@ -354,6 +367,7 @@
 
   // ---- cloud hosting (Phase B) ------------------------------------------
   let syncTimer = null, regPollTimer = null, saveWrapped = false;
+  let _origSave = null;   // app.js's unwrapped save() (localStorage only, no cloud push)
   const isCloud = () => !!(typeof state !== 'undefined' && state && state.cloud && state.cloud.id);
 
   // Wrap the global save() once: keep localStorage, and (when cloud-linked) push
@@ -362,6 +376,7 @@
   function wrapSave() {
     if (saveWrapped || typeof window.save !== 'function') return;
     const orig = window.save;
+    _origSave = orig;       // keep a handle to persist locally WITHOUT the cloud push
     window.save = function () { orig.apply(this, arguments); if (isCloud()) scheduleSync(); };
     saveWrapped = true;
   }
