@@ -40,6 +40,14 @@
     try { let n = sessionStorage.getItem('ygo_guest_name'); if (!n) { n = randomName(); sessionStorage.setItem('ygo_guest_name', n); } return n; }
     catch { return randomName(); }
   };
+  // A guest's per-tournament guest_token is the ONLY way to resume their registration.
+  // Persist it in localStorage (keyed by join code) so it survives "Salir"
+  // (setJoined(null)) AND a browser close — otherwise re-joining the same tournament
+  // would create a duplicate registration. The active "playing as" session still
+  // lives in sessionStorage; this is just dedupe memory.
+  const gtokMap = () => { try { return JSON.parse(localStorage.getItem('ygo_gtok') || '{}'); } catch { return {}; } };
+  const gtokGet = (code) => { const m = gtokMap(); return (m && m[code]) || null; };
+  const gtokSet = (code, token) => { try { if (!token) return; const m = gtokMap(); m[code] = token; localStorage.setItem('ygo_gtok', JSON.stringify(m)); } catch {} };
 
   let pollTimer = null;
   let _pollInFlight = false;   // skip a tick if the previous /me is still awaiting (no overlap / out-of-order updates)
@@ -210,8 +218,10 @@
         // Send any guest_token this browser already holds → the server resumes that
         // registration if it's for THIS tournament (no duplicate (1)/(2) on re-confirm).
         const prev = joined();
-        res = await API.req('/tournaments/join', { method: 'POST', auth: false, guestToken: (prev && prev.guestToken) || undefined, body: { code, name } });
+        const tok = (prev && prev.guestToken) || gtokGet(code) || undefined; // active session OR remembered (survives Salir / browser close)
+        res = await API.req('/tournaments/join', { method: 'POST', auth: false, guestToken: tok, body: { code, name } });
         setJoined({ id: res.id, name: res.display_name || name, guestToken: res.guest_token });
+        gtokSet(code, res.guest_token); // remember per-tournament so a future re-join resumes instead of duplicating
       }
       navReset();   // entering the event = base view; clear any screen depth (e.g. the card we joined from)
       startPoll();
