@@ -1,0 +1,42 @@
+name: Update Labels on Issue Close
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  update-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Check if issue has v2-backlog label
+        id: check_label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const hasBacklog = issue.labels.some(label => label.name === 'v2-backlog');
+            core.setOutput('has_backlog', hasBacklog);
+
+      - name: Remove v2-backlog and add shipped labels
+        if: steps.check_label.outputs.has_backlog == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const newLabels = issue.labels
+              .map(label => label.name)
+              .filter(name => name !== 'v2-backlog');
+            
+            if (!newLabels.includes('shipped')) {
+              newLabels.push('shipped');
+            }
+            
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: newLabels
+            });
