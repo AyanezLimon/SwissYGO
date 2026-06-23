@@ -109,6 +109,7 @@
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
         ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="cosmetics" type="button" style="width:100%;margin-top:10px">🎨 Personalización</button>' : ''}
         ${logged ? '<button class="btn btn-sm btn-ghost" id="acct" type="button" style="width:100%;margin-top:10px">⚙ Mi cuenta</button>' : ''}
         <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
       </div>`;
@@ -119,6 +120,7 @@
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', () => navOpen(renderProfile));
+    const co = $('#cosmetics'); if (co) co.addEventListener('click', () => navOpen(renderCosmetics));
     const ac = $('#acct'); if (ac) ac.addEventListener('click', () => navOpen(renderAccountScreen));
     const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => navOpen(renderLeaderboard));
     loadActive();
@@ -534,6 +536,95 @@
         await API.req('/auth/email', { method: 'POST', body: { email, password } });
         body.innerHTML = '<p style="font-size:14px;margin:0">✅ Tu correo se actualizó.</p>';
       } catch (e) { err.textContent = e.message || 'No se pudo guardar.'; btn.disabled = false; }
+    });
+  }
+
+  // ---- cosmetics (Personalización, #37) ---------------------------------
+  // Catalog + ownership come from /cosmetics; style values (render objects) ride
+  // along, so we just Object.assign them onto the right element. Cached so the
+  // profile can decorate without a refetch.
+  let _cos = null; // { catalog, byId, owned:Set, equipped }
+  async function loadCos(force) {
+    if (_cos && !force) return _cos;
+    const d = await API.req('/cosmetics');
+    const byId = {}; (d.catalog || []).forEach((c) => { byId[c.id] = c; });
+    _cos = { catalog: d.catalog || [], byId, owned: new Set(d.owned || []), equipped: d.equipped || { border: 'border-none', banner: 'banner-none', badges: [] } };
+    return _cos;
+  }
+  const cosRender = (el, id) => { const c = _cos && _cos.byId[id]; if (el && c && c.render) Object.assign(el.style, c.render); };
+  const badgeIcons = (ids) => (ids || []).map((id) => { const c = _cos && _cos.byId[id]; return c && c.icon ? c.icon : ''; }).filter(Boolean).join(' ');
+
+  async function renderCosmetics() {
+    stopPoll(); root.classList.remove('results');
+    root.innerHTML = `<div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Personalización</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div id="cos-body" class="muted" style="margin-top:10px">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', navBack);
+    let d; try { d = await loadCos(true); } catch (e) { $('#cos-body').textContent = 'No se pudo cargar la personalización.'; return; }
+    const sel = { border: d.equipped.border, banner: d.equipped.banner, badges: [...d.equipped.badges] };
+    const body = $('#cos-body'); body.classList.remove('muted');
+
+    const group = (type, title) => {
+      const items = d.catalog.filter((c) => c.type === type);
+      return `<div style="margin-top:14px"><div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${title}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${items.map((c) => {
+          const owned = d.owned.has(c.id);
+          return `<button type="button" class="cos-opt" data-type="${c.type}" data-id="${esc(c.id)}" ${owned ? '' : 'disabled'}
+            style="border:1px solid var(--border-2);background:var(--field-bg);border-radius:10px;padding:8px 10px;font-size:12.5px;color:var(--ink);cursor:${owned ? 'pointer' : 'default'};opacity:${owned ? 1 : 0.45};display:inline-flex;align-items:center;gap:6px">
+            ${c.type === 'badge' ? `<span style="font-size:16px">${c.icon || '?'}</span>` : `<span class="cos-swatch" data-swatch="${esc(c.id)}" style="width:24px;height:15px;border-radius:4px;display:inline-block;background:#333"></span>`}
+            ${esc(c.name)}${owned ? '' : ' 🔒'}</button>`;
+        }).join('')}</div></div>`;
+    };
+
+    body.innerHTML = `
+      <div id="cos-preview" style="border-radius:12px;padding:20px 14px;text-align:center;margin-bottom:4px"></div>
+      ${group('border', 'Borde')}
+      ${group('banner', 'Banner')}
+      ${group('badge', 'Badges (hasta 3)')}
+      <div class="gate-error" id="cos-error" style="margin-top:10px"></div>
+      <button class="btn btn-gold" id="cos-save" type="button" style="width:100%;margin-top:6px">Guardar</button>`;
+
+    // paint each border/banner swatch with its own render
+    body.querySelectorAll('.cos-swatch').forEach((sw) => cosRender(sw, sw.dataset.swatch));
+
+    function paint() {
+      const prev = $('#cos-preview');
+      prev.style.cssText = 'border-radius:12px;padding:20px 14px;text-align:center;margin-bottom:4px';
+      cosRender(prev, sel.banner);
+      prev.innerHTML = `<span id="cos-chip" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:10px;background:rgba(0,0,0,.28)"><b>${esc(uname() || 'tu cuenta')}</b>${badgeIcons(sel.badges) ? `<span style="font-size:15px">${badgeIcons(sel.badges)}</span>` : ''}</span>`;
+      cosRender($('#cos-chip'), sel.border);
+      body.querySelectorAll('.cos-opt').forEach((b) => {
+        const id = b.dataset.id, t = b.dataset.type;
+        const on = t === 'badge' ? sel.badges.includes(id) : sel[t] === id;
+        b.style.outline = on ? '2px solid var(--gold)' : 'none';
+        b.style.outlineOffset = '1px';
+      });
+    }
+    paint();
+
+    body.querySelectorAll('.cos-opt').forEach((b) => b.addEventListener('click', () => {
+      if (b.disabled) return;
+      const id = b.dataset.id, t = b.dataset.type;
+      if (t === 'badge') {
+        const i = sel.badges.indexOf(id);
+        if (i >= 0) sel.badges.splice(i, 1);
+        else if (sel.badges.length >= 3) { $('#cos-error').textContent = 'Máximo 3 badges.'; return; }
+        else sel.badges.push(id);
+        $('#cos-error').textContent = '';
+      } else { sel[t] = id; }
+      paint();
+    }));
+
+    $('#cos-save').addEventListener('click', async () => {
+      const btn = $('#cos-save'); btn.disabled = true; $('#cos-error').textContent = '';
+      try { const r = await API.req('/cosmetics/equipped', { method: 'PUT', body: sel }); _cos.equipped = r.equipped; showToast('Personalización guardada.'); }
+      catch (e) { $('#cos-error').textContent = e.message || 'No se pudo guardar.'; }
+      btn.disabled = false;
     });
   }
 

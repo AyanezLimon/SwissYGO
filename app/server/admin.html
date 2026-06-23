@@ -56,6 +56,7 @@
         <button class="tabbtn" id="tab-tourneys">Torneos</button>
         <button class="tabbtn" id="tab-regs">Inscripciones</button>
         <button class="tabbtn" id="tab-settings">Ajustes</button>
+        <button class="tabbtn" id="tab-cosmetics">Cosméticos</button>
       </div>
       <button id="refresh">Recargar</button>
     </div>
@@ -98,6 +99,22 @@
         Cambiarlo <b>re-evalúa toda la temporada</b>: el leaderboard se recalcula del
         historial de partidas, así que aplica retroactivamente. Rango 1–100.
       </p>
+    </div>
+
+    <div id="view-cosmetics" hidden>
+      <h3 style="margin:.2rem 0">Otorgar cosmético</h3>
+      <p style="color:#9aa;font-size:12.5px;max-width:560px;margin:0 0 10px">Los cosméticos <b>base</b> los tiene todo el mundo; aquí otorgas los especiales (bordes/banners/badges) a una cuenta.</p>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="cos-user" style="min-width:160px"></select>
+        <select id="cos-item" style="min-width:200px"></select>
+        <button class="btn-gold" id="cos-grant">Otorgar</button>
+        <span id="cos-msg" style="font-size:13px"></span>
+      </div>
+      <strong id="cgcount" style="display:block;margin-top:14px"></strong>
+      <table>
+        <thead><tr><th>Usuario</th><th>Cosmético</th><th>Otorgado</th><th>Acciones</th></tr></thead>
+        <tbody id="cgrows"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -185,7 +202,24 @@
     catch (err) { $('#err').textContent = err.message; }
   }
 
-  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings };
+  async function loadCosmetics() {
+    $('#cos-msg').textContent = '';
+    try {
+      const [cos, users] = await Promise.all([api('/admin/cosmetics'), api('/admin/users')]);
+      $('#cos-user').innerHTML = users.map(u => `<option value="${u.id}">${esc(u.username)}</option>`).join('');
+      $('#cos-item').innerHTML = cos.grantable.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('');
+      $('#cgcount').textContent = cos.grants.length + ' otorgamiento(s)';
+      $('#cgrows').innerHTML = cos.grants.map(g => `
+        <tr data-uid="${g.user_id}" data-cid="${esc(g.cosmetic_id)}">
+          <td>${esc(g.username)}</td>
+          <td>${esc(g.cosmetic)}<div style="color:var(--soft);font-size:12px">${esc(g.cosmetic_id)}</div></td>
+          <td style="color:var(--soft);font-size:12.5px">${esc((g.granted_at||'').replace('T',' ').slice(0,16))}</td>
+          <td class="actions"><button class="btn-danger" data-act="revoke">Quitar</button></td>
+        </tr>`).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+
+  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings, cosmetics: loadCosmetics };
   let view = 'users';
   function showView(v) {
     view = v;
@@ -193,10 +227,12 @@
     $('#tab-tourneys').classList.toggle('active', v === 'tourneys');
     $('#tab-regs').classList.toggle('active', v === 'regs');
     $('#tab-settings').classList.toggle('active', v === 'settings');
+    $('#tab-cosmetics').classList.toggle('active', v === 'cosmetics');
     $('#view-users').hidden = v !== 'users';
     $('#view-tourneys').hidden = v !== 'tourneys';
     $('#view-regs').hidden = v !== 'regs';
     $('#view-settings').hidden = v !== 'settings';
+    $('#view-cosmetics').hidden = v !== 'cosmetics';
     loaders[v]();
   }
 
@@ -211,6 +247,28 @@
   $('#tab-tourneys').addEventListener('click', () => showView('tourneys'));
   $('#tab-regs').addEventListener('click', () => showView('regs'));
   $('#tab-settings').addEventListener('click', () => showView('settings'));
+  $('#tab-cosmetics').addEventListener('click', () => showView('cosmetics'));
+
+  $('#cos-grant').addEventListener('click', async () => {
+    const uid = $('#cos-user').value, cid = $('#cos-item').value;
+    $('#cos-msg').textContent = '';
+    if (!uid || !cid) return;
+    try {
+      await api('/admin/users/' + uid + '/cosmetics', { method: 'POST', body: JSON.stringify({ cosmetic_id: cid }) });
+      $('#cos-msg').textContent = '✓ Otorgado';
+      loadCosmetics();
+    } catch (err) { $('#cos-msg').textContent = err.message; }
+  });
+
+  $('#cgrows').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act="revoke"]'); if (!btn) return;
+    const tr = btn.closest('tr');
+    if (!confirm('¿Quitar este cosmético al usuario?')) return;
+    try {
+      await api('/admin/users/' + tr.dataset.uid + '/cosmetics/' + encodeURIComponent(tr.dataset.cid), { method: 'DELETE' });
+      loadCosmetics();
+    } catch (err) { $('#err').textContent = err.message; }
+  });
 
   $('#save-settings').addEventListener('click', async () => {
     const k = parseInt($('#elo-k').value, 10);
