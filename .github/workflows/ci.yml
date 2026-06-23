@@ -1,0 +1,41 @@
+name: CI
+
+# Pre-merge gate. Runs on GitHub-hosted ubuntu (NOT the self-hosted Pi) so it is
+# safe even with the repo public + fork PRs: a fork's code never touches the Pi.
+# Syntax-checks the no-build frontend + the server, and runs the committed unit
+# tests (dep-free libs + node:sqlite, a builtin → no `npm ci` needed, fast).
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Syntax check — frontend (no build)
+        run: |
+          for f in app/web/js/*.js; do node --check "$f"; done
+          echo "  ✓ frontend JS parses"
+
+      - name: Syntax check — server
+        run: |
+          find app/server/src -name '*.js' -print0 | xargs -0 -n1 node --check
+          echo "  ✓ server JS parses"
+
+      - name: Unit tests (server)
+        working-directory: app/server
+        run: node --test
