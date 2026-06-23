@@ -224,6 +224,12 @@ export default async function tournamentRoutes(app) {
       if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, guest_token: gt };
     }
 
+    // Ranked tournaments require an account: a guest has no persistent identity or
+    // Elo, so they can't meaningfully play a rated event. Block a FRESH guest
+    // registration (an existing guest_token still RESUMES above, grandfathering any
+    // slot created before this rule). Casual events (ranked = 0) still allow guests.
+    if (t.ranked) return reply.code(403).send({ error: 'Los torneos clasificatorios requieren una cuenta. Inicia sesión o crea una para registrarte.', code: 'ranked_requires_account' });
+
     // No matching token → a fresh guest registration (registration must be open).
     if (!open) return reply.code(409).send({ error: closedMsg });
     const name = (req.body?.name || '').trim().slice(0, 40);

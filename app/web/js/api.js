@@ -27,6 +27,7 @@
     if (!res.ok) {
       const err = new Error((data && data.error) || res.statusText);
       err.status = res.status;
+      if (data && data.code) err.code = data.code;   // machine-readable hint (e.g. 'ranked_requires_account')
       throw err;
     }
     return data;
