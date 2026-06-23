@@ -287,6 +287,20 @@ export default async function tournamentRoutes(app) {
     return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing, inEvent };
   });
 
+  // A participant withdraws their OWN registration. SETUP only — once the event
+  // starts they're in the bracket (the TO handles drops). Deleting the row lets the
+  // console's absorb reconcile the removal from the roster (#72). Identity via JWT
+  // (account) or x-guest-token (guest), resolved by participantId.
+  app.delete('/api/tournaments/:id/registration', async (req, reply) => {
+    const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(Number(req.params.id));
+    if (!t) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+    if (t.status !== 'setup') return reply.code(409).send({ error: 'El torneo ya inició; pide al organizador que te retire.' });
+    const pid = await participantId(req, t);
+    if (!pid) return reply.code(404).send({ error: 'No estás inscrito en este torneo.' });
+    db.prepare('DELETE FROM registrations WHERE tournament_id = ? AND player_id = ?').run(t.id, pid);
+    return { ok: true };
+  });
+
   // ---- Player-driven result reporting -----------------------------------
   // Players never write state_json. The WINNER files a claim (or either player a
   // double-loss); the OPPONENT confirms; the TO console absorbs confirmed claims

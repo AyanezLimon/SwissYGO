@@ -636,7 +636,8 @@
       body = `<div class="big">🏁 Torneo finalizado</div><p class="muted">¡Gracias por jugar!</p>`;
       stopPoll();
     } else if (!me.pairing) {
-      body = `<div class="big">✅ Inscrito</div><p class="muted">Espera a que el organizador inicie el torneo o genere la ronda.</p>`;
+      body = `<div class="big">✅ Inscrito</div><p class="muted">Espera a que el organizador inicie el torneo o genere la ronda.</p>`
+        + (me.status === 'setup' ? `<button class="btn btn-sm btn-ghost" id="withdraw" style="margin-top:14px">Retirarme del torneo</button>` : '');
     } else if (me.pairing.lateLoss) {
       body = `<div class="round">Ronda ${me.currentRound} de ${me.maxRounds}</div><div class="big">Entrada tardía</div><p class="muted">Recibes una derrota administrativa esta ronda. Te emparejan desde la próxima.</p>`;
     } else if (me.pairing.isBye) {
@@ -692,6 +693,21 @@
     bindRep('rep-dl', () => sendReport('/report', { outcome: 'doubleLoss' }));
     bindRep('rep-confirm', () => sendReport('/report/confirm', { accept: true }));
     bindRep('rep-reject', () => sendReport('/report/confirm', { accept: false }));
+    // Withdraw (setup only): deletes MY registration; the TO console reconciles the
+    // roster removal (#72). Inline confirm — "Salir" above only leaves the view.
+    const wd = $('#withdraw');
+    if (wd) wd.addEventListener('click', () => {
+      wd.outerHTML = '<div class="row" style="gap:8px;justify-content:center;margin-top:14px">'
+        + '<button class="btn btn-gold btn-sm" id="wd-yes">Sí, retirarme</button>'
+        + '<button class="btn btn-sm btn-ghost" id="wd-no">Cancelar</button></div>';
+      $('#wd-no').addEventListener('click', () => renderPairing(j, me));
+      $('#wd-yes').addEventListener('click', async () => {
+        try { await API.req('/tournaments/' + j.id + '/registration', { method: 'DELETE', auth: !j.guestToken, guestToken: j.guestToken }); }
+        catch (e) { showToast(e.message || 'No se pudo retirar.', true); return; }
+        setJoined(null); navReset(); renderJoin();
+        showToast('Te retiraste del torneo.');
+      });
+    });
   }
 
   function startPoll() { stopPoll(); _lastRound = -1; _pollInFlight = false; _seenInEvent = false; poll(); pollTimer = setInterval(poll, 4000); }
