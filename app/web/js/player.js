@@ -686,6 +686,7 @@
       $('#de-name-cancel').addEventListener('click', show);
       $('#de-name-save').addEventListener('click', async () => {
         const name = (inp.value || '').trim();
+        if (!name) { showToast('Ponle un nombre al deck.', true); inp.focus(); return; }
         try { const u = await API.req('/decks/' + d.id, { method: 'PATCH', body: { name } }); d.name = u.name; showToast('Nombre actualizado.'); show(); }
         catch (e) { showToast(e.message || 'No se pudo renombrar.', true); }
       });

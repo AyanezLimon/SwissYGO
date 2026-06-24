@@ -91,6 +91,7 @@ export default async function deckRoutes(app) {
     const d = deckById(req.user.id, Number(req.params.id));
     if (!d) return reply.code(404).send({ error: 'Deck no encontrado.' });
     const name = String(req.body?.name ?? '').trim().slice(0, 60);
+    if (!name) return reply.code(400).send({ error: 'Ponle un nombre al deck.' });
     db.prepare('UPDATE user_decks SET name = ? WHERE id = ? AND user_id = ?').run(name, d.id, req.user.id);
     return rowOf(deckById(req.user.id, d.id));
   });
