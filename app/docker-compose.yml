@@ -33,6 +33,10 @@ services:
       # sending is a no-op (reset codes won't be delivered until it's set).
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM: ${RESEND_FROM:-}
+      # External deck-image API (#84). The URL is public (not a secret); the token
+      # is a repo secret injected by deploy-api.yml.
+      DECKS_API_URL: "https://omega-api-decks.onrender.com"
+      DECKS_REQUEST_TOKEN: ${DECKS_REQUEST_TOKEN:-}
     volumes:
       # Kept OUTSIDE the Caddy web root (/DATA/AppData/swissygo-dev) so the SQLite
       # DB is never served publicly.

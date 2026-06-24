@@ -30,6 +30,7 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          DECKS_REQUEST_TOKEN: ${{ secrets.DECKS_REQUEST_TOKEN }}
         run: |
           [ -n "$JWT_SECRET" ] || { echo "::error::Missing repo secret JWT_SECRET."; exit 1; }
           docker compose -f app/docker-compose.yml up -d --build
