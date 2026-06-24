@@ -604,9 +604,7 @@
 
     body.querySelectorAll('[data-deck]').forEach((el) => {
       const id = Number(el.dataset.deck);
-      const deck = decks.find((x) => x.id === id);
-      el.querySelector('[data-act="image"]').addEventListener('click', () => navOpen(() => viewDeckImage(deck)));
-      el.querySelector('[data-act="cover"]').addEventListener('click', () => navOpen(() => renderCoverPicker(deck)));
+      el.querySelector('[data-act="edit"]').addEventListener('click', () => navOpen(() => renderDeckEdit(id)));
       el.querySelector('[data-act="del"]').addEventListener('click', () => {
         const acts = el.querySelector('[data-acts]');
         acts.innerHTML = '<button class="btn btn-danger btn-sm" data-yes>Sí, borrar</button><button class="btn btn-sm btn-ghost" data-no>Cancelar</button>';
@@ -625,29 +623,108 @@
       : '<div style="width:54px;height:54px;border-radius:8px;background:var(--field-bg);flex-shrink:0"></div>';
     return `<div data-deck="${d.id}" style="display:flex;gap:12px;align-items:center;border:1px solid var(--border-2);border-radius:10px;padding:10px">
       ${cover}
-      <div style="flex:1;min-width:0">
-        <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck sin nombre')}</b>
-        <div class="row" data-acts style="gap:6px;margin-top:6px;flex-wrap:wrap">
-          <button class="btn btn-sm btn-ghost" data-act="image">Ver imagen</button>
-          <button class="btn btn-sm btn-ghost" data-act="cover">Portada</button>
-          <button class="btn btn-sm btn-danger" data-act="del">Borrar</button>
-        </div>
+      <b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck sin nombre')}</b>
+      <div class="row" data-acts style="gap:6px;flex-shrink:0">
+        <button class="btn btn-sm btn-ghost" data-act="edit">✎ Editar</button>
+        <button class="btn btn-sm btn-danger" data-act="del" title="Borrar" aria-label="Borrar">🗑</button>
       </div>
     </div>`;
   }
 
-  function viewDeckImage(d) {
+  // Edit panel: cover + name (both editable in place), the deck image, and a
+  // read-only decklist table. Re-fetches the deck on each render so it reflects
+  // a cover change made via the picker (Back re-runs this screen).
+  async function renderDeckEdit(deckId) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-        <h2 style="margin:0;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck')}</h2>
-        <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
-      </div>
-      <div style="margin-top:12px;text-align:center">
-        ${d.image_url ? `<img src="${esc(d.image_url)}" alt="" style="max-width:100%;border-radius:10px">` : '<div class="muted" style="padding:20px 0">Sin imagen.</div>'}
-      </div>
-    </div>`;
+        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+          <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
+          <h2 style="margin:0;font-size:16px">Editar deck</h2>
+          <span style="width:64px"></span>
+        </div>
+        <div id="de-body" class="muted" style="margin-top:14px">Cargando…</div>
+      </div>`;
     $('#back').addEventListener('click', navBack);
+    let d;
+    try { const data = await API.req('/decks'); d = (data.decks || []).find((x) => x.id === deckId); }
+    catch (e) { const b = $('#de-body'); if (b) b.textContent = 'No se pudo cargar el deck.'; return; }
+    if (!d) { showToast('Deck no encontrado.', true); navBack(); return; }
+    const body = $('#de-body'); if (!body) return;
+    body.classList.remove('muted');
+    body.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center">
+        <button id="de-cover" type="button" title="Cambiar portada" style="position:relative;padding:0;border:none;background:none;cursor:pointer">
+          ${d.cover_url
+            ? `<img src="${esc(d.cover_url)}" alt="" style="width:92px;height:92px;border-radius:14px;object-fit:cover;border:2px solid var(--gold)">`
+            : '<div style="width:92px;height:92px;border-radius:14px;background:var(--field-bg);border:2px solid var(--border-2)"></div>'}
+          <span style="position:absolute;right:-6px;bottom:-6px;background:var(--gold);color:var(--accent-ink);font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 9px;box-shadow:0 2px 8px rgba(0,0,0,.4)">✎ Portada</span>
+        </button>
+        <div id="de-name-wrap" style="margin-top:14px"></div>
+        <div class="muted" style="font-size:11.5px;margin-top:7px">Toca la portada o el nombre para editarlos</div>
+      </div>
+      ${d.image_url ? `<div style="margin-top:18px"><img src="${esc(d.image_url)}" alt="" style="width:100%;border-radius:10px;border:1px solid var(--border);display:block"></div>` : ''}
+      <div id="de-list" class="muted" style="margin-top:18px;font-size:12.5px">Cargando lista…</div>`;
+    $('#de-cover').addEventListener('click', () => navOpen(() => renderCoverPicker(d)));
+    renderNameField(d);
+    fillDeckList(deckId);
+  }
+
+  // In-place deck rename inside the edit panel.
+  function renderNameField(d) {
+    const wrap = $('#de-name-wrap'); if (!wrap) return;
+    const show = () => {
+      wrap.innerHTML = `<button id="de-name-btn" type="button" style="display:inline-flex;align-items:center;gap:8px;background:var(--field-bg);border:1px dashed var(--border-2);color:var(--ink);border-radius:10px;padding:8px 14px;font-size:16px;font-weight:700;cursor:pointer">
+        <span>${esc(d.name || 'Deck sin nombre')}</span><span style="color:var(--gold);font-size:13px">✎</span></button>`;
+      $('#de-name-btn').addEventListener('click', edit);
+    };
+    const edit = () => {
+      wrap.innerHTML = `<div class="row" style="gap:6px;justify-content:center">
+        <input id="de-name-input" type="text" maxlength="60" value="${esc(d.name || '')}" style="background:var(--field-bg);border:1px solid var(--border-2);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:15px;max-width:200px">
+        <button class="btn btn-sm btn-gold" id="de-name-save" type="button">✓</button>
+        <button class="btn btn-sm btn-ghost" id="de-name-cancel" type="button">✕</button></div>`;
+      const inp = $('#de-name-input'); inp.focus();
+      $('#de-name-cancel').addEventListener('click', show);
+      $('#de-name-save').addEventListener('click', async () => {
+        const name = (inp.value || '').trim();
+        if (!name) { showToast('Ponle un nombre al deck.', true); inp.focus(); return; }
+        try { const u = await API.req('/decks/' + d.id, { method: 'PATCH', body: { name } }); d.name = u.name; showToast('Nombre actualizado.'); show(); }
+        catch (e) { showToast(e.message || 'No se pudo renombrar.', true); }
+      });
+      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') $('#de-name-save').click(); });
+    };
+    show();
+  }
+
+  // Read-only decklist table — codes from the API, names resolved client-side.
+  async function fillDeckList(deckId) {
+    const el = $('#de-list'); if (!el) return;
+    let cards;
+    try { const r = await API.req('/decks/' + deckId + '/cards'); cards = r.decks || {}; }
+    catch (e) { el.textContent = 'No se pudo cargar la lista.'; return; }
+    const names = await resolveCardNames([...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])]);
+    const section = (title, codes) => {
+      if (!codes || !codes.length) return '';
+      const groups = []; const at = new Map();
+      for (const c of codes) { if (!at.has(c)) { at.set(c, groups.length); groups.push([c, 0]); } groups[at.get(c)][1]++; }
+      const rows = groups.map(([c, q]) => `<div style="display:flex;gap:9px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.045);font-size:13px">
+        <span style="font-family:var(--mono);color:var(--ink-soft);width:26px;flex-shrink:0">${q}×</span>
+        <span>${esc(names[c] || ('#' + c))}</span></div>`).join('');
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--gold);margin:14px 2px 6px"><span>${title}</span><span style="color:var(--ink-faint);font-weight:600">${codes.length} cartas</span></div>${rows}`;
+    };
+    el.classList.remove('muted');
+    el.innerHTML = section('Main Deck', cards.main) + section('Extra Deck', cards.extra) + section('Side Deck', cards.side)
+      || '<div class="muted">Sin cartas.</div>';
+  }
+
+  // Resolve passcodes → card names from ygoprodeck (CORS-enabled). Missing → '#code'.
+  async function resolveCardNames(codes) {
+    const uniq = [...new Set(codes)]; const map = {};
+    if (!uniq.length) return map;
+    try {
+      const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + uniq.join(','));
+      if (r.ok) { const j = await r.json(); for (const c of (j.data || [])) map[c.id] = c.name; }
+    } catch (e) {}
+    return map;
   }
 
   async function renderCoverPicker(d) {
