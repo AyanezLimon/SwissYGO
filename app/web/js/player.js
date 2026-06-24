@@ -109,6 +109,7 @@
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
         ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="decks" type="button" style="width:100%;margin-top:10px">🎴 Mis Decks</button>' : ''}
         ${logged ? '<button class="btn btn-sm btn-ghost" id="acct" type="button" style="width:100%;margin-top:10px">⚙ Mi cuenta</button>' : ''}
         <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
       </div>`;
@@ -119,6 +120,7 @@
     const si = $('#signin'); if (si) si.addEventListener('click', () => { try { sessionStorage.removeItem('ygo_guest'); sessionStorage.removeItem('ygo_guest_name'); sessionStorage.removeItem(LS_JOINED); } catch {} location.href = '/'; });
     const gn = $('#gname'); if (gn) gn.addEventListener('input', () => { try { sessionStorage.setItem('ygo_guest_name', gn.value); } catch {} });
     const h = $('#hist'); if (h) h.addEventListener('click', () => navOpen(renderProfile));
+    const dk = $('#decks'); if (dk) dk.addEventListener('click', () => navOpen(renderMyDecks));
     const ac = $('#acct'); if (ac) ac.addEventListener('click', () => navOpen(renderAccountScreen));
     const lb = $('#leaderboard'); if (lb) lb.addEventListener('click', () => navOpen(renderLeaderboard));
     loadActive();
@@ -535,6 +537,133 @@
         body.innerHTML = '<p style="font-size:14px;margin:0">✅ Tu correo se actualizó.</p>';
       } catch (e) { err.textContent = e.message || 'No se pudo guardar.'; btn.disabled = false; }
     });
+  }
+
+  // ---- Mis Decks (#84 / #102) -------------------------------------------
+  // The account saves up to 5 decks. The backend calls the external decks API which
+  // renders the deck image + cover and persists them to cloud storage; we only show
+  // the returned URLs. The cover picker's thumbnails are loaded client-side straight
+  // from ygoprodeck's cropped artwork (no server processing).
+  const YGO_ART = 'https://images.ygoprodeck.com/images/cards_cropped/'; // + <passcode>.jpg
+
+  async function renderMyDecks() {
+    stopPoll(); root.classList.remove('results');
+    root.innerHTML = `<div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">Mis Decks</h2>
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+        </div>
+        <div id="md-body" class="muted" style="margin-top:10px">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', navBack);
+    API.req('/decks/prewarm').catch(() => {});   // wake the cold-starting image API while the user is here
+    reloadDecks();
+  }
+
+  async function reloadDecks() {
+    const body = $('#md-body'); if (!body) return;
+    let data;
+    try { data = await API.req('/decks'); } catch (e) { body.classList.add('muted'); body.textContent = 'No se pudo cargar tus decks.'; return; }
+    body.classList.remove('muted');
+    const max = data.max || 5;
+    const decks = data.decks || [];
+    const full = decks.length >= max;
+    body.innerHTML = `
+      <div class="muted" style="font-size:12.5px;margin-bottom:10px">${decks.length}/${max} decks · pega un ydke o código de Omega y genera su imagen.</div>
+      ${full ? `<div class="gate-error" style="margin-bottom:10px">Llegaste al máximo (${max}). Borra uno para agregar otro.</div>` : `
+        <div class="gate-field"><label>Nombre del deck</label><input type="text" id="md-name" maxlength="60" placeholder="Ej.: Branded Despia"></div>
+        <div class="gate-field"><label>Decklist (ydke / Omega)</label><textarea id="md-deck" rows="3" placeholder="ydke://..." style="width:100%;background:var(--field-bg);border:1px solid var(--border-2);color:var(--ink);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;resize:vertical;box-sizing:border-box"></textarea></div>
+        <div class="gate-error" id="md-err"></div>
+        <button class="btn btn-gold" id="md-save" type="button" style="width:100%">Generar y guardar</button>`}
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+        ${decks.map((d) => deckCard(d)).join('') || '<div class="muted" style="font-size:13px;text-align:center;padding:10px 0">Aún no tienes decks guardados.</div>'}
+      </div>`;
+
+    const save = $('#md-save');
+    if (save) save.addEventListener('click', async () => {
+      const deck = ($('#md-deck').value || '').trim();
+      const name = ($('#md-name').value || '').trim();
+      const err = $('#md-err'); err.textContent = '';
+      if (!deck) { err.textContent = 'Pega un decklist (ydke o código de Omega).'; return; }
+      save.disabled = true; const orig = save.textContent; save.textContent = 'Generando imagen… (puede tardar la 1ª vez)';
+      try { await API.req('/decks', { method: 'POST', body: { deck, name } }); showToast('Deck guardado.'); reloadDecks(); }
+      catch (e) { err.textContent = e.message || 'No se pudo guardar.'; save.disabled = false; save.textContent = orig; }
+    });
+
+    body.querySelectorAll('[data-deck]').forEach((el) => {
+      const id = Number(el.dataset.deck);
+      const deck = decks.find((x) => x.id === id);
+      el.querySelector('[data-act="image"]').addEventListener('click', () => navOpen(() => viewDeckImage(deck)));
+      el.querySelector('[data-act="cover"]').addEventListener('click', () => navOpen(() => renderCoverPicker(deck)));
+      el.querySelector('[data-act="del"]').addEventListener('click', () => {
+        const acts = el.querySelector('[data-acts]');
+        acts.innerHTML = '<button class="btn btn-danger btn-sm" data-yes>Sí, borrar</button><button class="btn btn-sm btn-ghost" data-no>Cancelar</button>';
+        acts.querySelector('[data-no]').addEventListener('click', () => reloadDecks());
+        acts.querySelector('[data-yes]').addEventListener('click', async () => {
+          try { await API.req('/decks/' + id, { method: 'DELETE' }); showToast('Deck borrado.'); reloadDecks(); }
+          catch (e) { showToast(e.message || 'No se pudo borrar.', true); }
+        });
+      });
+    });
+  }
+
+  function deckCard(d) {
+    const cover = d.cover_url
+      ? `<img src="${esc(d.cover_url)}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--field-bg)">`
+      : '<div style="width:54px;height:54px;border-radius:8px;background:var(--field-bg);flex-shrink:0"></div>';
+    return `<div data-deck="${d.id}" style="display:flex;gap:12px;align-items:center;border:1px solid var(--border-2);border-radius:10px;padding:10px">
+      ${cover}
+      <div style="flex:1;min-width:0">
+        <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck sin nombre')}</b>
+        <div class="row" data-acts style="gap:6px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ghost" data-act="image">Ver imagen</button>
+          <button class="btn btn-sm btn-ghost" data-act="cover">Portada</button>
+          <button class="btn btn-sm btn-danger" data-act="del">Borrar</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function viewDeckImage(d) {
+    stopPoll(); root.classList.remove('results');
+    root.innerHTML = `<div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+        <h2 style="margin:0;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck')}</h2>
+        <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
+      </div>
+      <div style="margin-top:12px;text-align:center">
+        ${d.image_url ? `<img src="${esc(d.image_url)}" alt="" style="max-width:100%;border-radius:10px">` : '<div class="muted" style="padding:20px 0">Sin imagen.</div>'}
+      </div>
+    </div>`;
+    $('#back').addEventListener('click', navBack);
+  }
+
+  async function renderCoverPicker(d) {
+    stopPoll(); root.classList.remove('results');
+    root.innerHTML = `<div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h2 style="margin:0;font-size:17px">Elegir portada</h2>
+        <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-top:6px">Toca una carta del deck para usar su arte como portada.</div>
+      <div id="cp-body" class="muted" style="margin-top:12px">Cargando cartas…</div>
+    </div>`;
+    $('#back').addEventListener('click', navBack);
+    let cards;
+    try { const r = await API.req('/decks/' + d.id + '/cards'); cards = r.decks || {}; }
+    catch (e) { $('#cp-body').textContent = e.message || 'No se pudieron cargar las cartas.'; return; }
+    const codes = [...new Set([...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])])];
+    const body = $('#cp-body'); body.classList.remove('muted');
+    body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px">
+      ${codes.map((c) => `<button class="cp-card" data-code="${c}" type="button" style="padding:0;border:2px solid ${d.cover_passcode === c ? 'var(--gold)' : 'transparent'};border-radius:8px;background:none;cursor:pointer">
+        <img src="${YGO_ART}${c}.jpg" alt="" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:6px;display:block;background:var(--field-bg)"></button>`).join('')}
+    </div>`;
+    body.querySelectorAll('.cp-card').forEach((b) => b.addEventListener('click', async () => {
+      body.querySelectorAll('.cp-card').forEach((x) => { x.style.borderColor = 'transparent'; });
+      b.style.borderColor = 'var(--gold)';
+      try { await API.req('/decks/' + d.id + '/cover', { method: 'PUT', body: { cover: Number(b.dataset.code) } }); showToast('Portada actualizada.'); navBack(); }
+      catch (e) { showToast(e.message || 'No se pudo cambiar la portada.', true); }
+    }));
   }
 
   const RANK_ICON = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : (r ? '#' + r : '—'));
