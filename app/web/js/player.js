@@ -7,6 +7,18 @@
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // Toast — unlike the console, /u/ has no #toast element in its HTML, so create
+  // one lazily on first use. Reuses the .toast styles already in styles.css.
+  let _toastTimer = null;
+  function showToast(msg, isErr = false) {
+    let t = $('#toast');
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.classList.toggle('err', isErr);
+    t.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  }
   // Fun guest names: Sustantivo + Adjetivo + número (e.g. "JarronEsponjoso76").
   // Semillas: Yu-Gi-Oh, videojuegos, objetos, lugares y cosas silly.
   const FB_NOUNS = [
