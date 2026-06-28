@@ -302,7 +302,27 @@ export default async function tournamentRoutes(app) {
     // player page to detect a removal (a registration persists when the TO removes a
     // player from state_json, so /me wouldn't otherwise 403).
     const inEvent = (state.players || []).some((p) => p.id === reg.player_id);
-    return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing, inEvent };
+
+    // Personal match history for this tournament: this participant's decided matches
+    // up to the current round (round · opponent · outcome). Drives the small summary
+    // under the live pairing box on the player page.
+    const history = [];
+    for (const r of (state.rounds || [])) {
+      if (r.roundNumber > state.currentRound) continue;
+      const mm = (r.matches || []).find((x) => x.p1Id === reg.player_id || x.p2Id === reg.player_id);
+      if (!mm) continue;
+      if (mm.isBye) { history.push({ round: r.roundNumber, opponent: null, outcome: 'bye' }); continue; }
+      if (mm.isLateLoss || mm.result === 'lateLoss') { history.push({ round: r.roundNumber, opponent: null, outcome: 'lateLoss' }); continue; }
+      const oppId = mm.p1Id === reg.player_id ? mm.p2Id : mm.p1Id;
+      const opp = oppId ? state.players.find((p) => p.id === oppId) : null;
+      let outcome;
+      if (mm.result === 'doubleLoss') outcome = 'doubleLoss';
+      else if (mm.result === 'p1' || mm.result === 'p2') outcome = ((mm.result === 'p1') === (mm.p1Id === reg.player_id)) ? 'win' : 'loss';
+      else continue; // not yet decided — it's the live box, not history
+      history.push({ round: r.roundNumber, opponent: opp ? opp.name : null, outcome });
+    }
+
+    return { name: t.name, status: t.status, currentRound: state.currentRound, maxRounds: state.maxRounds, pairing, inEvent, history };
   });
 
   // A participant withdraws their OWN registration. SETUP only — once the event
