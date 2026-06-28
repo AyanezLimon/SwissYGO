@@ -1,0 +1,11 @@
+# Code owners for SwissYGO.
+#
+# Every pull request that touches ANY file automatically requests the repo owner
+# as a reviewer (so there's no need to self-request). Combined with branch
+# protection's "Require review from Code Owners", it also REQUIRES the owner's
+# approval before a PR can merge — the owner is the single merge gate.
+#
+# The owner can't be auto-requested on their own PRs (GitHub won't request the
+# author); PRs opened by the bot account (AriesYL) request the owner as expected.
+
+* @AyanezLimon
