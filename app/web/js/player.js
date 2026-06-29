@@ -344,11 +344,17 @@
   // Banlist read from ygoprodeck (banlist_info.ban_tcg); mirrors the server's
   // lib/deck-legality.js so the selector can show legality before registering.
   const BAN_LIMIT = { Forbidden: 0, Limited: 1, 'Semi-Limited': 2 }; // → max copies; else 3
+  let _jdpJoining = false; // guards the deck-pick screen against concurrent /join requests
+  // Throws (fail closed) if the lookup can't be completed — mirrors the server: an
+  // unverifiable deck must not be shown as legal.
   async function fetchCardMeta(codes) {
     const uniq = [...new Set(codes)]; const map = {};
     for (let i = 0; i < uniq.length; i += 100) {
       const chunk = uniq.slice(i, i + 100);
-      try { const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + chunk.join(',')); if (r.ok) { const j = await r.json(); for (const c of (j.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null }; } } catch (e) {}
+      const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + chunk.join(','));
+      if (!r.ok) throw new Error('No se pudo consultar la banlist.');
+      const j = await r.json();
+      for (const c of (j.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
     }
     return map;
   }
@@ -359,10 +365,12 @@
     if (extra.length > 15) v.push('Extra Deck: ' + extra.length + ' (máx. 15)');
     if (side.length > 15) v.push('Side Deck: ' + side.length + ' (máx. 15)');
     const rank = (b) => (b in BAN_LIMIT ? BAN_LIMIT[b] : 3);
-    const seen = new Map();
-    for (const c of [...main, ...extra, ...side]) { const m = meta[c] || { name: '#' + c, ban: null }; const e = seen.get(m.name) || { count: 0, ban: null }; e.count++; if (m.ban && (e.ban === null || rank(m.ban) < rank(e.ban))) e.ban = m.ban; seen.set(m.name, e); }
+    const seen = new Map(); let unresolved = 0;
+    for (const c of [...main, ...extra, ...side]) { const m = meta[c]; if (!m) unresolved++; const mm = m || { name: '#' + c, ban: null }; const e = seen.get(mm.name) || { count: 0, ban: null }; e.count++; if (mm.ban && (e.ban === null || rank(mm.ban) < rank(e.ban))) e.ban = mm.ban; seen.set(mm.name, e); }
     for (const [name, e] of seen) { const a = rank(e.ban); if (e.count > a) { const tag = a === 0 ? 'Prohibida' : a === 1 ? 'Limitada (máx 1)' : a === 2 ? 'Semi-limitada (máx 2)' : 'máx 3'; v.push(e.count + '× ' + name + ' — ' + tag); } }
-    return { legal: v.length === 0, violations: v };
+    // Unresolved cards = unknown banlist status → treat as NOT verified-legal (locked).
+    const unverified = unresolved > 0;
+    return { legal: v.length === 0 && !unverified, unverified, violations: v };
   }
 
   async function renderJoinDeckPick(code, tname) {
@@ -398,8 +406,18 @@
       catch (e) { return { d, cards: null }; }
     }));
     const allCodes = []; withCards.forEach((x) => { if (x.cards) allCodes.push(...(x.cards.main || []), ...(x.cards.extra || []), ...(x.cards.side || [])); });
-    const meta = await fetchCardMeta(allCodes);
-    const rows = withCards.map((x) => ({ ...x, leg: x.cards ? deckLegality(x.cards, meta) : { legal: false, violations: ['No se pudo leer el decklist.'] } }));
+    let meta;
+    try { meta = await fetchCardMeta(allCodes); }
+    catch (e) {
+      body.classList.remove('muted');
+      body.innerHTML = `<div style="text-align:center;padding:6px 4px">
+          <p class="muted" style="font-size:13px;margin-bottom:14px">No se pudo verificar la legalidad de los decks. Revisa tu conexión e inténtalo de nuevo.</p>
+          <button class="btn btn-gold" id="jdp-retry" type="button" style="width:100%">Reintentar</button>
+        </div>`;
+      $('#jdp-retry').addEventListener('click', () => renderJoinDeckPick(code, tname));
+      return;
+    }
+    const rows = withCards.map((x) => ({ ...x, leg: x.cards ? deckLegality(x.cards, meta) : { legal: false, unverified: true, violations: ['No se pudo leer el decklist.'] } }));
     let selected = (rows.find((r) => r.leg.legal) || {}).d ? rows.find((r) => r.leg.legal).d.id : null;
     body.classList.remove('muted');
     const draw = () => {
@@ -414,7 +432,7 @@
             <span style="position:relative;width:46px;height:46px;flex-shrink:0">${cover}${lock}</span>
             <span style="flex:1;min-width:0">
               <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${legal ? '' : ';opacity:.7'}">${esc(r.d.name || 'Deck sin nombre')}</b>
-              ${legal ? '' : '<span style="display:block;color:var(--crimson);font-size:11.5px;margin-top:2px">No legal para formato avanzado</span>'}
+              ${legal ? '' : `<span style="display:block;color:var(--crimson);font-size:11.5px;margin-top:2px">${r.leg.unverified ? 'No se pudo verificar la legalidad' : 'No legal para formato avanzado'}</span>`}
             </span>
             <span style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-weight:800;font-size:13px;${legal ? `border:2px solid ${sel ? 'var(--gold)' : 'var(--border-2)'};${sel ? 'background:var(--gold);color:var(--accent-ink)' : 'color:transparent'}` : 'color:var(--ink-faint)'}">${legal ? (sel ? '✓' : '') : ''}</span>
           </button>`;
@@ -422,26 +440,34 @@
         <button class="btn btn-gold" id="jdp-go" type="button" style="width:100%;margin-top:16px"${cur ? '' : ' disabled'}>${cur ? 'Registrarme con ' + esc(cur.d.name || 'este deck') : 'Elige un deck legal'}</button>
         <div class="muted" style="font-size:12px;text-align:center;margin-top:12px">Gestiona tus mazos en <a id="jdp-manage" style="color:var(--gold-soft);cursor:pointer">Mis Decks</a></div>`;
       body.querySelectorAll('.jdp-deck').forEach((el) => el.addEventListener('click', () => {
-        if (el.dataset.legal === '1') { selected = Number(el.dataset.id); draw(); }
-        else { const r = rows.find((x) => x.d.id === Number(el.dataset.id)); showToast((r.leg.violations[0] || 'Deck no legal') + (r.leg.violations.length > 1 ? ' (+' + (r.leg.violations.length - 1) + ')' : ''), true); }
+        if (_jdpJoining) return; // a registration is in flight — ignore selection changes
+        if (el.dataset.legal === '1') { selected = Number(el.dataset.id); draw(); return; }
+        const r = rows.find((x) => x.d.id === Number(el.dataset.id));
+        const msg = r.leg.unverified
+          ? 'No se pudo verificar la legalidad de este deck.'
+          : (r.leg.violations[0] || 'Deck no legal') + (r.leg.violations.length > 1 ? ' (+' + (r.leg.violations.length - 1) + ')' : '');
+        showToast(msg, true);
       }));
-      const go = $('#jdp-go'); if (go && cur) go.addEventListener('click', () => doJoinWithDeck(code, selected, go));
+      const go = $('#jdp-go'); if (go && cur) go.addEventListener('click', () => { if (_jdpJoining) return; doJoinWithDeck(code, selected, go); });
       const mng = $('#jdp-manage'); if (mng) mng.addEventListener('click', () => navOpen(renderMyDecks));
     };
     draw();
   }
 
   async function doJoinWithDeck(code, deckId, btn) {
+    if (_jdpJoining) return;               // one /join at a time (clicks elsewhere are gated too)
+    _jdpJoining = true;
     if (btn) { btn.disabled = true; btn.textContent = 'Registrando…'; }
     try {
       const res = await API.req('/tournaments/join', { method: 'POST', body: { code, deck_id: deckId } });
+      _jdpJoining = false;
       setJoined({ id: res.id, name: res.display_name || uname(), guestToken: null });
       navReset(); startPoll();
     } catch (e) {
-      if (btn) { btn.disabled = false; }
+      _jdpJoining = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Registrarme'; }
       const vio = e.data && e.data.violations;
       showToast(vio && vio.length ? vio[0] : (e.message || 'No se pudo registrar.'), true);
-      if (btn) btn.textContent = 'Registrarme';
     }
   }
 

@@ -6,7 +6,10 @@
 const LIMIT = { Forbidden: 0, Limited: 1, 'Semi-Limited': 2 }; // → max copies; anything else = 3
 const YGO_CARDINFO = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?id=';
 
-// Resolve passcodes → { [code]: { name, ban } } from YGOProDeck (chunked; best-effort).
+// Resolve passcodes → { [code]: { name, ban } } from YGOProDeck (chunked).
+// FAILS CLOSED: a ranked legality check must never silently pass an unverifiable deck,
+// so any fetch/abort/non-2xx problem throws (banlist_unavailable) instead of returning
+// partial data that validateDeck would otherwise read as Unlimited.
 export async function fetchCardInfo(codes, fetchImpl = fetch) {
   const uniq = [...new Set((codes || []).map(Number).filter(Boolean))];
   const map = {};
@@ -16,12 +19,14 @@ export async function fetchCardInfo(codes, fetchImpl = fetch) {
     const timer = setTimeout(() => ctrl.abort(), 12000);
     try {
       const res = await fetchImpl(YGO_CARDINFO + chunk.join(','), { signal: ctrl.signal });
-      if (res.ok) {
-        const data = await res.json();
-        for (const c of (data.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
-      }
-    } catch { /* leave these codes unresolved → treated as Unlimited, name '#code' */ }
-    finally { clearTimeout(timer); }
+      if (!res.ok) throw new Error('cardinfo HTTP ' + res.status);
+      const data = await res.json();
+      for (const c of (data.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
+    } catch (e) {
+      const err = new Error('No se pudo consultar la banlist.');
+      err.code = 'banlist_unavailable';
+      throw err;
+    } finally { clearTimeout(timer); }
   }
   return map;
 }
@@ -55,8 +60,17 @@ export function validateDeck(cards, info = {}) {
   return { legal: violations.length === 0, violations };
 }
 
-// Convenience: fetch + validate in one call.
+// Convenience: fetch + validate in one call. Fails CLOSED — throws banlist_unavailable
+// if the lookup fails, or banlist_incomplete if any card couldn't be resolved, so the
+// caller (/join) returns a service error rather than registering an unverifiable deck.
 export async function checkDeckLegality(cards, fetchImpl = fetch) {
-  const info = await fetchCardInfo([...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])], fetchImpl);
+  const codes = [...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])];
+  const info = await fetchCardInfo(codes, fetchImpl);
+  const unresolved = [...new Set(codes.map(Number).filter(Boolean))].filter((c) => !(c in info));
+  if (unresolved.length) {
+    const err = new Error('No se pudo verificar la legalidad de ' + unresolved.length + ' carta(s).');
+    err.code = 'banlist_incomplete';
+    throw err;
+  }
   return validateDeck(cards, info);
 }

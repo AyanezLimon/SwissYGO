@@ -219,34 +219,51 @@ export default async function tournamentRoutes(app) {
       // to "Name (2)" at insert, and that's the name used in state.players/pairings.
       const existing = db.prepare('SELECT player_id, display_name, deck_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
 
-      // Ranked events require a registered, LEGAL deck (#109). Resolve & validate the
-      // chosen deck (or keep the already-registered one). Casual events skip all this.
-      // Note: legality is enforced only HERE (registration), never at deck creation —
-      // an illegal deck can exist in Mis Decks, it just can't be registered for ranked.
-      let deckId = null;
-      if (t.ranked) {
-        const wanted = /^\d+$/.test(String(req.body?.deck_id ?? '')) ? Number(req.body.deck_id) : null;
-        if (!wanted && existing && existing.deck_id) // resume with no new pick → keep registered deck
-          return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
-        if (!wanted)
-          return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
-        const deck = db.prepare('SELECT deck_string FROM user_decks WHERE id = ? AND user_id = ?').get(wanted, userId);
+      // Ranked events require a registered, LEGAL deck (#109). Legality is enforced ONLY
+      // at (open) registration, never at deck creation — an illegal deck can live in Mis
+      // Decks, it just can't be registered for ranked. Resume/closed checks come first so a
+      // saved registration is returned WITHOUT touching the decks API (parse/legality).
+      const wantedDeck = (t.ranked && /^\d+$/.test(String(req.body?.deck_id ?? ''))) ? Number(req.body.deck_id) : null;
+
+      // Validate the chosen ranked deck and run `apply(deckId)` on success. Returns an
+      // error reply to send, or null on success. Fails CLOSED if legality can't be checked.
+      const useRankedDeck = async (apply) => {
+        const deck = db.prepare('SELECT deck_string FROM user_decks WHERE id = ? AND user_id = ?').get(wantedDeck, userId);
         if (!deck) return reply.code(400).send({ error: 'Ese deck no existe o no es tuyo.' });
         let cards;
         try { cards = await parseDeckString(deck.deck_string); }
         catch (e) { return reply.code(502).send({ error: 'No se pudo leer el decklist para validarlo. Intenta de nuevo.' }); }
-        const { legal, violations } = await checkDeckLegality(cards);
-        if (!legal) return reply.code(422).send({ code: 'deck_illegal', error: 'Ese deck no es legal para formato avanzado.', violations });
-        deckId = wanted;
-        if (existing) { // already registered + still open → just switch the deck
-          if (open) db.prepare('UPDATE registrations SET deck_id = ? WHERE tournament_id = ? AND user_id = ?').run(deckId, t.id, userId);
-          return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: open ? deckId : existing.deck_id };
+        let result;
+        try { result = await checkDeckLegality(cards); }
+        catch (e) { return reply.code(502).send({ code: e.code || 'legality_unavailable', error: e.message || 'No se pudo verificar la legalidad del deck. Intenta de nuevo.' }); }
+        if (!result.legal) return reply.code(422).send({ code: 'deck_illegal', error: 'Ese deck no es legal para formato avanzado.', violations: result.violations });
+        apply(wantedDeck);
+        return null;
+      };
+
+      // Resume an existing registration — works even after registration closes.
+      if (existing) {
+        // Ranked + still open: switch to (or first set) a chosen deck.
+        if (t.ranked && open && wantedDeck && wantedDeck !== existing.deck_id) {
+          const err = await useRankedDeck((id) => db.prepare('UPDATE registrations SET deck_id = ? WHERE tournament_id = ? AND user_id = ?').run(id, t.id, userId));
+          if (err) return err;
+          return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: wantedDeck };
         }
-      } else if (existing) {
+        // Ranked + open but still no deck on file and none chosen → must pick one.
+        if (t.ranked && open && !existing.deck_id && !wantedDeck)
+          return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
         return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
       }
 
+      // Fresh registration — must be open. (Checked before any deck parse/legality work.)
       if (!open) return reply.code(409).send({ error: closedMsg });
+      let deckId = null;
+      if (t.ranked) {
+        if (!wantedDeck)
+          return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
+        const err = await useRankedDeck((id) => { deckId = id; });
+        if (err) return err;
+      }
       const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
       db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name, deck_id) VALUES (?, ?, ?, ?, ?)')
