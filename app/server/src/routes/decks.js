@@ -114,6 +114,7 @@ export default async function deckRoutes(app) {
     try { data = await decksApi('/deck-image' + q({ list: d.deck_string, cover })); }
     catch (e) { return reply.code(502).send({ error: e.message }); }
     db.prepare('UPDATE user_decks SET cover_url = ?, cover_passcode = ? WHERE id = ? AND user_id = ?').run(data.cover_url || null, Number(cover), d.id, req.user.id);
+    if (d.cover_url && d.cover_url !== (data.cover_url || null)) gcOrphanImage(d.cover_url, 'cover_url'); // GC the replaced cover if now unreferenced
     return rowOf(deckById(req.user.id, d.id));
   });
 
