@@ -1032,16 +1032,18 @@
         }
       }
 
-      // Deck stats teaser (#108): favourite deck + a tap into the full sub-screen.
-      if (dstats && dstats.favorite) {
+      // Deck stats teaser (#108): a tap into the full sub-screen. Shown for ANY
+      // successful /me/deck-stats response — rich (favourite deck) when there's one
+      // this season, otherwise a generic CTA so the entry never disappears.
+      if (dstats) {
         const f = dstats.favorite;
         html += '<div class="pf-sec-title">Mis decks</div>';
         html += `<button id="deckstats-open" class="ds-teaser" type="button">
-          ${f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover"></span>'}
+          ${f && f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover"></span>'}
           <span class="meta">
-            <span class="kicker">Deck preferido</span>
-            <b class="name">${esc(f.name || 'Deck')}</b>
-            <span class="sub">Jugado ${f.played}× · <b>${f.winrate}%</b> WR</span>
+            <span class="kicker">${f ? 'Deck preferido' : 'Estadísticas de decks'}</span>
+            <b class="name">${f ? esc(f.name || 'Deck') : 'Ver mis estadísticas'}</b>
+            <span class="sub">${f ? `Jugado ${f.played}× · <b>${f.winrate}%</b> WR` : 'Deck preferido, cartas y winrate por temporada'}</span>
           </span>
           <span class="go">Ver stats ›</span>
         </button>`;
