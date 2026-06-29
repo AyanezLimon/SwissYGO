@@ -18,6 +18,22 @@ export default async function deckRoutes(app) {
   const guessFormat = (s) => (/^ydke:\/\//i.test(s) ? 'ydke' : 'omega');
   const q = (params) => '?' + new URLSearchParams({ token: API_TOKEN, ...params }).toString();
 
+  // Best-effort GC of orphaned cloud images (#117): when a deck is deleted and its
+  // image/cover is no longer referenced by ANY remaining user_decks row (reference
+  // count 0), ask the external API to drop that blob from storage. Images are
+  // content-addressed by hash → the same URL is shared across users/decks, so we
+  // delete ONLY at refcount 0 (never break another user's deck). Fire-and-forget: the
+  // external host cold-starts, so we never block or fail the user's delete on it.
+  function gcOrphanImage(url, column) {
+    if (!url || !API_URL || !API_TOKEN) return;
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM user_decks WHERE ${column} = ?`).get(url).n;
+    if (n > 0) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    fetch(API_URL + '/deck-image' + q({ url }), { method: 'DELETE', signal: ctrl.signal })
+      .catch(() => {}).finally(() => clearTimeout(timer));
+  }
+
   // Call the external decks API: long timeout + one retry (free host cold-start).
   async function decksApi(path) {
     if (!API_URL || !API_TOKEN) { const e = new Error('La generación de imágenes de deck no está configurada.'); e.code = 'unconfigured'; throw e; }
@@ -97,8 +113,12 @@ export default async function deckRoutes(app) {
   });
 
   app.delete('/api/decks/:id', { preHandler: requireAuth }, async (req, reply) => {
-    const info = db.prepare('DELETE FROM user_decks WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
-    if (!info.changes) return reply.code(404).send({ error: 'Deck no encontrado.' });
+    const d = deckById(req.user.id, Number(req.params.id));
+    if (!d) return reply.code(404).send({ error: 'Deck no encontrado.' });
+    db.prepare('DELETE FROM user_decks WHERE id = ? AND user_id = ?').run(d.id, req.user.id);
+    // Now that the row is gone, GC its image/cover if nothing else references them (#117).
+    gcOrphanImage(d.image_url, 'image_url');
+    gcOrphanImage(d.cover_url, 'cover_url');
     return { ok: true };
   });
 }
