@@ -9,6 +9,10 @@ import { computeLeaderboard, MIN_GAMES as LB_MIN_GAMES } from '../lib/leaderboar
 import { parseDeckString } from '../lib/decks-api.js';
 import { checkDeckLegality } from '../lib/deck-legality.js';
 
+/**
+ * Generates a 5-character tournament join code.
+ * @return {string} An uppercase code that avoids ambiguous characters.
+ */
 function genJoinCode() {
   // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
   const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -25,6 +29,10 @@ function emptyStateJson() {
   });
 }
 
+/**
+ * Registers tournament routes and related leaderboard endpoints.
+ * @param {object} app - Fastify application instance with database access.
+ */
 export default async function tournamentRoutes(app) {
   const db = app.db;
 

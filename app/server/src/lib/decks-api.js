@@ -5,9 +5,18 @@
 const API_URL = (process.env.DECKS_API_URL || '').replace(/\/+$/, '');
 const API_TOKEN = process.env.DECKS_REQUEST_TOKEN || '';
 
+/**
+ * Determines whether the decks API is configured.
+ * @return {boolean} `true` if both the API URL and request token are set, `false` otherwise.
+ */
 export function decksConfigured() { return !!(API_URL && API_TOKEN); }
 
-// deck string (ydk / ydke / Omega code) -> { main:[codes], extra:[], side:[] }.
+/**
+ * Parses a deck string into main, extra, and side card code lists.
+ * @param {string} deckString - A deck string in `ydk`, `ydke`, or Omega code format.
+ * @return {{ main: any[]; extra: any[]; side: any[] }} The parsed deck code lists.
+ * @throws {Error} When the decks API is not configured or the API request fails.
+ */
 export async function parseDeckString(deckString) {
   if (!decksConfigured()) { const e = new Error('decks API not configured'); e.code = 'unconfigured'; throw e; }
   const q = '?' + new URLSearchParams({ token: API_TOKEN, list: deckString }).toString();

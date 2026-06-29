@@ -300,6 +300,10 @@
     });
   }
 
+  /**
+   * Joins a tournament by its join code.
+   * @param {string} code - Tournament join code.
+   */
   async function doJoin(code) {
     code = (code || '').trim().toUpperCase();
     const errEl = $('#perr');
@@ -346,7 +350,12 @@
   const BAN_LIMIT = { Forbidden: 0, Limited: 1, 'Semi-Limited': 2 }; // → max copies; else 3
   let _jdpJoining = false; // guards the deck-pick screen against concurrent /join requests
   // Throws (fail closed) if the lookup can't be completed — mirrors the server: an
-  // unverifiable deck must not be shown as legal.
+  /**
+   * Fetches banlist metadata for Yu-Gi-Oh card IDs.
+   * @param {Array<string|number>} codes - The card IDs to look up.
+   * @return {Promise<Object<string, {name: string, ban: string|null}>>} A map from card ID to card name and TCG banlist rank.
+   * @throws {Error} When the card metadata lookup fails.
+   */
   async function fetchCardMeta(codes) {
     const uniq = [...new Set(codes)]; const map = {};
     for (let i = 0; i < uniq.length; i += 100) {
@@ -363,6 +372,12 @@
     }
     return map;
   }
+  /**
+   * Validates deck size and copy-limit legality.
+   * @param {Object} cards - Deck card lists grouped by section.
+   * @param {Object} meta - Card metadata keyed by passcode.
+   * @return {{legal: boolean, unverified: boolean, violations: string[]}} The legality result, including any rule violations and whether all cards could be verified.
+   */
   function deckLegality(cards, meta) {
     const main = cards.main || [], extra = cards.extra || [], side = cards.side || []; const v = [];
     if (main.length < 40) v.push('Main Deck: ' + main.length + ' (mín. 40)');
@@ -378,6 +393,11 @@
     return { legal: v.length === 0 && !unverified, unverified, violations: v };
   }
 
+  /**
+   * Lets the player choose a saved deck for a ranked tournament registration.
+   * @param {string} code - Tournament join code.
+   * @param {string} tname - Tournament name shown in the header.
+   */
   async function renderJoinDeckPick(code, tname) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
@@ -459,6 +479,12 @@
     draw();
   }
 
+  /**
+   * Registers the player in a tournament with a saved deck.
+   * @param {string} code - Tournament join code.
+   * @param {number} deckId - Saved deck identifier to submit with the registration.
+   * @param {HTMLButtonElement} btn - Button used to submit the registration.
+   */
   async function doJoinWithDeck(code, deckId, btn) {
     if (_jdpJoining) return;               // one /join at a time (clicks elsewhere are gated too)
     _jdpJoining = true;

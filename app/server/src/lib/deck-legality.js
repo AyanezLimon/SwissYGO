@@ -9,7 +9,12 @@ const YGO_CARDINFO = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?id=';
 // Resolve passcodes → { [code]: { name, ban } } from YGOProDeck (chunked).
 // FAILS CLOSED: a ranked legality check must never silently pass an unverifiable deck,
 // so any fetch/abort/non-2xx problem throws (banlist_unavailable) instead of returning
-// partial data that validateDeck would otherwise read as Unlimited.
+/**
+ * Fetches banlist metadata for the provided card passcodes.
+ * @param {Array<*>} codes - Card passcodes to look up.
+ * @param {Function} fetchImpl - Fetch implementation used to query the API.
+ * @return {Promise<Object<string, {name: string, ban: string|null}>>} A mapping from card ID to its name and ban status.
+ */
 export async function fetchCardInfo(codes, fetchImpl = fetch) {
   const uniq = [...new Set((codes || []).map(Number).filter(Boolean))];
   const map = {};
@@ -31,7 +36,12 @@ export async function fetchCardInfo(codes, fetchImpl = fetch) {
   return map;
 }
 
-// Pure validator: deck sizes + per-name copy limits. `info` from fetchCardInfo.
+/**
+ * Validates deck size and card copy limits.
+ * @param {Object} cards - The deck lists to validate.
+ * @param {Object} [info={}] - Card metadata indexed by passcode.
+ * @return {{ legal: boolean, violations: string[] }} The legality result and any violation messages.
+ */
 export function validateDeck(cards, info = {}) {
   const main = cards.main || [], extra = cards.extra || [], side = cards.side || [];
   const violations = [];
@@ -62,7 +72,13 @@ export function validateDeck(cards, info = {}) {
 
 // Convenience: fetch + validate in one call. Fails CLOSED — throws banlist_unavailable
 // if the lookup fails, or banlist_incomplete if any card couldn't be resolved, so the
-// caller (/join) returns a service error rather than registering an unverifiable deck.
+/**
+ * Checks whether a deck is legal with banlist data.
+ * @param {Object} cards - The deck lists to validate.
+ * @param {Function} [fetchImpl=fetch] - The fetch implementation used to retrieve card data.
+ * @returns {Promise<{legal: boolean, violations: string[]}>} The deck legality result.
+ * @throws {Error} `deck_malformed` if a passcode is invalid, or `banlist_incomplete` if any card cannot be resolved.
+ */
 export async function checkDeckLegality(cards, fetchImpl = fetch) {
   const codes = [...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])];
   // A malformed passcode (non-positive-integer) can't be verified — fail closed instead of
