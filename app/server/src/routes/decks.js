@@ -9,6 +9,9 @@ const MAX_DECKS = 5;
 const API_URL = (process.env.DECKS_API_URL || '').replace(/\/+$/, '');
 const API_TOKEN = process.env.DECKS_REQUEST_TOKEN || '';
 
+/**
+ * Registers deck management routes.
+ */
 export default async function deckRoutes(app) {
   const db = app.db;
 
@@ -17,6 +20,34 @@ export default async function deckRoutes(app) {
   const deckById = (uid, id) => db.prepare('SELECT * FROM user_decks WHERE id = ? AND user_id = ?').get(id, uid);
   const guessFormat = (s) => (/^ydke:\/\//i.test(s) ? 'ydke' : 'omega');
   const q = (params) => '?' + new URLSearchParams({ token: API_TOKEN, ...params }).toString();
+
+  // Best-effort GC of orphaned cloud images (#117): when a deck is deleted and its
+  // image/cover is no longer referenced by ANY remaining user_decks row, ask the
+  // external API to drop that blob from storage. Images are content-addressed by hash,
+  // so the SAME url is shared across users/decks — we must never delete one another deck
+  // (or a deck being saved RIGHT NOW with the same list) still references.
+  //
+  // A one-shot COUNT-then-DELETE is RACY: a concurrent save can re-associate the url
+  // (same decklist → same hash → same blob) between the count and the external delete
+  // landing, so we'd delete live content. Instead: wait a grace window, then RE-CHECK the
+  // refcount immediately before deleting — a save within the window wins and we skip.
+  // (Saves AFTER the window self-heal: the external API regenerates a missing blob on the
+  // next save of that list. A durable periodic sweep is the planned backstop for the
+  // residual in-flight window and for GCs lost to a container restart.)
+  const GC_GRACE_MS = 5 * 60 * 1000;
+  function gcOrphanImage(url, column) {
+    if (!url || !API_URL || !API_TOKEN) return;
+    const t = setTimeout(() => {
+      try {
+        if (db.prepare(`SELECT COUNT(*) AS n FROM user_decks WHERE ${column} = ?`).get(url).n > 0) return;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 60000);
+        fetch(API_URL + '/deck-image' + q({ url }), { method: 'DELETE', signal: ctrl.signal })
+          .catch(() => {}).finally(() => clearTimeout(timer));
+      } catch { /* DB gone / shutting down — the periodic sweep will catch it */ }
+    }, GC_GRACE_MS);
+    if (t.unref) t.unref(); // don't keep the event loop alive for a best-effort cleanup
+  }
 
   // Call the external decks API: long timeout + one retry (free host cold-start).
   async function decksApi(path) {
@@ -83,6 +114,7 @@ export default async function deckRoutes(app) {
     try { data = await decksApi('/deck-image' + q({ list: d.deck_string, cover })); }
     catch (e) { return reply.code(502).send({ error: e.message }); }
     db.prepare('UPDATE user_decks SET cover_url = ?, cover_passcode = ? WHERE id = ? AND user_id = ?').run(data.cover_url || null, Number(cover), d.id, req.user.id);
+    if (d.cover_url && d.cover_url !== (data.cover_url || null)) gcOrphanImage(d.cover_url, 'cover_url'); // GC the replaced cover if now unreferenced
     return rowOf(deckById(req.user.id, d.id));
   });
 
@@ -97,8 +129,12 @@ export default async function deckRoutes(app) {
   });
 
   app.delete('/api/decks/:id', { preHandler: requireAuth }, async (req, reply) => {
-    const info = db.prepare('DELETE FROM user_decks WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
-    if (!info.changes) return reply.code(404).send({ error: 'Deck no encontrado.' });
+    const d = deckById(req.user.id, Number(req.params.id));
+    if (!d) return reply.code(404).send({ error: 'Deck no encontrado.' });
+    db.prepare('DELETE FROM user_decks WHERE id = ? AND user_id = ?').run(d.id, req.user.id);
+    // Now that the row is gone, GC its image/cover if nothing else references them (#117).
+    gcOrphanImage(d.image_url, 'image_url');
+    gcOrphanImage(d.cover_url, 'cover_url');
     return { ok: true };
   });
 }
