@@ -1036,14 +1036,14 @@
       if (dstats && dstats.favorite) {
         const f = dstats.favorite;
         html += '<div class="pf-sec-title">Mis decks</div>';
-        html += `<button id="deckstats-open" type="button" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--field-bg);border:1px solid var(--border-2);border-radius:11px;padding:10px;color:var(--ink);cursor:pointer">
-          ${f.coverUrl ? `<img src="${esc(f.coverUrl)}" alt="" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0">` : '<span style="width:46px;height:46px;border-radius:8px;background:var(--panel-2);flex-shrink:0;display:block"></span>'}
-          <span style="flex:1;min-width:0">
-            <span style="display:block;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)">Deck preferido</span>
-            <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name || 'Deck')}</b>
-            <span style="font-size:12px;color:var(--ink-soft)">Jugado ${f.played}× · <b style="color:var(--gold)">${f.winrate}%</b> WR</span>
+        html += `<button id="deckstats-open" class="ds-teaser" type="button">
+          ${f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover"></span>'}
+          <span class="meta">
+            <span class="kicker">Deck preferido</span>
+            <b class="name">${esc(f.name || 'Deck')}</b>
+            <span class="sub">Jugado ${f.played}× · <b>${f.winrate}%</b> WR</span>
           </span>
-          <span style="color:var(--gold-soft);font-size:13px;flex-shrink:0">Ver stats ›</span>
+          <span class="go">Ver stats ›</span>
         </button>`;
       }
 
@@ -1091,12 +1091,12 @@
   async function renderDeckStats(season) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-          <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
-          <h2 style="margin:0;font-size:17px">Mis estadísticas</h2>
-          <span style="width:60px"></span>
+        <div class="row scr-head">
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+          <h2 class="scr-title">Mis estadísticas</h2>
+          <span class="scr-spacer"></span>
         </div>
-        <div id="ds-body" class="muted" style="margin-top:14px">Cargando…</div>
+        <div id="ds-body" class="muted ds-body">Cargando…</div>
       </div>`;
     $('#back').addEventListener('click', navBack);
     let data;
@@ -1108,39 +1108,42 @@
     const ART = 'https://images.ygoprodeck.com/images/cards_cropped/';
     const seasons = (data.seasons && data.seasons.length) ? data.seasons : [data.season];
     const seasonSel = seasons.length > 1
-      ? `<select id="ds-season" style="background:var(--field-bg);border:1px solid var(--border-2);color:var(--gold);border-radius:999px;padding:5px 12px;font-weight:700;font-size:12px">${seasons.map((s) => `<option value="${s}"${s === data.season ? ' selected' : ''}>${esc(monthLabel(s))}</option>`).join('')}</select>`
-      : `<span style="display:inline-block;font-size:12px;font-weight:700;color:var(--gold);background:rgba(130,216,235,.10);border:1px solid rgba(130,216,235,.35);border-radius:999px;padding:5px 12px">${esc(monthLabel(data.season))}</span>`;
+      ? `<select id="ds-season" class="ds-season">${seasons.map((s) => `<option value="${s}"${s === data.season ? ' selected' : ''}>${esc(monthLabel(s))}</option>`).join('')}</select>`
+      : `<span class="ds-season">${esc(monthLabel(data.season))}</span>`;
     if (!data.summary || !data.summary.matches) {
-      body.innerHTML = `<div style="text-align:center;margin-bottom:8px">${seasonSel}</div>
-        <p class="muted" style="font-size:13px;text-align:center;padding:18px 0">Aún no tienes partidas clasificatorias esta temporada.<br>Juega torneos ranked con un deck y tus estadísticas aparecerán aquí.</p>`;
+      body.innerHTML = `<div class="ds-season-row">${seasonSel}</div>
+        <p class="muted ds-empty">Aún no tienes partidas clasificatorias esta temporada.<br>Juega torneos ranked con un deck y tus estadísticas aparecerán aquí.</p>`;
       const s0 = $('#ds-season'); if (s0) s0.addEventListener('change', () => renderDeckStats(s0.value));
       return;
     }
     const f = data.favorite || {};
-    const cardRow = (i, code, right) => `<div style="display:flex;align-items:center;gap:11px;padding:7px 0;border-top:1px solid rgba(255,255,255,.05)">
-        <span style="font-family:var(--mono);color:var(--ink-faint);width:16px;flex-shrink:0;font-size:12px">${i}</span>
-        <img src="${ART}${code}.jpg" alt="" loading="lazy" style="width:38px;height:38px;border-radius:7px;object-fit:cover;flex-shrink:0;background:var(--field-bg)">
-        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px">${esc(names[code] || ('#' + code))}</span>
+    const sum = data.summary;
+    const cardRow = (i, code, right) => `<div class="ds-card">
+        <span class="rank">${i}</span>
+        <img class="art" src="${ART}${code}.jpg" alt="" loading="lazy">
+        <span class="name">${esc(names[code] || ('#' + code))}</span>
         ${right}
       </div>`;
     body.innerHTML = `
-      <div style="text-align:center;margin-bottom:4px">${seasonSel}</div>
-      <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:18px 2px 8px">Deck preferido</div>
-      <div style="display:flex;align-items:center;gap:13px;background:var(--panel-2);border:1px solid var(--border-2);border-radius:12px;padding:12px">
-        ${f.coverUrl ? `<img src="${esc(f.coverUrl)}" alt="" style="width:60px;height:60px;border-radius:11px;object-fit:cover;flex-shrink:0;border:2px solid var(--gold)">` : '<span style="width:60px;height:60px;border-radius:11px;background:var(--field-bg);flex-shrink:0;display:block"></span>'}
-        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name || 'Deck')}</div>
-          <div style="margin-top:5px;font-size:12.5px;color:var(--ink-soft)">Jugado <b style="color:var(--gold);font-family:var(--mono)">${f.played || 0}×</b> · <b style="color:var(--gold);font-family:var(--mono)">${f.winrate || 0}%</b> de victorias</div></div>
+      <div class="ds-season-row">${seasonSel}</div>
+      <div class="ds-section">Deck preferido</div>
+      <div class="ds-fav">
+        ${f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover empty"></span>'}
+        <div class="body">
+          <div class="name">${esc(f.name || 'Deck')}</div>
+          <div class="sub">Jugado <b>${f.played || 0}×</b> · <b>${f.winrate || 0}%</b> de victorias</div>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px">${data.summary.tournaments}</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Torneos</div></div>
-        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px">${data.summary.matches}</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Partidas</div></div>
-        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px;color:var(--green)">${data.summary.winrate}%</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Winrate</div></div>
+      <div class="ds-summary">
+        <div class="ds-stat"><div class="v">${sum.tournaments}</div><div class="k">Torneos</div></div>
+        <div class="ds-stat"><div class="v">${sum.matches}</div><div class="k">Partidas</div></div>
+        <div class="ds-stat"><div class="v win">${sum.winrate}%</div><div class="k">Winrate</div></div>
       </div>
-      ${(data.topPlayed || []).length ? `<div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:20px 2px 8px">Top 5 · cartas más jugadas</div>
-        ${data.topPlayed.map((c, i) => cardRow(i + 1, c.code, `<span style="font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);flex-shrink:0">${c.matches}×</span>`)).join('')}` : ''}
-      ${(data.topWinrate || []).length ? `<div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:20px 2px 8px">Top 5 · mejor winrate</div>
-        ${data.topWinrate.map((c, i) => cardRow(i + 1, c.code, `<span style="display:flex;align-items:center;gap:8px;flex-shrink:0;width:96px"><span style="flex:1;height:6px;border-radius:4px;background:var(--field-bg);overflow:hidden"><i style="display:block;height:100%;width:${c.winrate}%;background:linear-gradient(90deg,var(--gold-soft),var(--gold))"></i></span><span style="font-family:var(--mono);font-weight:700;font-size:12.5px;color:var(--gold);width:34px;text-align:right">${c.winrate}%</span></span>`)).join('')}` : ''}
-      <div style="margin-top:18px;font-size:11.5px;color:var(--ink-faint);text-align:center">Calculado con tus torneos clasificatorios de esta temporada.</div>`;
+      ${(data.topPlayed || []).length ? `<div class="ds-section">Top 5 · cartas más jugadas</div>
+        ${data.topPlayed.map((c, i) => cardRow(i + 1, c.code, `<span class="plays">${c.matches}×</span>`)).join('')}` : ''}
+      ${(data.topWinrate || []).length ? `<div class="ds-section">Top 5 · mejor winrate</div>
+        ${data.topWinrate.map((c, i) => cardRow(i + 1, c.code, `<span class="wr"><span class="bar"><i style="width:${c.winrate}%"></i></span><span class="pct">${c.winrate}%</span></span>`)).join('')}` : ''}
+      <div class="ds-foot">Calculado con tus torneos clasificatorios de esta temporada.</div>`;
     const sel = $('#ds-season'); if (sel) sel.addEventListener('change', () => renderDeckStats(sel.value));
   }
 

@@ -314,3 +314,49 @@ html.gate-pending .wrap { visibility: hidden; }
 .switch input:checked + .slider::before { transform: translateY(-50%) translateX(18px); background: var(--gold); }
 .switch input:disabled + .slider { opacity: .5; }
 .switch input:focus-visible + .slider { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* ---- Player · reusable sub-screen header (back · centred title · spacer) - */
+.scr-head { justify-content: space-between; align-items: center; gap: 10px; }
+.scr-title { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scr-spacer { flex-shrink: 0; width: 60px; }
+
+/* ---- Player · deck stats (#108) --------------------------------------- */
+/* Profile teaser → opens the full stats sub-screen. */
+.ds-teaser { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; text-align: left; color: var(--ink); cursor: pointer; background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 11px; }
+.ds-teaser .cover { display: block; flex-shrink: 0; width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: var(--panel-2); }
+.ds-teaser .meta { flex: 1; min-width: 0; }
+.ds-teaser .kicker { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+.ds-teaser .name { display: block; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ds-teaser .sub { font-size: 12px; color: var(--ink-soft); }
+.ds-teaser .sub b { color: var(--gold); }
+.ds-teaser .go { flex-shrink: 0; font-size: 13px; color: var(--gold-soft); }
+
+/* Full sub-screen. */
+.ds-body { margin-top: 14px; }
+.ds-season-row { margin-bottom: 4px; text-align: center; }
+.ds-season { display: inline-block; padding: 5px 12px; font-size: 12px; font-weight: 700; color: var(--gold); background: rgba(130, 216, 235, .10); border: 1px solid rgba(130, 216, 235, .35); border-radius: 999px; }
+select.ds-season { cursor: pointer; }
+.ds-section { margin: 18px 2px 8px; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
+.ds-fav { display: flex; align-items: center; gap: 13px; padding: 12px; background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 12px; }
+.ds-fav .cover { flex-shrink: 0; width: 60px; height: 60px; border-radius: 11px; object-fit: cover; background: var(--field-bg); border: 2px solid var(--gold); }
+.ds-fav .cover.empty { border-color: var(--border-2); }
+.ds-fav .body { flex: 1; min-width: 0; }
+.ds-fav .name { overflow: hidden; font-weight: 700; font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.ds-fav .sub { margin-top: 5px; font-size: 12.5px; color: var(--ink-soft); }
+.ds-fav .sub b { color: var(--gold); font-family: var(--mono); }
+.ds-summary { display: flex; gap: 8px; margin-top: 10px; }
+.ds-stat { flex: 1; padding: 9px 4px; text-align: center; background: var(--field-bg); border: 1px solid var(--border); border-radius: 10px; }
+.ds-stat .v { font-family: var(--mono); font-weight: 800; font-size: 17px; }
+.ds-stat .v.win { color: var(--green); }
+.ds-stat .k { margin-top: 1px; font-size: 10px; text-transform: uppercase; color: var(--ink-faint); }
+.ds-card { display: flex; align-items: center; gap: 11px; padding: 7px 0; border-top: 1px solid rgba(255, 255, 255, .05); }
+.ds-card .rank { flex-shrink: 0; width: 16px; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+.ds-card .art { flex-shrink: 0; width: 38px; height: 38px; border-radius: 7px; object-fit: cover; background: var(--field-bg); }
+.ds-card .name { flex: 1; min-width: 0; overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ds-card .plays { flex-shrink: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+.ds-card .wr { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 96px; }
+.ds-card .wr .bar { flex: 1; height: 6px; overflow: hidden; border-radius: 4px; background: var(--field-bg); }
+.ds-card .wr .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold-soft), var(--gold)); }
+.ds-card .wr .pct { width: 34px; font-family: var(--mono); font-weight: 700; font-size: 12.5px; color: var(--gold); text-align: right; }
+.ds-foot { margin-top: 18px; font-size: 11.5px; color: var(--ink-faint); text-align: center; }
+.ds-empty { padding: 18px 0; font-size: 13px; text-align: center; }
