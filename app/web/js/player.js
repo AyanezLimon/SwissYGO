@@ -940,6 +940,33 @@
     $('#back').addEventListener('click', navBack);
   }
 
+  // Small personal summary under the live pairing box: this player's decided
+  // matches in THIS tournament (round · opponent · result) + a running W-L.
+  const H_LABEL = { win: 'Ganaste', loss: 'Perdiste', bye: 'BYE', lateLoss: 'Entrada tardía', doubleLoss: 'Doble derrota' };
+  function historyBlock(me) {
+    const h = me.history || [];
+    if (!h.length) return '';
+    const W = h.filter((x) => x.outcome === 'win' || x.outcome === 'bye').length;
+    const L = h.length - W;
+    const rows = h.map((x) => {
+      const neutral = x.outcome === 'bye';
+      const won = x.outcome === 'win';
+      const color = neutral ? 'var(--ink-soft)' : (won ? 'var(--green)' : 'var(--crimson)');
+      const who = x.opponent ? esc(x.opponent) : (x.outcome === 'bye' ? 'Descanso' : 'Sin rival');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid rgba(255,255,255,.05)">
+          <span style="font-family:var(--mono);color:var(--ink-faint);font-size:12px;width:28px;flex-shrink:0">R${x.round}</span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${who}</span>
+          <span style="color:${color};font-weight:700;font-size:12.5px;flex-shrink:0">${H_LABEL[x.outcome] || ''}</span>
+        </div>`;
+    }).join('');
+    return `<div style="margin-top:18px;text-align:left">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+          <span class="muted" style="font-size:12px;letter-spacing:.4px;text-transform:uppercase">Tu historial</span>
+          <span style="font-family:var(--mono);font-weight:700;font-size:13px"><span style="color:var(--green)">${W}</span><span class="muted">-</span><span style="color:var(--crimson)">${L}</span></span>
+        </div>${rows}
+      </div>`;
+  }
+
   function renderPairing(j, me) {
     root.classList.remove('results');
     let body;
@@ -984,6 +1011,7 @@
         <div class="muted" style="font-size:13px">${esc(me.name || '')}</div>
         <div class="muted" style="font-size:12px;margin-bottom:14px">Jugando como <b>${esc(j.name)}</b></div>
         ${body}
+        ${historyBlock(me)}
         <button class="btn btn-sm btn-ghost" id="leave" style="margin-top:20px">Salir</button>
       </div>
       <style>
