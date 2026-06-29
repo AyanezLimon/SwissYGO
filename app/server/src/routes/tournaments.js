@@ -8,6 +8,7 @@ import { finalStandings } from '../lib/tiebreak.js';
 import { computeLeaderboard, MIN_GAMES as LB_MIN_GAMES } from '../lib/leaderboard.js';
 import { parseDeckString } from '../lib/decks-api.js';
 import { checkDeckLegality } from '../lib/deck-legality.js';
+import { aggregateDeckStats } from '../lib/deck-stats.js';
 
 /**
  * Generates a 5-character tournament join code.
@@ -233,8 +234,9 @@ export default async function tournamentRoutes(app) {
       // saved registration is returned WITHOUT touching the decks API (parse/legality).
       const wantedDeck = (t.ranked && /^\d+$/.test(String(req.body?.deck_id ?? ''))) ? Number(req.body.deck_id) : null;
 
-      // Validate the chosen ranked deck and run `apply(deckId)` on success. Returns an
-      // error reply to send, or null on success. Fails CLOSED if legality can't be checked.
+      // Validate the chosen ranked deck and run `apply(deckId, cardsJson)` on success.
+      // Returns an error reply to send, or null on success. Fails CLOSED if legality
+      // can't be checked. The parsed codes (cardsJson) are snapshotted for deck stats (#108).
       const useRankedDeck = async (apply) => {
         const deck = db.prepare('SELECT deck_string FROM user_decks WHERE id = ? AND user_id = ?').get(wantedDeck, userId);
         if (!deck) return reply.code(400).send({ error: 'Ese deck no existe o no es tuyo.' });
@@ -245,37 +247,40 @@ export default async function tournamentRoutes(app) {
         try { result = await checkDeckLegality(cards); }
         catch (e) { return reply.code(502).send({ code: e.code || 'legality_unavailable', error: e.message || 'No se pudo verificar la legalidad del deck. Intenta de nuevo.' }); }
         if (!result.legal) return reply.code(422).send({ code: 'deck_illegal', error: 'Ese deck no es legal para formato avanzado.', violations: result.violations });
-        apply(wantedDeck);
+        apply(wantedDeck, JSON.stringify({ main: cards.main || [], extra: cards.extra || [], side: cards.side || [] }));
         return null;
       };
 
-      // Resume an existing registration — works even after registration closes.
+      // Resume an existing registration — works even after registration closes. The deck
+      // snapshot is only mutable during SETUP: once the event starts, switching it would
+      // retroactively re-attribute already-played matches to the new deck in stats (#108).
       if (existing) {
-        // Ranked + still open: switch to (or first set) a chosen deck.
-        if (t.ranked && open && wantedDeck && wantedDeck !== existing.deck_id) {
-          const err = await useRankedDeck((id) => db.prepare('UPDATE registrations SET deck_id = ? WHERE tournament_id = ? AND user_id = ?').run(id, t.id, userId));
+        const inSetup = t.status === 'setup';
+        // Ranked + setup: switch to (or first set) a chosen deck.
+        if (t.ranked && inSetup && wantedDeck && wantedDeck !== existing.deck_id) {
+          const err = await useRankedDeck((id, cj) => db.prepare('UPDATE registrations SET deck_id = ?, cards_json = ? WHERE tournament_id = ? AND user_id = ?').run(id, cj, t.id, userId));
           if (err) return err;
           return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: wantedDeck };
         }
-        // Ranked + open but still no deck on file and none chosen → must pick one.
-        if (t.ranked && open && !existing.deck_id && !wantedDeck)
+        // Ranked + setup but still no deck on file and none chosen → must pick one.
+        if (t.ranked && inSetup && !existing.deck_id && !wantedDeck)
           return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
         return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
       }
 
       // Fresh registration — must be open. (Checked before any deck parse/legality work.)
       if (!open) return reply.code(409).send({ error: closedMsg });
-      let deckId = null;
+      let deckId = null, cardsJson = null;
       if (t.ranked) {
         if (!wantedDeck)
           return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
-        const err = await useRankedDeck((id) => { deckId = id; });
+        const err = await useRankedDeck((id, cj) => { deckId = id; cardsJson = cj; });
         if (err) return err;
       }
       const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
-      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name, deck_id) VALUES (?, ?, ?, ?, ?)')
-        .run(t.id, userId, playerId, dn, deckId);
+      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name, deck_id, cards_json) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(t.id, userId, playerId, dn, deckId, cardsJson);
       return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, deck_id: deckId, late: lateOpen });
     }
 
@@ -672,5 +677,31 @@ export default async function tournamentRoutes(app) {
       matches: log,        // chronological; counted entries carry delta/before/after, others carry reason
       pastSeasons,
     };
+  });
+
+  // Per-account deck statistics for one season (#108): favourite deck, summary, and
+  // top cards by play count / winrate — built ONLY from the player's ranked, finished
+  // registrations + the deck codes snapshotted at registration (no external call). Card
+  // names/art are resolved client-side. season = YYYY-MM (default current month).
+  app.get('/api/me/deck-stats', { preHandler: requireAuth }, async (req) => {
+    const uid = req.user.id;
+    const cur = new Date().toISOString().slice(0, 7);
+    const season = /^\d{4}-\d{2}$/.test((req.query && req.query.season) || '') ? req.query.season : cur;
+    const safe = (s) => { try { return JSON.parse(s); } catch { return null; } };
+    const regs = db.prepare(`SELECT t.id AS tid, t.finished_at, t.created_at, t.state_json,
+        r.player_id, r.deck_id, r.cards_json, d.name AS deck_name, d.cover_url, d.cover_passcode
+      FROM registrations r
+      JOIN tournaments t ON t.id = r.tournament_id
+      LEFT JOIN user_decks d ON d.id = r.deck_id
+      WHERE r.user_id = ? AND t.ranked = 1 AND t.status = 'finished'`).all(uid);
+    const monthOfRow = (x) => String(x.finished_at || x.created_at || '').slice(0, 7);
+    // Always include the selected season so the UI selector keeps it (even if it's empty).
+    const seasons = [...new Set([season, ...regs.map(monthOfRow)])].filter(Boolean).sort().reverse();
+    const rows = regs.filter((x) => monthOfRow(x) === season).map((x) => ({
+      tournamentId: x.tid, playerId: x.player_id, deckId: x.deck_id,
+      deckName: x.deck_name, coverUrl: x.cover_url, coverPasscode: x.cover_passcode,
+      state: safe(x.state_json) || {}, cards: x.cards_json ? safe(x.cards_json) : null,
+    }));
+    return { season, seasons, ...aggregateDeckStats(rows) };
   });
 }

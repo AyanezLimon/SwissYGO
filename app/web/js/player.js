@@ -990,6 +990,7 @@
       const pct = r.winPct;
       const decided = r.wins + r.losses;
       let elo = null; try { elo = await API.req('/me/elo'); } catch (e) {} // best-effort Elo detail
+      let dstats = null; try { dstats = await API.req('/me/deck-stats'); } catch (e) {} // best-effort deck stats (#108)
 
       // Hero: animated win-rate ring + stat tiles.
       let html = `
@@ -1031,6 +1032,23 @@
         }
       }
 
+      // Deck stats teaser (#108): a tap into the full sub-screen. Shown for ANY
+      // successful /me/deck-stats response — rich (favourite deck) when there's one
+      // this season, otherwise a generic CTA so the entry never disappears.
+      if (dstats) {
+        const f = dstats.favorite;
+        html += '<div class="pf-sec-title">Mis decks</div>';
+        html += `<button id="deckstats-open" class="ds-teaser" type="button">
+          ${f && f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover"></span>'}
+          <span class="meta">
+            <span class="kicker">${f ? 'Deck preferido' : 'Estadísticas de decks'}</span>
+            <b class="name">${f ? esc(f.name || 'Deck') : 'Ver mis estadísticas'}</b>
+            <span class="sub">${f ? `Jugado ${f.played}× · <b>${f.winrate}%</b> WR` : 'Deck preferido, cartas y winrate por temporada'}</span>
+          </span>
+          <span class="go">Ver stats ›</span>
+        </button>`;
+      }
+
       // Head-to-head: proportional win/loss bar per opponent, colour-coded.
       if (st.headToHead.length) {
         html += '<div class="pf-sec-title">Cara a cara</div><div class="pf-h2h">';
@@ -1059,6 +1077,7 @@
       b.innerHTML = html;
       b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => navOpen(() => showResults(Number(el.dataset.id), null, () => renderProfile()))));
       const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => navOpen(() => renderEloDetail(elo)));
+      const dso = b.querySelector('#deckstats-open'); if (dso) dso.addEventListener('click', () => navOpen(() => renderDeckStats()));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1067,6 +1086,71 @@
         b.querySelectorAll('.pf-bar-w, .pf-bar-l').forEach((bar) => { bar.style.width = bar.dataset.w + '%'; });
       }));
     } catch (e) { const b = $('#body'); if (b) { b.classList.add('muted'); b.textContent = e.message; } }
+  }
+
+  // Full deck-stats sub-screen (#108): season selector, favourite deck, a summary,
+  // and the top cards by play count / winrate. Card names/art resolved client-side.
+  let _dsRender = 0; // monotonic token: a newer render (e.g. season change) invalidates older async writes
+  async function renderDeckStats(season) {
+    stopPoll(); root.classList.remove('results');
+    const token = ++_dsRender;
+    root.innerHTML = `<div class="card">
+        <div class="row scr-head">
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+          <h2 class="scr-title">Mis estadísticas</h2>
+          <span class="scr-spacer"></span>
+        </div>
+        <div id="ds-body" class="muted ds-body">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', navBack);
+    let data;
+    try { data = await API.req('/me/deck-stats' + (season ? '?season=' + encodeURIComponent(season) : '')); }
+    catch (e) { if (token === _dsRender) { const x = $('#ds-body'); if (x) x.textContent = 'No se pudieron cargar tus estadísticas.'; } return; }
+    if (token !== _dsRender) return; // a newer render started while we awaited
+    const codes = [...new Set([...(data.topPlayed || []).map((c) => c.code), ...(data.topWinrate || []).map((c) => c.code)])];
+    const names = await resolveCardNames(codes);
+    if (token !== _dsRender) return;
+    const body = $('#ds-body'); if (!body) return; body.classList.remove('muted');
+    const ART = 'https://images.ygoprodeck.com/images/cards_cropped/';
+    const seasons = (data.seasons && data.seasons.length) ? data.seasons : [data.season];
+    const seasonSel = seasons.length > 1
+      ? `<select id="ds-season" class="ds-season">${seasons.map((s) => `<option value="${s}"${s === data.season ? ' selected' : ''}>${esc(monthLabel(s))}</option>`).join('')}</select>`
+      : `<span class="ds-season">${esc(monthLabel(data.season))}</span>`;
+    if (!data.summary || !data.summary.matches) {
+      body.innerHTML = `<div class="ds-season-row">${seasonSel}</div>
+        <p class="muted ds-empty">Aún no tienes partidas clasificatorias esta temporada.<br>Juega torneos ranked con un deck y tus estadísticas aparecerán aquí.</p>`;
+      const s0 = $('#ds-season'); if (s0) s0.addEventListener('change', () => renderDeckStats(s0.value));
+      return;
+    }
+    const f = data.favorite || {};
+    const sum = data.summary;
+    const cardRow = (i, code, right) => `<div class="ds-card">
+        <span class="rank">${i}</span>
+        <img class="art" src="${ART}${code}.jpg" alt="" loading="lazy">
+        <span class="name">${esc(names[code] || ('#' + code))}</span>
+        ${right}
+      </div>`;
+    body.innerHTML = `
+      <div class="ds-season-row">${seasonSel}</div>
+      <div class="ds-section">Deck preferido</div>
+      <div class="ds-fav">
+        ${f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover empty"></span>'}
+        <div class="body">
+          <div class="name">${esc(f.name || 'Deck')}</div>
+          <div class="sub">Jugado <b>${f.played || 0}×</b> · <b>${f.winrate || 0}%</b> de victorias</div>
+        </div>
+      </div>
+      <div class="ds-summary">
+        <div class="ds-stat"><div class="v">${sum.tournaments}</div><div class="k">Torneos</div></div>
+        <div class="ds-stat"><div class="v">${sum.matches}</div><div class="k">Partidas</div></div>
+        <div class="ds-stat"><div class="v win">${sum.winrate}%</div><div class="k">Winrate</div></div>
+      </div>
+      ${(data.topPlayed || []).length ? `<div class="ds-section">Top 5 · cartas más jugadas</div>
+        ${data.topPlayed.map((c, i) => cardRow(i + 1, c.code, `<span class="plays">${c.matches}×</span>`)).join('')}` : ''}
+      ${(data.topWinrate || []).length ? `<div class="ds-section">Top 5 · mejor winrate</div>
+        ${data.topWinrate.map((c, i) => cardRow(i + 1, c.code, `<span class="wr"><span class="bar"><i style="width:${c.winrate}%"></i></span><span class="pct">${c.winrate}%</span></span>`)).join('')}` : ''}
+      <div class="ds-foot">Calculado con tus torneos clasificatorios de esta temporada.</div>`;
+    const sel = $('#ds-season'); if (sel) sel.addEventListener('change', () => renderDeckStats(sel.value));
   }
 
   // Season match history (opened from the profile's Elo banner). One card per game:
