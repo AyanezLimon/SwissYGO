@@ -11,6 +11,16 @@
     clear() { this.set(null); },
   };
 
+  /**
+   * Sends an API request and returns the parsed response.
+   * @param {string} path - The API path to request.
+   * @param {Object} [options]
+   * @param {string} [options.method='GET'] - The HTTP method to use.
+   * @param {Object} [options.body] - The request payload to send as JSON.
+   * @param {boolean} [options.auth=true] - Whether to include the stored access token.
+   * @param {string} [options.guestToken] - The guest token to send in the `X-Guest-Token` header.
+   * @return {Promise<Object|null>} The parsed response data, or `null` when the response body is empty.
+   */
   async function req(path, { method = 'GET', body, auth = true, guestToken } = {}) {
     const headers = {};
     if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -28,6 +38,7 @@
       const err = new Error((data && data.error) || res.statusText);
       err.status = res.status;
       if (data && data.code) err.code = data.code;   // machine-readable hint (e.g. 'ranked_requires_account')
+      if (data) err.data = data;                     // full payload (extra fields, e.g. name, violations)
       throw err;
     }
     return data;
