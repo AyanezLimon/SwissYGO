@@ -24,6 +24,12 @@ heavy deps, no per-push Docker churn beyond the API image.
     control (`#start-tournament`, `#reset-all`, `[data-action="remove"]`) add a **document
     capture-phase** listener and `e.stopImmediatePropagation()`, then re-invoke as needed.
   - You CAN add markup to `index.html` and rules to `css/connect.css` (those aren't verbatim).
+- **STYLES GO IN `css/connect.css`, NEVER inline.** `connect.css` is the additive stylesheet
+  both pages load. Add **semantic classes** there (e.g. `.deck-card`, `.jdp-deck`, `.ds-stat`,
+  the reusable `.scr-head/.scr-title/.scr-spacer` header + `.btn-block`) and reference them
+  from the JS templates. The ONLY thing allowed inline is a **data-driven value** that can't be
+  a class (e.g. a progress-bar `style="width:${pct}%"`). Inline styling is a maintenance smell —
+  don't do it. (`styles.css` stays verbatim; `connect.css` is where player/console additions live.)
 - **Single-writer:** the TO is the sole writer of `state_json` (PUT). Players only INSERT
   into `registrations`; the console **absorbs** registrations into `state.players`.
 - **Auth:** `requireTO` re-reads role/disabled from the DB live; `findOr404` lets ANY TO act
@@ -37,9 +43,10 @@ heavy deps, no per-push Docker churn beyond the API image.
   workaround instead.
 - **Player page `/u/` (`js/player.js`) is editable** (not verbatim), but stay additive in spirit:
   bump its `?v=` on every change, reuse the existing helpers (`$`, `esc`, `showToast`, the
-  `navOpen`/`navBack` History-API screen stack) and inline-style + `--var` palette conventions
-  already in the file. New screens are `navOpen(() => renderX())`; `navBack` re-runs the stored
-  screen on popstate (so a sub-screen edit is reflected when you return — re-fetch on render).
+  `navOpen`/`navBack` History-API screen stack) and the `--var` palette, and put **all styling in
+  `connect.css` classes** (see the styles rule above — no inline styles). New screens are
+  `navOpen(() => renderX())`; `navBack` re-runs the stored screen on popstate (so a sub-screen
+  edit is reflected when you return — re-fetch on render).
 
 ## Design & quality philosophy (how we've been working — keep this bar)
 

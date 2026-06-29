@@ -394,21 +394,21 @@
   }
 
   /**
-   * Lets the player choose a saved deck for a ranked tournament registration.
+   * Renders the ranked tournament deck selection screen.
    * @param {string} code - Tournament join code.
    * @param {string} tname - Tournament name shown in the header.
    */
   async function renderJoinDeckPick(code, tname) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-          <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
-          <h2 style="margin:0;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(tname || 'Torneo')}</h2>
-          <span style="width:60px"></span>
+        <div class="row scr-head">
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+          <h2 class="scr-title">${esc(tname || 'Torneo')}</h2>
+          <span class="scr-spacer"></span>
         </div>
-        <div style="text-align:center;margin-top:12px"><span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--gold);background:rgba(130,216,235,.10);border:1px solid rgba(130,216,235,.35);border-radius:999px;padding:5px 12px">🏆 Torneo clasificatorio</span></div>
-        <div class="muted" style="font-size:13px;margin-top:12px">Elige el deck con el que vas a competir. Quedará registrado para este torneo.</div>
-        <div id="jdp-body" class="muted" style="margin-top:14px">Cargando tus decks…</div>
+        <div class="jdp-badge-row"><span class="jdp-badge">🏆 Torneo clasificatorio</span></div>
+        <div class="muted jdp-lead">Elige el deck con el que vas a competir. Quedará registrado para este torneo.</div>
+        <div id="jdp-body" class="muted jdp-body">Cargando tus decks…</div>
       </div>`;
     $('#back').addEventListener('click', navBack);
     let decks;
@@ -417,10 +417,10 @@
     const body = $('#jdp-body');
     if (!decks.length) {
       body.classList.remove('muted');
-      body.innerHTML = `<div style="text-align:center;padding:6px 4px">
-          <div style="font-size:32px">🎴</div>
-          <p class="muted" style="font-size:13.5px;margin:8px 0 16px">Necesitas un deck guardado para registrarte en un torneo clasificatorio.</p>
-          <button class="btn btn-gold" id="jdp-create" type="button" style="width:100%">Crear mi primer deck</button>
+      body.innerHTML = `<div class="jdp-state">
+          <div class="ico">🎴</div>
+          <p class="muted">Necesitas un deck guardado para registrarte en un torneo clasificatorio.</p>
+          <button class="btn btn-gold btn-block" id="jdp-create" type="button">Crear mi primer deck</button>
         </div>`;
       $('#jdp-create').addEventListener('click', () => navOpen(renderMyDecks));
       return;
@@ -435,9 +435,9 @@
     try { meta = await fetchCardMeta(allCodes); }
     catch (e) {
       body.classList.remove('muted');
-      body.innerHTML = `<div style="text-align:center;padding:6px 4px">
-          <p class="muted" style="font-size:13px;margin-bottom:14px">No se pudo verificar la legalidad de los decks. Revisa tu conexión e inténtalo de nuevo.</p>
-          <button class="btn btn-gold" id="jdp-retry" type="button" style="width:100%">Reintentar</button>
+      body.innerHTML = `<div class="jdp-state">
+          <p class="muted">No se pudo verificar la legalidad de los decks. Revisa tu conexión e inténtalo de nuevo.</p>
+          <button class="btn btn-gold btn-block" id="jdp-retry" type="button">Reintentar</button>
         </div>`;
       $('#jdp-retry').addEventListener('click', () => renderJoinDeckPick(code, tname));
       return;
@@ -447,23 +447,19 @@
     body.classList.remove('muted');
     const draw = () => {
       const cur = rows.find((r) => r.d.id === selected);
-      body.innerHTML = `<div style="display:flex;flex-direction:column;gap:9px">${rows.map((r) => {
+      body.innerHTML = `<div class="jdp-list">${rows.map((r) => {
         const legal = r.leg.legal, sel = r.d.id === selected;
-        const cover = r.d.cover_url
-          ? `<img src="${esc(r.d.cover_url)}" alt="" style="width:46px;height:46px;border-radius:8px;object-fit:cover;display:block${legal ? '' : ';filter:grayscale(.7) brightness(.6)'}">`
-          : '<div style="width:46px;height:46px;border-radius:8px;background:var(--field-bg)"></div>';
-        const lock = legal ? '' : '<span style="position:absolute;inset:0;display:grid;place-items:center;font-size:20px">🔒</span>';
-        return `<button class="jdp-deck" data-id="${r.d.id}" data-legal="${legal ? 1 : 0}" type="button" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--field-bg);border:1.5px solid ${sel ? 'var(--gold)' : 'var(--border-2)'};border-radius:11px;padding:9px 11px;cursor:${legal ? 'pointer' : 'default'};color:var(--ink)">
-            <span style="position:relative;width:46px;height:46px;flex-shrink:0">${cover}${lock}</span>
-            <span style="flex:1;min-width:0">
-              <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap${legal ? '' : ';opacity:.7'}">${esc(r.d.name || 'Deck sin nombre')}</b>
-              ${legal ? '' : `<span style="display:block;color:var(--crimson);font-size:11.5px;margin-top:2px">${r.leg.unverified ? 'No se pudo verificar la legalidad' : 'No legal para formato avanzado'}</span>`}
-            </span>
-            <span style="width:24px;height:24px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-weight:800;font-size:13px;${legal ? `border:2px solid ${sel ? 'var(--gold)' : 'var(--border-2)'};${sel ? 'background:var(--gold);color:var(--accent-ink)' : 'color:transparent'}` : 'color:var(--ink-faint)'}">${legal ? (sel ? '✓' : '') : ''}</span>
+        const cover = r.d.cover_url ? `<img class="cover" src="${esc(r.d.cover_url)}" alt="">` : '<div class="cover"></div>';
+        const lock = legal ? '' : '<span class="lock">🔒</span>';
+        const why = legal ? '' : `<span class="why">${r.leg.unverified ? 'No se pudo verificar la legalidad' : 'No legal para formato avanzado'}</span>`;
+        return `<button class="jdp-deck${legal ? '' : ' illegal'}${sel ? ' sel' : ''}" data-id="${r.d.id}" data-legal="${legal ? 1 : 0}" type="button">
+            <span class="cover-wrap">${cover}${lock}</span>
+            <span class="meta"><b class="name">${esc(r.d.name || 'Deck sin nombre')}</b>${why}</span>
+            <span class="radio">${sel ? '✓' : ''}</span>
           </button>`;
       }).join('')}</div>
-        <button class="btn btn-gold" id="jdp-go" type="button" style="width:100%;margin-top:16px"${cur ? '' : ' disabled'}>${cur ? 'Registrarme con ' + esc(cur.d.name || 'este deck') : 'Elige un deck legal'}</button>
-        <div class="muted" style="font-size:12px;text-align:center;margin-top:12px">Gestiona tus mazos en <a id="jdp-manage" style="color:var(--gold-soft);cursor:pointer">Mis Decks</a></div>`;
+        <button class="btn btn-gold jdp-go" id="jdp-go" type="button"${cur ? '' : ' disabled'}>${cur ? 'Registrarme con ' + esc(cur.d.name || 'este deck') : 'Elige un deck legal'}</button>
+        <div class="muted jdp-manage-row">Gestiona tus mazos en <button class="jdp-manage" id="jdp-manage" type="button">Mis Decks</button></div>`;
       body.querySelectorAll('.jdp-deck').forEach((el) => el.addEventListener('click', () => {
         if (_jdpJoining) return; // a registration is in flight — ignore selection changes
         if (el.dataset.legal === '1') { selected = Number(el.dataset.id); draw(); return; }
@@ -720,22 +716,27 @@
   // renders the deck image + cover and persists them to cloud storage; we only show
   // the returned URLs. The cover picker's thumbnails are loaded client-side straight
   // from ygoprodeck's cropped artwork (no server processing).
-  const YGO_ART = 'https://images.ygoprodeck.com/images/cards_cropped/'; // + <passcode>.jpg
+  const YGO_ART = 'https://images.ygoprodeck.com/images/cards_cropped/'; /**
+   * Renders the deck management screen.
+   */
 
   async function renderMyDecks() {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-        <div class="row" style="justify-content:space-between;align-items:center">
-          <h2 style="margin:0">Mis Decks</h2>
+        <div class="row scr-head">
+          <h2 class="scr-h2">Mis Decks</h2>
           <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
         </div>
-        <div id="md-body" class="muted" style="margin-top:10px">Cargando…</div>
+        <div id="md-body" class="muted md-body">Cargando…</div>
       </div>`;
     $('#back').addEventListener('click', navBack);
     API.req('/decks/prewarm').catch(() => {});   // wake the cold-starting image API while the user is here
     reloadDecks();
   }
 
+  /**
+   * Reloads the saved decks list and deck creation form.
+   */
   async function reloadDecks() {
     const body = $('#md-body'); if (!body) return;
     let data;
@@ -745,14 +746,14 @@
     const decks = data.decks || [];
     const full = decks.length >= max;
     body.innerHTML = `
-      <div class="muted" style="font-size:12.5px;margin-bottom:10px">${decks.length}/${max} decks · pega un ydke o código de Omega y genera su imagen.</div>
-      ${full ? `<div class="gate-error" style="margin-bottom:10px">Llegaste al máximo (${max}). Borra uno para agregar otro.</div>` : `
+      <div class="muted md-count">${decks.length}/${max} decks · pega un ydke o código de Omega y genera su imagen.</div>
+      ${full ? `<div class="gate-error md-max">Llegaste al máximo (${max}). Borra uno para agregar otro.</div>` : `
         <div class="gate-field"><label>Nombre del deck</label><input type="text" id="md-name" maxlength="60" placeholder="Ej.: Branded Despia"></div>
-        <div class="gate-field"><label>Decklist (ydke / Omega)</label><textarea id="md-deck" rows="3" placeholder="ydke://..." style="width:100%;background:var(--field-bg);border:1px solid var(--border-2);color:var(--ink);border-radius:8px;padding:10px;font-family:var(--mono);font-size:12px;resize:vertical;box-sizing:border-box"></textarea></div>
+        <div class="gate-field"><label>Decklist (ydke / Omega)</label><textarea class="md-deck-input" id="md-deck" rows="3" placeholder="ydke://..."></textarea></div>
         <div class="gate-error" id="md-err"></div>
-        <button class="btn btn-gold" id="md-save" type="button" style="width:100%">Generar y guardar</button>`}
-      <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
-        ${decks.map((d) => deckCard(d)).join('') || '<div class="muted" style="font-size:13px;text-align:center;padding:10px 0">Aún no tienes decks guardados.</div>'}
+        <button class="btn btn-gold btn-block" id="md-save" type="button">Generar y guardar</button>`}
+      <div class="md-list">
+        ${decks.map((d) => deckCard(d)).join('') || '<div class="muted md-empty">Aún no tienes decks guardados.</div>'}
       </div>`;
 
     const save = $('#md-save');
@@ -781,14 +782,17 @@
     });
   }
 
+  /**
+   * Renders a deck card.
+   * @param {Object} d - Deck data.
+   * @return {string} The deck card HTML.
+   */
   function deckCard(d) {
-    const cover = d.cover_url
-      ? `<img src="${esc(d.cover_url)}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--field-bg)">`
-      : '<div style="width:54px;height:54px;border-radius:8px;background:var(--field-bg);flex-shrink:0"></div>';
-    return `<div data-deck="${d.id}" style="display:flex;gap:12px;align-items:center;border:1px solid var(--border-2);border-radius:10px;padding:10px">
+    const cover = d.cover_url ? `<img class="cover" src="${esc(d.cover_url)}" alt="">` : '<div class="cover"></div>';
+    return `<div class="deck-card" data-deck="${d.id}">
       ${cover}
-      <b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name || 'Deck sin nombre')}</b>
-      <div class="row" data-acts style="gap:6px;flex-shrink:0">
+      <b class="name">${esc(d.name || 'Deck sin nombre')}</b>
+      <div class="row acts" data-acts>
         <button class="btn btn-sm btn-ghost" data-act="edit">✎ Editar</button>
         <button class="btn btn-sm btn-danger" data-act="del" title="Borrar" aria-label="Borrar">🗑</button>
       </div>
@@ -797,16 +801,19 @@
 
   // Edit panel: cover + name (both editable in place), the deck image, and a
   // read-only decklist table. Re-fetches the deck on each render so it reflects
-  // a cover change made via the picker (Back re-runs this screen).
+  /**
+   * Renders the deck editing screen for a deck.
+   * @param {number|string} deckId - The deck identifier.
+   */
   async function renderDeckEdit(deckId) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
-          <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
-          <h2 style="margin:0;font-size:16px">Editar deck</h2>
-          <span style="width:64px"></span>
+        <div class="row scr-head">
+          <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
+          <h2 class="scr-title">Editar deck</h2>
+          <span class="scr-spacer"></span>
         </div>
-        <div id="de-body" class="muted" style="margin-top:14px">Cargando…</div>
+        <div id="de-body" class="muted de-body">Cargando…</div>
       </div>`;
     $('#back').addEventListener('click', navBack);
     let d;
@@ -816,34 +823,37 @@
     const body = $('#de-body'); if (!body) return;
     body.classList.remove('muted');
     body.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;text-align:center">
-        <button id="de-cover" type="button" title="Cambiar portada" style="position:relative;padding:0;border:none;background:none;cursor:pointer">
-          ${d.cover_url
-            ? `<img src="${esc(d.cover_url)}" alt="" style="width:92px;height:92px;border-radius:14px;object-fit:cover;border:2px solid var(--gold)">`
-            : '<div style="width:92px;height:92px;border-radius:14px;background:var(--field-bg);border:2px solid var(--border-2)"></div>'}
-          <span style="position:absolute;right:-6px;bottom:-6px;background:var(--gold);color:var(--accent-ink);font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 9px;box-shadow:0 2px 8px rgba(0,0,0,.4)">✎ Portada</span>
+      <div class="de-hero">
+        <button class="de-cover-btn" id="de-cover" type="button" title="Cambiar portada">
+          ${d.cover_url ? `<img class="cover" src="${esc(d.cover_url)}" alt="">` : '<div class="cover empty"></div>'}
+          <span class="badge">✎ Portada</span>
         </button>
-        <div id="de-name-wrap" style="margin-top:14px"></div>
-        <div class="muted" style="font-size:11.5px;margin-top:7px">Toca la portada o el nombre para editarlos</div>
+        <div id="de-name-wrap" class="de-name-wrap"></div>
+        <div class="muted de-hint">Toca la portada o el nombre para editarlos</div>
       </div>
-      ${d.image_url ? `<div style="margin-top:18px"><img src="${esc(d.image_url)}" alt="" style="width:100%;border-radius:10px;border:1px solid var(--border);display:block"></div>` : ''}
-      <div id="de-list" class="muted" style="margin-top:18px;font-size:12.5px">Cargando lista…</div>`;
+      ${d.image_url ? `<div class="de-image"><img src="${esc(d.image_url)}" alt=""></div>` : ''}
+      <div id="de-list" class="muted dl">Cargando lista…</div>`;
     $('#de-cover').addEventListener('click', () => navOpen(() => renderCoverPicker(d)));
     renderNameField(d);
     fillDeckList(deckId);
   }
 
-  // In-place deck rename inside the edit panel.
+  /**
+   * Renders the deck name editor in the deck detail panel.
+   * @param {Object} d - The deck being edited.
+   * @param {number|string} d.id - The deck identifier.
+   * @param {string} [d.name] - The current deck name.
+   */
   function renderNameField(d) {
     const wrap = $('#de-name-wrap'); if (!wrap) return;
     const show = () => {
-      wrap.innerHTML = `<button id="de-name-btn" type="button" style="display:inline-flex;align-items:center;gap:8px;background:var(--field-bg);border:1px dashed var(--border-2);color:var(--ink);border-radius:10px;padding:8px 14px;font-size:16px;font-weight:700;cursor:pointer">
-        <span>${esc(d.name || 'Deck sin nombre')}</span><span style="color:var(--gold);font-size:13px">✎</span></button>`;
+      wrap.innerHTML = `<button class="de-name-btn" id="de-name-btn" type="button">
+        <span>${esc(d.name || 'Deck sin nombre')}</span><span class="pen">✎</span></button>`;
       $('#de-name-btn').addEventListener('click', edit);
     };
     const edit = () => {
-      wrap.innerHTML = `<div class="row" style="gap:6px;justify-content:center">
-        <input id="de-name-input" type="text" maxlength="60" value="${esc(d.name || '')}" style="background:var(--field-bg);border:1px solid var(--border-2);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:15px;max-width:200px">
+      wrap.innerHTML = `<div class="row de-name-edit">
+        <input class="de-name-input" id="de-name-input" type="text" maxlength="60" value="${esc(d.name || '')}">
         <button class="btn btn-sm btn-gold" id="de-name-save" type="button">✓</button>
         <button class="btn btn-sm btn-ghost" id="de-name-cancel" type="button">✕</button></div>`;
       const inp = $('#de-name-input'); inp.focus();
@@ -859,7 +869,11 @@
     show();
   }
 
-  // Read-only decklist table — codes from the API, names resolved client-side.
+  /**
+   * Loads the read-only deck list into the deck detail panel.
+   * @param {number|string} deckId - The deck identifier.
+   * @param {HTMLElement} [el] - The deck list container.
+   */
   async function fillDeckList(deckId) {
     const el = $('#de-list'); if (!el) return;
     let cards;
@@ -870,10 +884,8 @@
       if (!codes || !codes.length) return '';
       const groups = []; const at = new Map();
       for (const c of codes) { if (!at.has(c)) { at.set(c, groups.length); groups.push([c, 0]); } groups[at.get(c)][1]++; }
-      const rows = groups.map(([c, q]) => `<div style="display:flex;gap:9px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.045);font-size:13px">
-        <span style="font-family:var(--mono);color:var(--ink-soft);width:26px;flex-shrink:0">${q}×</span>
-        <span>${esc(names[c] || ('#' + c))}</span></div>`).join('');
-      return `<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--gold);margin:14px 2px 6px"><span>${title}</span><span style="color:var(--ink-faint);font-weight:600">${codes.length} cartas</span></div>${rows}`;
+      const rows = groups.map(([c, q]) => `<div class="dl-row"><span class="q">${q}×</span><span>${esc(names[c] || ('#' + c))}</span></div>`).join('');
+      return `<div class="dl-sec"><span>${title}</span><span class="ct">${codes.length} cartas</span></div>${rows}`;
     };
     el.classList.remove('muted');
     el.innerHTML = section('Main Deck', cards.main) + section('Extra Deck', cards.extra) + section('Side Deck', cards.side)
@@ -891,29 +903,36 @@
     return map;
   }
 
+  /**
+   * Lets the user choose a deck cover from the deck's cards.
+   * @param {Object} d - The deck to update.
+   * @param {string|number} d.id - The deck identifier.
+   * @param {string|number} d.cover_passcode - The current cover card code.
+   */
   async function renderCoverPicker(d) {
     stopPoll(); root.classList.remove('results');
     root.innerHTML = `<div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0;font-size:17px">Elegir portada</h2>
+      <div class="row scr-head">
+        <h2 class="scr-title">Elegir portada</h2>
         <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
       </div>
-      <div class="muted" style="font-size:12.5px;margin-top:6px">Toca una carta del deck para usar su arte como portada.</div>
-      <div id="cp-body" class="muted" style="margin-top:12px">Cargando cartas…</div>
+      <div class="muted cp-hint">Toca una carta del deck para usar su arte como portada.</div>
+      <div id="cp-body" class="muted cp-body">Cargando cartas…</div>
     </div>`;
     $('#back').addEventListener('click', navBack);
     let cards;
     try { const r = await API.req('/decks/' + d.id + '/cards'); cards = r.decks || {}; }
     catch (e) { $('#cp-body').textContent = e.message || 'No se pudieron cargar las cartas.'; return; }
     const codes = [...new Set([...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])])];
+    const names = await resolveCardNames(codes); // name the options for screen readers
     const body = $('#cp-body'); body.classList.remove('muted');
-    body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px">
-      ${codes.map((c) => `<button class="cp-card" data-code="${c}" type="button" style="padding:0;border:2px solid ${d.cover_passcode === c ? 'var(--gold)' : 'transparent'};border-radius:8px;background:none;cursor:pointer">
-        <img src="${YGO_ART}${c}.jpg" alt="" loading="lazy" style="width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:6px;display:block;background:var(--field-bg)"></button>`).join('')}
+    body.innerHTML = `<div class="cp-grid">
+      ${codes.map((c) => { const nm = names[c] || ('carta ' + c); return `<button class="cp-card${d.cover_passcode === c ? ' sel' : ''}" data-code="${c}" type="button" aria-label="Usar ${esc(nm)} como portada">
+        <img src="${YGO_ART}${c}.jpg" alt="${esc(names[c] || '')}" loading="lazy"></button>`; }).join('')}
     </div>`;
     body.querySelectorAll('.cp-card').forEach((b) => b.addEventListener('click', async () => {
-      body.querySelectorAll('.cp-card').forEach((x) => { x.style.borderColor = 'transparent'; });
-      b.style.borderColor = 'var(--gold)';
+      body.querySelectorAll('.cp-card').forEach((x) => x.classList.remove('sel'));
+      b.classList.add('sel');
       try { await API.req('/decks/' + d.id + '/cover', { method: 'PUT', body: { cover: Number(b.dataset.code) } }); showToast('Portada actualizada.'); navBack(); }
       catch (e) { showToast(e.message || 'No se pudo cambiar la portada.', true); }
     }));
@@ -1191,26 +1210,29 @@
   // Small personal summary under the live pairing box: this player's decided
   // matches in THIS tournament (round · opponent · result) + a running W-L.
   const H_LABEL = { win: 'Ganaste', loss: 'Perdiste', bye: 'BYE', lateLoss: 'Entrada tardía', doubleLoss: 'Doble derrota' };
+  /**
+   * Builds the match history block for a player.
+   * @param {Object} me - Player data containing match history.
+   * @return {string} The rendered history HTML, or an empty string when no history exists.
+   */
   function historyBlock(me) {
     const h = me.history || [];
     if (!h.length) return '';
     const W = h.filter((x) => x.outcome === 'win' || x.outcome === 'bye').length;
     const L = h.length - W;
     const rows = h.map((x) => {
-      const neutral = x.outcome === 'bye';
-      const won = x.outcome === 'win';
-      const color = neutral ? 'var(--ink-soft)' : (won ? 'var(--green)' : 'var(--crimson)');
+      const cls = x.outcome === 'bye' ? 'neutral' : (x.outcome === 'win' ? 'win' : 'loss');
       const who = x.opponent ? esc(x.opponent) : (x.outcome === 'bye' ? 'Descanso' : 'Sin rival');
-      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid rgba(255,255,255,.05)">
-          <span style="font-family:var(--mono);color:var(--ink-faint);font-size:12px;width:28px;flex-shrink:0">R${x.round}</span>
-          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${who}</span>
-          <span style="color:${color};font-weight:700;font-size:12.5px;flex-shrink:0">${H_LABEL[x.outcome] || ''}</span>
+      return `<div class="mh-row">
+          <span class="r">R${x.round}</span>
+          <span class="who">${who}</span>
+          <span class="out ${cls}">${H_LABEL[x.outcome] || ''}</span>
         </div>`;
     }).join('');
-    return `<div style="margin-top:18px;text-align:left">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-          <span class="muted" style="font-size:12px;letter-spacing:.4px;text-transform:uppercase">Tu historial</span>
-          <span style="font-family:var(--mono);font-weight:700;font-size:13px"><span style="color:var(--green)">${W}</span><span class="muted">-</span><span style="color:var(--crimson)">${L}</span></span>
+    return `<div class="mh">
+        <div class="mh-head">
+          <span class="muted mh-title">Tu historial</span>
+          <span class="mh-rec"><span class="w">${W}</span><span class="muted">-</span><span class="l">${L}</span></span>
         </div>${rows}
       </div>`;
   }
