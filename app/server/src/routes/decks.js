@@ -9,6 +9,9 @@ const MAX_DECKS = 5;
 const API_URL = (process.env.DECKS_API_URL || '').replace(/\/+$/, '');
 const API_TOKEN = process.env.DECKS_REQUEST_TOKEN || '';
 
+/**
+ * Registers deck management routes.
+ */
 export default async function deckRoutes(app) {
   const db = app.db;
 
