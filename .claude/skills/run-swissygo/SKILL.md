@@ -100,6 +100,26 @@ dev-clutter tournaments named `QA-E2E …` you can delete from the LAN admin pag
 Both default to the `qa-to` / `qa-player` accounts on torneodev; supply the password via env
 vars (`QA_TO_PASS` / `QA_PLAYER_PASS`) — it is not committed.
 
+## Per-feature screenshots & mockups (the review loop)
+
+Beyond the 5 baseline driver shots, **each UI change gets its own screenshot** for the owner to
+review, written to **`.claude/skills/run-swissygo/screenshots-review/`**. Two flavours:
+
+- **Mockup (design approval, before coding):** a throwaway HTML file using the real palette +
+  real data, rendered headless at phone width and screenshotted. Present it, iterate, get a
+  thumbs-up, THEN implement. Examples produced this way: `standings-107-mock.png`,
+  `decks-edit-panel-mock.png`.
+- **Live render (verification, after coding):** a tiny static server over `app/web/` + a
+  Playwright context that **stubs `/api/**`** (and external calls like ygoprodeck `cardinfo`)
+  with fixtures, drives the real `player.js`/`connect.js`, asserts the flow, and screenshots the
+  result (e.g. `decks-edit-panel-live.png`, `player-history.png`). This doubles as the headless
+  test in the verification bar (see `swissygo-ship`).
+
+Pattern for both: `viewport {width:430,...}, deviceScaleFactor: 2`; inject session state via
+`context.addInitScript` (`localStorage` `ygo_token`/`ygo_role`/`ygo_joined`); `context.route`
+for fixtures. To share a PNG with the owner, copy it under the workspace and link it with a
+relative markdown path (it's clickable in the IDE). **Always open the PNG and look at it.**
+
 ## Gotchas
 
 - **`better-sqlite3` won't `npm install` on Node 24 / win-x64**: no prebuilt binary for that

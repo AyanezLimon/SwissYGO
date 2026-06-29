@@ -1,6 +1,6 @@
 ---
 name: swissygo-ship
-description: Build and ship a change in the SwissYGO overhaul (app/). Encodes the hard rules (verbatim app.js/styles.css, additive connect.js layer, single-writer, durable metadata, cache-bust bumps) and the PR-into-develop → Codex → merge → verify workflow. Use for ANY code change under app/.
+description: Build and ship a change in the SwissYGO overhaul (app/). Encodes the hard rules (verbatim app.js/styles.css, additive connect.js/player.js layer, single-writer, durable metadata, cache-bust bumps), the design & quality philosophy (mockup-first UI, brand palette, headless-test + screenshot verification, qa-account live checks), and the PR-into-develop → owner-approved auto-merge → verify workflow. Use for ANY code change under app/.
 ---
 
 # Shipping a SwissYGO change
@@ -35,6 +35,40 @@ heavy deps, no per-push Docker churn beyond the API image.
   tool's `admin.html` is served by the API (no query bust; picked up on API rebuild).
 - **Verbatim guard:** if a task seems to need an `app.js`/`styles.css` edit, find the additive
   workaround instead.
+- **Player page `/u/` (`js/player.js`) is editable** (not verbatim), but stay additive in spirit:
+  bump its `?v=` on every change, reuse the existing helpers (`$`, `esc`, `showToast`, the
+  `navOpen`/`navBack` History-API screen stack) and inline-style + `--var` palette conventions
+  already in the file. New screens are `navOpen(() => renderX())`; `navBack` re-runs the stored
+  screen on popstate (so a sub-screen edit is reflected when you return — re-fetch on render).
+
+## Design & quality philosophy (how we've been working — keep this bar)
+
+- **Mockup-first for any non-trivial UI.** Before writing shipped code, build a throwaway HTML
+  mockup using the **real app palette + real data** (card art from ygoprodeck, an actual
+  generated deck image, etc.), render it headless with Playwright at **phone width (430px,
+  `deviceScaleFactor: 2`)**, and present the PNG for approval. Iterate on the mockup, not the
+  product. (Precedents: standings revamp #107, decks edit panel #110.)
+- **Original designs — never plagiarise.** Draw inspiration (e.g. store top-3 art layouts) but
+  produce an original layout.
+- **Brand palette (from `css/styles.css :root`):** bg `#14131f`, panel `#211f35`, border-2
+  `#443f5d`, ink `#eef1f7` / soft `#a7adc2` / faint `#767089`, green `#57ab5a`, crimson
+  `#e5534b`, field `#1a1829`. The accent var is misnamed: **`--gold` is actually cyan `#82d8eb`**
+  (text on it = `--accent-ink #16142a`); medals use real gold/silver/bronze. Reuse these vars;
+  `/u/` is **phone-first** and dark by default. Cache-bust HTML refs (e.g. `styles.css?v=271`).
+- **Verification bar — do all that apply BEFORE opening the PR:**
+  - `node --check` every changed JS file; touched the API → `cd app/server && node --test`.
+  - **Headless Playwright test with a stubbed API** for any UI change: a tiny static server +
+    `context.route('**/api/**', …)` returning fixtures (+ stub external calls like ygoprodeck),
+    assert the DOM/flow, and write a screenshot to
+    `.claude/skills/run-swissygo/screenshots-review/`. **Look at the screenshot.**
+  - **Live-verify backend changes** against torneodev with the **qa accounts**
+    (`qa-player` / `qa-to`, password in the `swissygo-qa-accounts` memory) — drive the real
+    endpoint end-to-end (login → call → assert → clean up) instead of deferring. See `run-swissygo`.
+- **Decks ("Mis Decks", #84):** deck images + covers are rendered by an **external** API
+  (`omega-api-decks` on Render) and stored in **Supabase**; the Pi stores only the URLs. Card
+  **names** are resolved **client-side** from ygoprodeck `cardinfo` (CORS `*`). See the
+  `swissygo-decks-architecture` memory. Omega "Clipboard recipe" (names-format) input fails to
+  decode in the external API — intentionally unsupported; ydk/ydke/omega-code work.
 
 ## Workflow
 
@@ -53,8 +87,19 @@ heavy deps, no per-push Docker churn beyond the API image.
    `node --experimental-sqlite -e "const{DatabaseSync}=require('node:sqlite');const fs=require('fs');const d=new DatabaseSync(':memory:');d.exec('PRAGMA foreign_keys=ON');for(const f of fs.readdirSync('app/server/migrations').filter(f=>f.endsWith('.sql')).sort())d.exec(fs.readFileSync('app/server/migrations/'+f,'utf8'));console.log('ok')"`
 4. **Commit** (end the message with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`),
    push, and `gh pr create --base develop` (PR body ends with the Generated-with footer).
-5. **Codex reviews.** Fix worthwhile comments; decline others with a stated reason in the reply.
-6. After the owner **merges**, the merge commit triggers deploys — then run **`swissygo-verify`**.
+5. **Enable auto-merge as a real account (you, AriesYL) — NOT via a workflow:**
+   `gh pr merge <n> --auto --squash`. Then the only thing left is the owner's review.
+   ⚠️ **Do NOT enable auto-merge from a GitHub Action using `GITHUB_TOKEN`.** GitHub does not
+   trigger workflows from `GITHUB_TOKEN` pushes, so such a merge lands on develop WITHOUT firing
+   the deploys (this bit us: #111 merged but never deployed). A merge whose auto-merge was enabled
+   by a real account triggers the deploys correctly.
+6. **Branch protection gates the merge:** 1 approving review + the CI **`test`** check, and
+   **`require_code_owner_reviews`** — `.github/CODEOWNERS` (`* @AyanezLimon`) auto-requests the
+   owner on every bot-opened PR, and their approval is required. Codex may also comment: fix
+   worthwhile comments, decline others with a stated reason in the reply.
+7. Owner approves → it auto-merges → the merge push **triggers the deploys**. Then run
+   **`swissygo-verify`**. If a merge ever lands without deploying, dispatch manually:
+   `gh workflow run deploy-web.yml --ref develop` (and/or `deploy-api.yml`).
 
 ## Project board (issue-centric — applies to ANY agent working this repo)
 
@@ -73,9 +118,9 @@ and cards are never deleted. Follow this regardless of which agent/tooling you u
   decision/agreement is reached, **update the issue body** (`gh issue edit N --body …`)
   so the cards stay an accurate, documented record of each feature.
 - Status moves (Todo → In Progress → Done) and any manual linking are the owner's to
-  make. Don't restructure the board. (We merge to `develop`, not the default branch, so
-  `Closes #N` links but does NOT auto-close the issue — the card moves to Done manually
-  or via the optional `chore/project-card-sync` Action.)
+  make. Don't restructure the board. **`develop` is the default branch now**, so a
+  `Closes #N` reference on a PR into develop **auto-closes** the issue on merge (and the
+  board moves it to Done) — keep using `Closes #N` while the PR is open.
 
 ## Deploys (auto on push/merge to develop)
 

@@ -20,6 +20,17 @@ gh run list --repo AyanezLimon/SwissYGO --limit 4 --json name,conclusion,headSha
 - Backend PR (`app/server/**`) → **Deploy API (dev)** fires (and Web too if both changed).
 - Confirm the run(s) on the **merge commit** show `success` (or `gh run watch <id> --exit-status`).
 
+⚠️ **If NO deploy ran after a merge:** the merge was likely made via `GITHUB_TOKEN` (e.g. an
+auto-merge enabled by a GitHub Action) — GitHub doesn't trigger workflows from `GITHUB_TOKEN`
+pushes. Dispatch them by hand on the merged HEAD:
+
+```bash
+gh workflow run deploy-web.yml --ref develop    # and/or:
+gh workflow run deploy-api.yml --ref develop
+```
+
+To avoid this, auto-merge is enabled per-PR by a real account (see `swissygo-ship`), not a workflow.
+
 ## 2. Confirm the new code is live
 
 The dev site sends `Cache-Control: no-store`, so a plain fetch returns fresh files. Check the
@@ -39,7 +50,15 @@ function get($p){ (Invoke-WebRequest -Uri "$base$p" -Headers $h -UseBasicParsing
 
 Pick markers from THIS PR's diff (a new function name, a CSS class, the bumped `?v=`).
 
-## 3. Flag what can't be checked headlessly
+## 3. Exercise the change end-to-end (don't just curl the asset)
+
+For a **backend** change, drive the real endpoint against torneodev with the **qa accounts**
+(`qa-player` / `qa-to`; password in the `swissygo-qa-accounts` memory) — login → call the new
+endpoint → assert the response → clean up anything you created. This catches deploy/runtime
+issues a static fetch can't (e.g. a route not registered, a 400/500 in the live container). It's
+the same loop used during development; prefer it over deferring to the owner's manual QA.
+
+## 4. Flag what can't be checked headlessly
 
 Canvas rendering, CSS animations, audio/vibration/Notifications, drag-and-drop, and any
 multi-actor timing (TO absorb → player pairing) need a real browser — list them explicitly
