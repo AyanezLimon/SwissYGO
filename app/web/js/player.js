@@ -990,6 +990,7 @@
       const pct = r.winPct;
       const decided = r.wins + r.losses;
       let elo = null; try { elo = await API.req('/me/elo'); } catch (e) {} // best-effort Elo detail
+      let dstats = null; try { dstats = await API.req('/me/deck-stats'); } catch (e) {} // best-effort deck stats (#108)
 
       // Hero: animated win-rate ring + stat tiles.
       let html = `
@@ -1031,6 +1032,21 @@
         }
       }
 
+      // Deck stats teaser (#108): favourite deck + a tap into the full sub-screen.
+      if (dstats && dstats.favorite) {
+        const f = dstats.favorite;
+        html += '<div class="pf-sec-title">Mis decks</div>';
+        html += `<button id="deckstats-open" type="button" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--field-bg);border:1px solid var(--border-2);border-radius:11px;padding:10px;color:var(--ink);cursor:pointer">
+          ${f.coverUrl ? `<img src="${esc(f.coverUrl)}" alt="" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0">` : '<span style="width:46px;height:46px;border-radius:8px;background:var(--panel-2);flex-shrink:0;display:block"></span>'}
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)">Deck preferido</span>
+            <b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name || 'Deck')}</b>
+            <span style="font-size:12px;color:var(--ink-soft)">Jugado ${f.played}× · <b style="color:var(--gold)">${f.winrate}%</b> WR</span>
+          </span>
+          <span style="color:var(--gold-soft);font-size:13px;flex-shrink:0">Ver stats ›</span>
+        </button>`;
+      }
+
       // Head-to-head: proportional win/loss bar per opponent, colour-coded.
       if (st.headToHead.length) {
         html += '<div class="pf-sec-title">Cara a cara</div><div class="pf-h2h">';
@@ -1059,6 +1075,7 @@
       b.innerHTML = html;
       b.querySelectorAll('.pf-tourney').forEach((el) => el.addEventListener('click', () => navOpen(() => showResults(Number(el.dataset.id), null, () => renderProfile()))));
       const eo = b.querySelector('#elo-open'); if (eo && !eo.disabled) eo.addEventListener('click', () => navOpen(() => renderEloDetail(elo)));
+      const dso = b.querySelector('#deckstats-open'); if (dso) dso.addEventListener('click', () => navOpen(() => renderDeckStats()));
 
       // Animate after the initial (empty) frame paints: ring fills clockwise, bars grow.
       requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1067,6 +1084,64 @@
         b.querySelectorAll('.pf-bar-w, .pf-bar-l').forEach((bar) => { bar.style.width = bar.dataset.w + '%'; });
       }));
     } catch (e) { const b = $('#body'); if (b) { b.classList.add('muted'); b.textContent = e.message; } }
+  }
+
+  // Full deck-stats sub-screen (#108): season selector, favourite deck, a summary,
+  // and the top cards by play count / winrate. Card names/art resolved client-side.
+  async function renderDeckStats(season) {
+    stopPoll(); root.classList.remove('results');
+    root.innerHTML = `<div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+          <button class="btn btn-sm btn-ghost" id="back" type="button" style="flex-shrink:0">← Volver</button>
+          <h2 style="margin:0;font-size:17px">Mis estadísticas</h2>
+          <span style="width:60px"></span>
+        </div>
+        <div id="ds-body" class="muted" style="margin-top:14px">Cargando…</div>
+      </div>`;
+    $('#back').addEventListener('click', navBack);
+    let data;
+    try { data = await API.req('/me/deck-stats' + (season ? '?season=' + encodeURIComponent(season) : '')); }
+    catch (e) { const x = $('#ds-body'); if (x) x.textContent = 'No se pudieron cargar tus estadísticas.'; return; }
+    const codes = [...new Set([...(data.topPlayed || []).map((c) => c.code), ...(data.topWinrate || []).map((c) => c.code)])];
+    const names = await resolveCardNames(codes);
+    const body = $('#ds-body'); if (!body) return; body.classList.remove('muted');
+    const ART = 'https://images.ygoprodeck.com/images/cards_cropped/';
+    const seasons = (data.seasons && data.seasons.length) ? data.seasons : [data.season];
+    const seasonSel = seasons.length > 1
+      ? `<select id="ds-season" style="background:var(--field-bg);border:1px solid var(--border-2);color:var(--gold);border-radius:999px;padding:5px 12px;font-weight:700;font-size:12px">${seasons.map((s) => `<option value="${s}"${s === data.season ? ' selected' : ''}>${esc(monthLabel(s))}</option>`).join('')}</select>`
+      : `<span style="display:inline-block;font-size:12px;font-weight:700;color:var(--gold);background:rgba(130,216,235,.10);border:1px solid rgba(130,216,235,.35);border-radius:999px;padding:5px 12px">${esc(monthLabel(data.season))}</span>`;
+    if (!data.summary || !data.summary.matches) {
+      body.innerHTML = `<div style="text-align:center;margin-bottom:8px">${seasonSel}</div>
+        <p class="muted" style="font-size:13px;text-align:center;padding:18px 0">Aún no tienes partidas clasificatorias esta temporada.<br>Juega torneos ranked con un deck y tus estadísticas aparecerán aquí.</p>`;
+      const s0 = $('#ds-season'); if (s0) s0.addEventListener('change', () => renderDeckStats(s0.value));
+      return;
+    }
+    const f = data.favorite || {};
+    const cardRow = (i, code, right) => `<div style="display:flex;align-items:center;gap:11px;padding:7px 0;border-top:1px solid rgba(255,255,255,.05)">
+        <span style="font-family:var(--mono);color:var(--ink-faint);width:16px;flex-shrink:0;font-size:12px">${i}</span>
+        <img src="${ART}${code}.jpg" alt="" loading="lazy" style="width:38px;height:38px;border-radius:7px;object-fit:cover;flex-shrink:0;background:var(--field-bg)">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px">${esc(names[code] || ('#' + code))}</span>
+        ${right}
+      </div>`;
+    body.innerHTML = `
+      <div style="text-align:center;margin-bottom:4px">${seasonSel}</div>
+      <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:18px 2px 8px">Deck preferido</div>
+      <div style="display:flex;align-items:center;gap:13px;background:var(--panel-2);border:1px solid var(--border-2);border-radius:12px;padding:12px">
+        ${f.coverUrl ? `<img src="${esc(f.coverUrl)}" alt="" style="width:60px;height:60px;border-radius:11px;object-fit:cover;flex-shrink:0;border:2px solid var(--gold)">` : '<span style="width:60px;height:60px;border-radius:11px;background:var(--field-bg);flex-shrink:0;display:block"></span>'}
+        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name || 'Deck')}</div>
+          <div style="margin-top:5px;font-size:12.5px;color:var(--ink-soft)">Jugado <b style="color:var(--gold);font-family:var(--mono)">${f.played || 0}×</b> · <b style="color:var(--gold);font-family:var(--mono)">${f.winrate || 0}%</b> de victorias</div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px">${data.summary.tournaments}</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Torneos</div></div>
+        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px">${data.summary.matches}</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Partidas</div></div>
+        <div style="flex:1;text-align:center;background:var(--field-bg);border:1px solid var(--border);border-radius:10px;padding:9px 4px"><div style="font-family:var(--mono);font-weight:800;font-size:17px;color:var(--green)">${data.summary.winrate}%</div><div style="font-size:10px;color:var(--ink-faint);text-transform:uppercase">Winrate</div></div>
+      </div>
+      ${(data.topPlayed || []).length ? `<div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:20px 2px 8px">Top 5 · cartas más jugadas</div>
+        ${data.topPlayed.map((c, i) => cardRow(i + 1, c.code, `<span style="font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);flex-shrink:0">${c.matches}×</span>`)).join('')}` : ''}
+      ${(data.topWinrate || []).length ? `<div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:20px 2px 8px">Top 5 · mejor winrate</div>
+        ${data.topWinrate.map((c, i) => cardRow(i + 1, c.code, `<span style="display:flex;align-items:center;gap:8px;flex-shrink:0;width:96px"><span style="flex:1;height:6px;border-radius:4px;background:var(--field-bg);overflow:hidden"><i style="display:block;height:100%;width:${c.winrate}%;background:linear-gradient(90deg,var(--gold-soft),var(--gold))"></i></span><span style="font-family:var(--mono);font-weight:700;font-size:12.5px;color:var(--gold);width:34px;text-align:right">${c.winrate}%</span></span>`)).join('')}` : ''}
+      <div style="margin-top:18px;font-size:11.5px;color:var(--ink-faint);text-align:center">Calculado con tus torneos clasificatorios de esta temporada.</div>`;
+    const sel = $('#ds-season'); if (sel) sel.addEventListener('change', () => renderDeckStats(sel.value));
   }
 
   // Season match history (opened from the profile's Elo banner). One card per game:
