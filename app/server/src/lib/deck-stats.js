@@ -22,6 +22,7 @@ export function aggregateDeckStats(rows, { minGames = 3 } = {}) {
     for (const round of state.rounds || []) {
       for (const m of round.matches || []) {
         if (m.p1Id !== r.playerId && m.p2Id !== r.playerId) continue;
+        if (!m.isReported) continue; // not played/confirmed yet
         if (m.isBye || m.isLateLoss) continue;
         if (m.result !== 'p1' && m.result !== 'p2') continue; // decisive only
         const won = (m.result === 'p1') === (m.p1Id === r.playerId);

@@ -33,6 +33,7 @@ test('byes / late losses / unreported are not counted', () => {
       { p1Id: 'me', p2Id: null, isBye: true, isReported: true },
       { p1Id: 'me', p2Id: 'o2', isLateLoss: true, isReported: true },
       { p1Id: 'me', p2Id: 'o3', result: 'doubleLoss', isReported: true },
+      { p1Id: 'me', p2Id: 'o4', result: 'p1', isReported: false }, // decisive-looking but NOT reported
     ] }] },
   }];
   assert.deepEqual(aggregateDeckStats(rows).summary, { tournaments: 1, matches: 1, wins: 1, winrate: 100 });

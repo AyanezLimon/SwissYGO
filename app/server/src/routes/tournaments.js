@@ -251,16 +251,19 @@ export default async function tournamentRoutes(app) {
         return null;
       };
 
-      // Resume an existing registration — works even after registration closes.
+      // Resume an existing registration — works even after registration closes. The deck
+      // snapshot is only mutable during SETUP: once the event starts, switching it would
+      // retroactively re-attribute already-played matches to the new deck in stats (#108).
       if (existing) {
-        // Ranked + still open: switch to (or first set) a chosen deck.
-        if (t.ranked && open && wantedDeck && wantedDeck !== existing.deck_id) {
+        const inSetup = t.status === 'setup';
+        // Ranked + setup: switch to (or first set) a chosen deck.
+        if (t.ranked && inSetup && wantedDeck && wantedDeck !== existing.deck_id) {
           const err = await useRankedDeck((id, cj) => db.prepare('UPDATE registrations SET deck_id = ?, cards_json = ? WHERE tournament_id = ? AND user_id = ?').run(id, cj, t.id, userId));
           if (err) return err;
           return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: wantedDeck };
         }
-        // Ranked + open but still no deck on file and none chosen → must pick one.
-        if (t.ranked && open && !existing.deck_id && !wantedDeck)
+        // Ranked + setup but still no deck on file and none chosen → must pick one.
+        if (t.ranked && inSetup && !existing.deck_id && !wantedDeck)
           return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
         return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
       }
@@ -692,12 +695,13 @@ export default async function tournamentRoutes(app) {
       LEFT JOIN user_decks d ON d.id = r.deck_id
       WHERE r.user_id = ? AND t.ranked = 1 AND t.status = 'finished'`).all(uid);
     const monthOfRow = (x) => String(x.finished_at || x.created_at || '').slice(0, 7);
-    const seasons = [...new Set(regs.map(monthOfRow))].filter(Boolean).sort().reverse();
+    // Always include the selected season so the UI selector keeps it (even if it's empty).
+    const seasons = [...new Set([season, ...regs.map(monthOfRow)])].filter(Boolean).sort().reverse();
     const rows = regs.filter((x) => monthOfRow(x) === season).map((x) => ({
       tournamentId: x.tid, playerId: x.player_id, deckId: x.deck_id,
       deckName: x.deck_name, coverUrl: x.cover_url, coverPasscode: x.cover_passcode,
       state: safe(x.state_json) || {}, cards: x.cards_json ? safe(x.cards_json) : null,
     }));
-    return { season, seasons: seasons.length ? seasons : [cur], ...aggregateDeckStats(rows) };
+    return { season, seasons, ...aggregateDeckStats(rows) };
   });
 }

@@ -1088,8 +1088,10 @@
 
   // Full deck-stats sub-screen (#108): season selector, favourite deck, a summary,
   // and the top cards by play count / winrate. Card names/art resolved client-side.
+  let _dsRender = 0; // monotonic token: a newer render (e.g. season change) invalidates older async writes
   async function renderDeckStats(season) {
     stopPoll(); root.classList.remove('results');
+    const token = ++_dsRender;
     root.innerHTML = `<div class="card">
         <div class="row scr-head">
           <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
@@ -1101,9 +1103,11 @@
     $('#back').addEventListener('click', navBack);
     let data;
     try { data = await API.req('/me/deck-stats' + (season ? '?season=' + encodeURIComponent(season) : '')); }
-    catch (e) { const x = $('#ds-body'); if (x) x.textContent = 'No se pudieron cargar tus estadísticas.'; return; }
+    catch (e) { if (token === _dsRender) { const x = $('#ds-body'); if (x) x.textContent = 'No se pudieron cargar tus estadísticas.'; } return; }
+    if (token !== _dsRender) return; // a newer render started while we awaited
     const codes = [...new Set([...(data.topPlayed || []).map((c) => c.code), ...(data.topWinrate || []).map((c) => c.code)])];
     const names = await resolveCardNames(codes);
+    if (token !== _dsRender) return;
     const body = $('#ds-body'); if (!body) return; body.classList.remove('muted');
     const ART = 'https://images.ygoprodeck.com/images/cards_cropped/';
     const seasons = (data.seasons && data.seasons.length) ? data.seasons : [data.season];
