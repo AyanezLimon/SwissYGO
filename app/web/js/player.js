@@ -459,7 +459,7 @@
           </button>`;
       }).join('')}</div>
         <button class="btn btn-gold jdp-go" id="jdp-go" type="button"${cur ? '' : ' disabled'}>${cur ? 'Registrarme con ' + esc(cur.d.name || 'este deck') : 'Elige un deck legal'}</button>
-        <div class="muted jdp-manage-row">Gestiona tus mazos en <a class="jdp-manage" id="jdp-manage">Mis Decks</a></div>`;
+        <div class="muted jdp-manage-row">Gestiona tus mazos en <button class="jdp-manage" id="jdp-manage" type="button">Mis Decks</button></div>`;
       body.querySelectorAll('.jdp-deck').forEach((el) => el.addEventListener('click', () => {
         if (_jdpJoining) return; // a registration is in flight — ignore selection changes
         if (el.dataset.legal === '1') { selected = Number(el.dataset.id); draw(); return; }
@@ -924,10 +924,11 @@
     try { const r = await API.req('/decks/' + d.id + '/cards'); cards = r.decks || {}; }
     catch (e) { $('#cp-body').textContent = e.message || 'No se pudieron cargar las cartas.'; return; }
     const codes = [...new Set([...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])])];
+    const names = await resolveCardNames(codes); // name the options for screen readers
     const body = $('#cp-body'); body.classList.remove('muted');
     body.innerHTML = `<div class="cp-grid">
-      ${codes.map((c) => `<button class="cp-card${d.cover_passcode === c ? ' sel' : ''}" data-code="${c}" type="button">
-        <img src="${YGO_ART}${c}.jpg" alt="" loading="lazy"></button>`).join('')}
+      ${codes.map((c) => { const nm = names[c] || ('carta ' + c); return `<button class="cp-card${d.cover_passcode === c ? ' sel' : ''}" data-code="${c}" type="button" aria-label="Usar ${esc(nm)} como portada">
+        <img src="${YGO_ART}${c}.jpg" alt="${esc(names[c] || '')}" loading="lazy"></button>`; }).join('')}
     </div>`;
     body.querySelectorAll('.cp-card').forEach((b) => b.addEventListener('click', async () => {
       body.querySelectorAll('.cp-card').forEach((x) => x.classList.remove('sel'));
