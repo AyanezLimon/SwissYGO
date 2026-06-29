@@ -86,8 +86,17 @@ heavy deps, no per-push Docker churn beyond the API image.
    in PR" when it actually merged) causes avoidable merge conflicts / duplicate work. See memory
    `never-assume-repo-state`.
 1. **Branch off `origin/develop`** with a descriptive name (`feat/…`, `fix/…`) — never name it
-   after the reviewer ("codex", "review"). If a change depends on an unmerged PR, stack on that
-   branch and set the PR base to it; retarget to `develop` once the base merges.
+   after the reviewer ("codex", "review"). **Prefer NOT to stack.** If a change depends on another
+   PR, first `gh pr view <base> --json state,mergedAt`: if it already **merged**, just branch off
+   `origin/develop` (the dependency is already there). Only stack on a still-**open** PR's branch
+   (set the PR base to it). When the base PR merges, **retarget yours to `develop` first**
+   (`gh pr edit <n> --base develop`) — that keeps it open (GitHub usually auto-retargets, but do
+   it explicitly). Then **rebase**, because the base was squash-merged (its commits aren't on
+   develop, so the diff would otherwise be polluted): `git rebase --onto origin/develop
+   <old-base-branch> <your-branch>` + force-push. (Only if the base branch was already deleted AND
+   GitHub closed your PR instead of retargeting — you can't change a closed PR's base — open a fresh
+   one into develop after that rebase.) Lesson: #108 was stacked on #109's branch, which had already
+   merged — verify base state before stacking.
 2. Implement. Keep code in the surrounding style; match comment density.
 3. **Validate:** `node --check` every changed JS file. If you touched `app/server/migrations/`,
    apply the chain on a throwaway DB to confirm it runs:
