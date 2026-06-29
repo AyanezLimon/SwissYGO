@@ -360,3 +360,90 @@ select.ds-season { cursor: pointer; }
 .ds-card .wr .pct { width: 34px; font-family: var(--mono); font-weight: 700; font-size: 12.5px; color: var(--gold); text-align: right; }
 .ds-foot { margin-top: 18px; font-size: 11.5px; color: var(--ink-faint); text-align: center; }
 .ds-empty { padding: 18px 0; font-size: 13px; text-align: center; }
+
+/* ---- Player · small utilities ----------------------------------------- */
+.btn-block { width: 100%; }
+.scr-h2 { margin: 0; }
+.md-max { margin-bottom: 10px; }
+
+/* ---- Player · Mis Decks (list + add form) ----------------------------- */
+.md-body { margin-top: 10px; }
+.md-count { margin-bottom: 10px; font-size: 12.5px; }
+.md-deck-input { box-sizing: border-box; width: 100%; padding: 10px; font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 8px; resize: vertical; }
+.md-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.md-empty { padding: 10px 0; font-size: 13px; text-align: center; }
+.deck-card { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--border-2); border-radius: 10px; }
+.deck-card .cover { flex-shrink: 0; width: 54px; height: 54px; border-radius: 8px; object-fit: cover; background: var(--field-bg); }
+.deck-card .name { flex: 1; min-width: 0; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.deck-card .acts { flex-shrink: 0; gap: 6px; }
+
+/* ---- Player · deck edit panel ----------------------------------------- */
+.de-body { margin-top: 14px; }
+.de-hero { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.de-cover-btn { position: relative; padding: 0; background: none; border: none; cursor: pointer; }
+.de-cover-btn .cover { display: block; width: 92px; height: 92px; border-radius: 14px; object-fit: cover; background: var(--field-bg); border: 2px solid var(--gold); }
+.de-cover-btn .cover.empty { border-color: var(--border-2); }
+.de-cover-btn .badge { position: absolute; right: -6px; bottom: -6px; padding: 3px 9px; font-size: 11.5px; font-weight: 700; color: var(--accent-ink); background: var(--gold); border-radius: 999px; box-shadow: 0 2px 8px rgba(0, 0, 0, .4); }
+.de-name-wrap { margin-top: 14px; }
+.de-hint { margin-top: 7px; font-size: 11.5px; }
+.de-image { margin-top: 18px; }
+.de-image img { display: block; width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+.de-name-btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 16px; font-weight: 700; color: var(--ink); background: var(--field-bg); border: 1px dashed var(--border-2); border-radius: 10px; cursor: pointer; }
+.de-name-btn .pen { font-size: 13px; color: var(--gold); }
+.de-name-edit { justify-content: center; gap: 6px; }
+.de-name-input { max-width: 200px; padding: 8px 10px; font-size: 15px; color: var(--ink); background: var(--field-bg); border: 1px solid var(--border-2); border-radius: 8px; }
+.dl { margin-top: 18px; font-size: 12.5px; }
+.dl-sec { display: flex; justify-content: space-between; margin: 14px 2px 6px; font-size: 12px; font-weight: 700; color: var(--gold); }
+.dl-sec .ct { font-weight: 600; color: var(--ink-faint); }
+.dl-row { display: flex; gap: 9px; padding: 5px 2px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, .045); }
+.dl-row .q { flex-shrink: 0; width: 26px; font-family: var(--mono); color: var(--ink-soft); }
+
+/* ---- Player · cover picker -------------------------------------------- */
+.cp-hint { margin-top: 6px; font-size: 12.5px; }
+.cp-body { margin-top: 12px; }
+.cp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.cp-card { padding: 0; background: none; border: 2px solid transparent; border-radius: 8px; cursor: pointer; }
+.cp-card.sel { border-color: var(--gold); }
+.cp-card img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 6px; background: var(--field-bg); }
+
+/* ---- Player · ranked deck pick (#109) --------------------------------- */
+.jdp-badge-row { margin-top: 12px; text-align: center; }
+.jdp-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 11.5px; font-weight: 700; color: var(--gold); background: rgba(130, 216, 235, .10); border: 1px solid rgba(130, 216, 235, .35); border-radius: 999px; }
+.jdp-lead { margin-top: 12px; font-size: 13px; }
+.jdp-body { margin-top: 14px; }
+.jdp-state { padding: 6px 4px; text-align: center; }
+.jdp-state .ico { font-size: 32px; }
+.jdp-state p { margin: 8px 0 16px; font-size: 13.5px; }
+.jdp-list { display: flex; flex-direction: column; gap: 9px; }
+.jdp-deck { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 11px; text-align: left; color: var(--ink); background: var(--field-bg); border: 1.5px solid var(--border-2); border-radius: 11px; cursor: pointer; }
+.jdp-deck.sel { border-color: var(--gold); }
+.jdp-deck.illegal { cursor: default; }
+.jdp-deck .cover-wrap { position: relative; flex-shrink: 0; width: 46px; height: 46px; }
+.jdp-deck .cover { display: block; width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: var(--field-bg); }
+.jdp-deck.illegal .cover { filter: grayscale(.7) brightness(.6); }
+.jdp-deck .lock { position: absolute; inset: 0; display: grid; place-items: center; font-size: 20px; }
+.jdp-deck .meta { flex: 1; min-width: 0; }
+.jdp-deck .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jdp-deck.illegal .name { opacity: .7; }
+.jdp-deck .why { display: block; margin-top: 2px; font-size: 11.5px; color: var(--crimson); }
+.jdp-deck .radio { display: grid; place-items: center; flex-shrink: 0; width: 24px; height: 24px; font-size: 13px; font-weight: 800; color: transparent; border: 2px solid var(--border-2); border-radius: 50%; }
+.jdp-deck.sel .radio { color: var(--accent-ink); background: var(--gold); border-color: var(--gold); }
+.jdp-deck.illegal .radio { border-color: transparent; }
+.jdp-go { width: 100%; margin-top: 16px; }
+.jdp-manage-row { margin-top: 12px; font-size: 12px; text-align: center; }
+.jdp-manage { color: var(--gold-soft); cursor: pointer; }
+
+/* ---- Player · personal match history (under the live pairing) --------- */
+.mh { margin-top: 18px; text-align: left; }
+.mh-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.mh-title { font-size: 12px; letter-spacing: .4px; text-transform: uppercase; }
+.mh-rec { font-family: var(--mono); font-weight: 700; font-size: 13px; }
+.mh-rec .w { color: var(--green); }
+.mh-rec .l { color: var(--crimson); }
+.mh-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, .05); }
+.mh-row .r { flex-shrink: 0; width: 28px; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+.mh-row .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mh-row .out { flex-shrink: 0; font-weight: 700; font-size: 12.5px; }
+.mh-row .out.win { color: var(--green); }
+.mh-row .out.loss { color: var(--crimson); }
+.mh-row .out.neutral { color: var(--ink-soft); }
