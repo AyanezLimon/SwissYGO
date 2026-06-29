@@ -6,6 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { requireAuth, requireOrganizer } from '../auth.js';
 import { finalStandings } from '../lib/tiebreak.js';
 import { computeLeaderboard, MIN_GAMES as LB_MIN_GAMES } from '../lib/leaderboard.js';
+import { parseDeckString } from '../lib/decks-api.js';
+import { checkDeckLegality } from '../lib/deck-legality.js';
 
 function genJoinCode() {
   // 5 chars, unambiguous alphabet (no 0/O/1/I). Short enough to read aloud / type.
@@ -215,14 +217,41 @@ export default async function tournamentRoutes(app) {
       // their pairing even after the TO started the event.
       // Return the STORED display_name (not uname): it may have been disambiguated
       // to "Name (2)" at insert, and that's the name used in state.players/pairings.
-      const existing = db.prepare('SELECT player_id, display_name FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
-      if (existing) return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name };
+      const existing = db.prepare('SELECT player_id, display_name, deck_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, userId);
+
+      // Ranked events require a registered, LEGAL deck (#109). Resolve & validate the
+      // chosen deck (or keep the already-registered one). Casual events skip all this.
+      // Note: legality is enforced only HERE (registration), never at deck creation —
+      // an illegal deck can exist in Mis Decks, it just can't be registered for ranked.
+      let deckId = null;
+      if (t.ranked) {
+        const wanted = /^\d+$/.test(String(req.body?.deck_id ?? '')) ? Number(req.body.deck_id) : null;
+        if (!wanted && existing && existing.deck_id) // resume with no new pick → keep registered deck
+          return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
+        if (!wanted)
+          return reply.code(409).send({ code: 'ranked_requires_deck', name: t.name, error: 'Este torneo es clasificatorio: elige un deck para registrarte.' });
+        const deck = db.prepare('SELECT deck_string FROM user_decks WHERE id = ? AND user_id = ?').get(wanted, userId);
+        if (!deck) return reply.code(400).send({ error: 'Ese deck no existe o no es tuyo.' });
+        let cards;
+        try { cards = await parseDeckString(deck.deck_string); }
+        catch (e) { return reply.code(502).send({ error: 'No se pudo leer el decklist para validarlo. Intenta de nuevo.' }); }
+        const { legal, violations } = await checkDeckLegality(cards);
+        if (!legal) return reply.code(422).send({ code: 'deck_illegal', error: 'Ese deck no es legal para formato avanzado.', violations });
+        deckId = wanted;
+        if (existing) { // already registered + still open → just switch the deck
+          if (open) db.prepare('UPDATE registrations SET deck_id = ? WHERE tournament_id = ? AND user_id = ?').run(deckId, t.id, userId);
+          return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: open ? deckId : existing.deck_id };
+        }
+      } else if (existing) {
+        return { id: t.id, name: t.name, player_id: existing.player_id, display_name: existing.display_name, deck_id: existing.deck_id };
+      }
+
       if (!open) return reply.code(409).send({ error: closedMsg });
       const dn = uniqueName(t, uname);
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
-      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name) VALUES (?, ?, ?, ?)')
-        .run(t.id, userId, playerId, dn);
-      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, late: lateOpen });
+      db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name, deck_id) VALUES (?, ?, ?, ?, ?)')
+        .run(t.id, userId, playerId, dn, deckId);
+      return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, deck_id: deckId, late: lateOpen });
     }
 
     // Guest: identity is the per-tournament guest_token saved in the browser. If this

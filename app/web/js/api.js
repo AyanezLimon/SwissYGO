@@ -28,6 +28,7 @@
       const err = new Error((data && data.error) || res.statusText);
       err.status = res.status;
       if (data && data.code) err.code = data.code;   // machine-readable hint (e.g. 'ranked_requires_account')
+      if (data) err.data = data;                     // full payload (extra fields, e.g. name, violations)
       throw err;
     }
     return data;
