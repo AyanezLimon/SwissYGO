@@ -351,9 +351,14 @@
     const uniq = [...new Set(codes)]; const map = {};
     for (let i = 0; i < uniq.length; i += 100) {
       const chunk = uniq.slice(i, i + 100);
-      const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + chunk.join(','));
-      if (!r.ok) throw new Error('No se pudo consultar la banlist.');
-      const j = await r.json();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000); // a stall must not freeze the picker
+      let j;
+      try {
+        const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + chunk.join(','), { signal: ctrl.signal });
+        if (!r.ok) throw new Error('No se pudo consultar la banlist.');
+        j = await r.json();
+      } finally { clearTimeout(timer); }
       for (const c of (j.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
     }
     return map;

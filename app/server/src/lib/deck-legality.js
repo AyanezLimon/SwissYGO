@@ -65,8 +65,15 @@ export function validateDeck(cards, info = {}) {
 // caller (/join) returns a service error rather than registering an unverifiable deck.
 export async function checkDeckLegality(cards, fetchImpl = fetch) {
   const codes = [...(cards.main || []), ...(cards.extra || []), ...(cards.side || [])];
+  // A malformed passcode (non-positive-integer) can't be verified — fail closed instead of
+  // letting it slip past the unresolved check (which drops NaN/0) and be read as Unlimited.
+  if (codes.some((c) => !Number.isInteger(Number(c)) || Number(c) <= 0)) {
+    const err = new Error('El decklist contiene cartas inválidas.');
+    err.code = 'deck_malformed';
+    throw err;
+  }
   const info = await fetchCardInfo(codes, fetchImpl);
-  const unresolved = [...new Set(codes.map(Number).filter(Boolean))].filter((c) => !(c in info));
+  const unresolved = [...new Set(codes.map(Number))].filter((c) => !(c in info));
   if (unresolved.length) {
     const err = new Error('No se pudo verificar la legalidad de ' + unresolved.length + ' carta(s).');
     err.code = 'banlist_incomplete';
