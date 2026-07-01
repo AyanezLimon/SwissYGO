@@ -4,6 +4,7 @@
 import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword, requireAuth } from '../auth.js';
 import { sendEmail } from '../lib/email.js';
+import { rateLimit } from '../lib/rate-limit.js';
 
 const RESET_TTL_MIN = 15;   // a reset code is valid for this many minutes
 const RESET_MAX_TRIES = 5;  // wrong-code attempts before the code is burned
@@ -11,7 +12,16 @@ const RESET_MAX_TRIES = 5;  // wrong-code attempts before the code is burned
 export default async function authRoutes(app) {
   const db = app.db;
 
-  app.post('/api/auth/register', async (req, reply) => {
+  // Per-IP throttles on the credential/abuse endpoints. Ceilings are deliberately
+  // generous: a whole tournament venue can share one public IP, so these must clear
+  // a real event while still stopping scripted brute force (thousands of tries).
+  // See lib/rate-limit.js. Each endpoint gets its own independent window.
+  const rlLogin = rateLimit({ max: 40, windowMs: 10 * 60 * 1000 });   // 40 / 10 min
+  const rlRegister = rateLimit({ max: 15, windowMs: 60 * 60 * 1000 }); // 15 / hour (curb mass signups)
+  const rlForgot = rateLimit({ max: 10, windowMs: 60 * 60 * 1000 });   // 10 / hour (email spam / timing)
+  const rlReset = rateLimit({ max: 20, windowMs: 60 * 60 * 1000 });    // 20 / hour (code guessing; also burns after 5 wrong)
+
+  app.post('/api/auth/register', { preHandler: rlRegister }, async (req, reply) => {
     const { username, password } = req.body || {};
     const email = (req.body?.email || '').trim().toLowerCase() || null; // normalize (emails are case-insensitive)
     if (!username || !password || password.length < 6) {
@@ -32,7 +42,7 @@ export default async function authRoutes(app) {
     return reply.code(201).send({ token, user });
   });
 
-  app.post('/api/auth/login', async (req, reply) => {
+  app.post('/api/auth/login', { preHandler: rlLogin }, async (req, reply) => {
     const { username, password } = req.body || {};
     const row = db.prepare('SELECT * FROM users WHERE username = ?').get(username || '');
     if (!row || !(await verifyPassword(password || '', row.password_hash))) {
@@ -47,7 +57,7 @@ export default async function authRoutes(app) {
   // ---- Self-service password reset (email + 6-digit code) ----------------
   // Request a code. ALWAYS returns 200 (never reveal whether the email exists).
   // Only accounts with an email on file can receive one.
-  app.post('/api/auth/forgot', async (req, reply) => {
+  app.post('/api/auth/forgot', { preHandler: rlForgot }, async (req, reply) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     if (email) {
       const u = db.prepare('SELECT id, username FROM users WHERE email = ? COLLATE NOCASE').get(email);
@@ -74,7 +84,7 @@ export default async function authRoutes(app) {
 
   // Consume a code + set a new password. Generic errors (no enumeration); the code
   // is single-use and burns after RESET_MAX_TRIES wrong attempts.
-  app.post('/api/auth/reset', async (req, reply) => {
+  app.post('/api/auth/reset', { preHandler: rlReset }, async (req, reply) => {
     const email = (req.body?.email || '').trim().toLowerCase();
     const code = String(req.body?.code || '').trim();
     const password = req.body?.password || '';
