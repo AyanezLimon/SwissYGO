@@ -5,6 +5,9 @@
 (function () {
   const root = document.getElementById('player');
   const LS_JOINED = 'ygo_joined';           // { id, name, guestToken? }
+  // Fallback deck cover when there's nothing to show (no favourite deck / no cover):
+  // the "Question" card's mystery art (passcode 38723936) — nicer than a blank square.
+  const MYSTERY_COVER = 'https://images.ygoprodeck.com/images/cards_cropped/38723936.jpg';
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // Toast — unlike the console, /u/ has no #toast element in its HTML, so create
@@ -120,7 +123,7 @@
         </div>
         <div class="gate-error" id="perr">${err ? esc(err) : ''}</div>
         <button class="btn btn-gold" id="join" type="button" style="width:100%">Unirme con código</button>
-        ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">Mi perfil</button>' : ''}
+        ${logged ? '<button class="btn btn-sm btn-ghost" id="hist" type="button" style="width:100%;margin-top:10px">👤 Mi perfil</button>' : ''}
         ${logged ? '<button class="btn btn-sm btn-ghost" id="decks" type="button" style="width:100%;margin-top:10px">🎴 Mis Decks</button>' : ''}
         ${logged ? '<button class="btn btn-sm btn-ghost" id="acct" type="button" style="width:100%;margin-top:10px">⚙ Mi cuenta</button>' : ''}
         <button class="btn btn-sm btn-ghost" id="leaderboard" type="button" style="width:100%;margin-top:10px">🏆 Clasificación</button>
@@ -1058,7 +1061,7 @@
         const f = dstats.favorite;
         html += '<div class="pf-sec-title">Mis decks</div>';
         html += `<button id="deckstats-open" class="ds-teaser" type="button">
-          ${f && f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover"></span>'}
+          <img class="cover" src="${f && f.coverUrl ? esc(f.coverUrl) : MYSTERY_COVER}" alt="">
           <span class="meta">
             <span class="kicker">${f ? 'Deck preferido' : 'Estadísticas de decks'}</span>
             <b class="name">${f ? esc(f.name || 'Deck') : 'Ver mis estadísticas'}</b>
@@ -1153,7 +1156,7 @@
       <div class="ds-season-row">${seasonSel}</div>
       <div class="ds-section">Deck preferido</div>
       <div class="ds-fav">
-        ${f.coverUrl ? `<img class="cover" src="${esc(f.coverUrl)}" alt="">` : '<span class="cover empty"></span>'}
+        <img class="cover" src="${f.coverUrl ? esc(f.coverUrl) : MYSTERY_COVER}" alt="">
         <div class="body">
           <div class="name">${esc(f.name || 'Deck')}</div>
           <div class="sub">Jugado <b>${f.played || 0}×</b> · <b>${f.winrate || 0}%</b> de victorias</div>
