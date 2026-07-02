@@ -968,6 +968,333 @@
     window.renderRegistro = function () { const r = _renderRegistro.apply(this, arguments); syncRoundsCount(); return r; };
   }
 
+  /* ---- Proyección de tienda: pairings + resultados en vivo (#129) ---------
+     app.js abre una pestaña de solo-timer (openTimerWindow) y la alimenta una
+     vez por segundo vía _pushTimerWin(). Aquí se reemplaza por un layout para
+     TV: lista única de pairings de la ronda actual a la izquierda (ganador ✓,
+     doble derrota ✗, BYE; auto-scroll lento si no caben) y el reloj a la
+     derecha. Sin torneo en curso vuelve al timer centrado de siempre y la
+     pantalla de campeón se conserva. #timer-popout quedó vinculado por
+     referencia, así que su click se intercepta en fase de captura;
+     _pushTimerWin sí se llama por nombre, por lo que reasignar el global
+     basta para tomar el feed de datos. */
+
+  function projectionPayload() {
+    const t = _timer();
+    const payload = {
+      endsAt: t.endsAt, pausedMs: t.pausedMs, durationMin: t.durationMin || 50,
+      title: roundTitleText(), finished: !!state.finished, standings: null, pairings: null
+    };
+    if (state.finished) {
+      payload.standings = finalStandings().map(s => ({
+        name: s.name, pts: s.matchPoints, wl: s.wins + '-' + s.losses, dropped: !!s.dropped
+      }));
+    } else if (state.started) {
+      const round = currentRoundObj();
+      if (round) {
+        const rows = [];
+        let mesa = 0;
+        for (const m of round.matches) {
+          mesa++;                     // espeja la numeración "Mesa N" del console (el BYE consume número)
+          if (m.isLateLoss) continue; // fila sintética de late entry: no es una mesa física
+          rows.push({
+            t: mesa,
+            p1: playerNameById(m.p1Id),
+            p2: m.isBye ? null : playerNameById(m.p2Id),
+            result: m.result || null  // 'p1' | 'p2' | 'doubleLoss' | null
+          });
+        }
+        if (rows.length) payload.pairings = rows;
+      }
+    }
+    return payload;
+  }
+
+  window._pushTimerWin = function () {
+    if (!_timerWin || _timerWin.closed) return;
+    try {
+      if (typeof _timerWin.applyState === 'function') _timerWin.applyState(projectionPayload());
+    } catch (e) { /* ventana cerrada o sin acceso */ }
+  };
+
+  // El tema de app.js solo copia bg/ink/accent/over/line; el layout de pairings
+  // usa más colores de la paleta, así que se extiende la misma función.
+  const _origTimerWinTheme = window._applyTimerWinTheme;
+  window._applyTimerWinTheme = function () {
+    _origTimerWinTheme.apply(this, arguments);
+    if (!_timerWin || _timerWin.closed) return;
+    try {
+      const cs = getComputedStyle(document.documentElement);
+      const v = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+      const root = _timerWin.document.documentElement.style;
+      root.setProperty('--pp-panel', v('--panel', '#211f35'));
+      root.setProperty('--pp-field', v('--field-bg', '#1a1829'));
+      root.setProperty('--pp-green', v('--green', '#57ab5a'));
+      root.setProperty('--pp-soft', v('--ink-soft', '#a7adc2'));
+      root.setProperty('--pp-faint', v('--ink-faint', '#767089'));
+    } catch (e) { /* sin acceso */ }
+  };
+
+  function openProjectionWindow() {
+    if (_timerWin && !_timerWin.closed) { _timerWin.focus(); return; }
+    const w = window.open('', 'ygoTimerWindow');
+    if (!w) { showToast('El navegador bloqueó la pestaña. Permite pop-ups para proyectar el timer.', true); return; }
+    w.document.open();
+    w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Timer · SwissYGO</title><style>
+    :root{--pp-bg:#14131f;--pp-panel:#211f35;--pp-ink:#eef1f7;--pp-soft:#a7adc2;--pp-faint:#767089;--pp-accent:#82d8eb;--pp-over:#e5534b;--pp-green:#57ab5a;--pp-line:#443f5d;--pp-field:#1a1829;}
+    *{margin:0;padding:0;box-sizing:border-box;}
+    html,body{height:100%;width:100%;}
+    body{background:var(--pp-bg);color:var(--pp-ink);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;overflow:hidden;transition:background .2s,color .2s;}
+    /* Pairings (izquierda): lista única, una mesa por fila. */
+    #pair-pane{width:66%;display:flex;flex-direction:column;padding:2.8vh 1.8vw 2vh;min-width:0;border-right:1px solid var(--pp-line);}
+    #pair-title{font-size:min(3.8vh,2.2vw);font-weight:800;color:var(--pp-soft);letter-spacing:4px;text-transform:uppercase;margin-bottom:1.8vh;}
+    #pair-scroll{flex:1;overflow:hidden;min-height:0;}
+    #pair-list{display:flex;flex-direction:column;gap:1.4vh;}
+    .pm{flex:none;height:12.5vh;display:flex;align-items:center;gap:1vw;background:var(--pp-panel);border:1px solid var(--pp-line);border-radius:1.4vh;padding:0 1.2vw;min-width:0;}
+    .pm .tno{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;color:var(--pp-accent);font-size:min(5vh,2.8vw);min-width:1.9em;text-align:center;background:var(--pp-field);border-radius:1vh;padding:.6vh 0;flex:none;}
+    .pm .side{flex:1;display:flex;align-items:center;gap:.6vw;min-width:0;font-size:min(7.5vh,4.2vw);font-weight:700;}
+    .pm .side.right{flex-direction:row-reverse;text-align:right;}
+    .pm .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .pm .vs{color:var(--pp-faint);font-size:min(3.4vh,1.9vw);font-weight:800;letter-spacing:1px;flex:none;}
+    .pm .mark{width:1.1em;text-align:center;flex:none;font-weight:800;font-size:min(6vh,3.2vw);}
+    .pm .side.win{color:var(--pp-green);}
+    .pm .side.lose{color:var(--pp-faint);}
+    .pm .side.dl{color:var(--pp-over);}
+    .pm.done{border-color:color-mix(in srgb, var(--pp-green) 45%, var(--pp-line));}
+    .pm.dl{border-color:color-mix(in srgb, var(--pp-over) 45%, var(--pp-line));}
+    .pm .bye{font-size:min(3.4vh,1.9vw);font-weight:800;letter-spacing:2px;color:var(--pp-accent);background:var(--pp-field);border:1px solid var(--pp-line);border-radius:1vh;padding:.8vh .8vw;flex:none;}
+    /* Reloj (derecha). */
+    #clock-pane{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.4vh;padding:0 1.5vw;}
+    #big-round{font-size:min(6.5vh,4vw);font-weight:700;color:var(--pp-accent);letter-spacing:1px;text-align:center;}
+    #big-time{font-size:min(19vh,10vw);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #big-time.over{color:var(--pp-over);}
+    #big-sub{font-size:min(4.5vh,3vw);color:var(--pp-over);font-weight:800;height:1.15em;letter-spacing:3px;}
+    #rep-count{font-size:min(3.4vh,2vw);color:var(--pp-soft);font-weight:600;min-height:1.2em;}
+    #rep-count b{color:var(--pp-accent);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    /* Sin pairings: timer centrado a pantalla completa (comportamiento previo). */
+    body.solo #pair-pane{display:none;}
+    body.solo #big-round{font-size:min(9vh,9vw);}
+    body.solo #big-time{font-size:min(50vh,34vw);}
+    body.solo #big-sub{font-size:min(6vh,7vw);}
+    /* Campeón (torneo finalizado). */
+    body.champ #pair-pane,body.champ #clock-pane{display:none;}
+    #champ-screen{display:none;flex-direction:column;align-items:center;justify-content:center;gap:2.2vh;width:100%;padding:0 4vw;}
+    body.champ #champ-screen{display:flex;}
+    #champ-label{font-size:min(5.5vh,5vw);font-weight:800;color:var(--pp-accent);letter-spacing:5px;}
+    /* line-height ≥1.25: con line-height:1 el overflow:hidden (necesario para el
+       ellipsis) recortaba los descendentes de letras como j, g, y, p, q. */
+    #champ-name{font-size:min(22vh,15vw);font-weight:900;line-height:1.25;text-align:center;max-width:94vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #champ-list{display:flex;flex-direction:column;gap:.9vh;margin-top:1.5vh;font-size:min(4.4vh,3.6vw);font-weight:600;}
+    #champ-list .crow{display:flex;align-items:baseline;gap:1.6vw;}
+    #champ-list .cpos{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--pp-accent);min-width:2.2em;text-align:right;}
+    #champ-list .cpts{color:var(--pp-accent);opacity:.85;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #champ-list .cdrop{opacity:.45;text-decoration:line-through;}
+    #champ-list .cmore{opacity:.55;font-weight:500;}
+    #fs-btn{position:fixed;bottom:18px;right:18px;background:transparent;color:var(--pp-ink);opacity:.6;border:1px solid var(--pp-line);border-radius:8px;padding:9px 13px;font-size:14px;cursor:pointer;font-family:inherit;}
+    #fs-btn:hover{opacity:1;}
+    :fullscreen #fs-btn{opacity:.15;}
+  </style></head><body class="solo">
+    <div id="pair-pane">
+      <div id="pair-title">Pairings</div>
+      <div id="pair-scroll"><div id="pair-list"></div></div>
+    </div>
+    <div id="clock-pane">
+      <div id="big-round">Ronda —</div>
+      <div id="big-time">00:00</div>
+      <div id="big-sub"></div>
+      <div id="rep-count"></div>
+    </div>
+    <div id="champ-screen">
+      <div id="champ-label">🏆 CAMPEÓN</div>
+      <div id="champ-name"></div>
+      <div id="champ-list"></div>
+    </div>
+    <button id="fs-btn" onclick="if(document.fullscreenElement){document.exitFullscreen();}else if(document.documentElement.requestFullscreen){document.documentElement.requestFullscreen();}">⛶ Pantalla completa</button>
+    <script>
+      (function(){
+        var S = { endsAt:null, pausedMs:null, durationMin:50, title:'SwissYGO', finished:false, standings:null, pairings:null };
+        var MAX_ROWS = 8; // filas visibles después del campeón
+        function fmt(ms){ var tot=Math.ceil(ms/1000), m=Math.floor(tot/60), s=tot%60; return (m<10?'0'+m:m)+':'+(s<10?'0'+s:s); }
+        function remaining(){ if(S.endsAt) return Math.max(0, S.endsAt - Date.now()); if(S.pausedMs!=null) return S.pausedMs; return (S.durationMin||50)*60000; }
+        function champMode(){ return !!(S.finished && S.standings && S.standings.length); }
+        function pairMode(){ return !champMode() && !!(S.pairings && S.pairings.length); }
+        /* Construye la pantalla de campeón. SIEMPRE vía DOM/textContent: los nombres
+           vienen del registro y jamás deben interpretarse como HTML. */
+        function buildChamp(){
+          var nameEl = document.getElementById('champ-name');
+          var listEl = document.getElementById('champ-list');
+          if(!nameEl || !listEl) return;
+          var rows = S.standings;
+          var champIdx = -1;
+          for(var i=0;i<rows.length;i++){ if(!rows[i].dropped){ champIdx=i; break; } }
+          if(champIdx === -1) champIdx = 0; // todos drop: el primero igual corona
+          nameEl.textContent = rows[champIdx].name;
+          while(listEl.firstChild) listEl.removeChild(listEl.firstChild);
+          var shown = 0;
+          for(var j=0;j<rows.length;j++){
+            if(j === champIdx) continue;
+            if(shown >= MAX_ROWS){
+              var more = document.createElement('div');
+              more.className = 'crow cmore';
+              more.textContent = '+ ' + (rows.length - 1 - shown) + ' más…';
+              listEl.appendChild(more);
+              break;
+            }
+            var r = rows[j];
+            var row = document.createElement('div');
+            row.className = 'crow' + (r.dropped ? ' cdrop' : '');
+            var pos = document.createElement('span'); pos.className='cpos'; pos.textContent = (j+1) + '.';
+            var nm  = document.createElement('span'); nm.textContent = r.name;
+            var pt  = document.createElement('span'); pt.className='cpts'; pt.textContent = r.pts + ' pts (' + r.wl + ')';
+            row.appendChild(pos); row.appendChild(nm); row.appendChild(pt);
+            listEl.appendChild(row);
+            shown++;
+          }
+        }
+        /* Lado de una mesa (nombre + marca ✓/✗). También SIEMPRE vía textContent. */
+        function buildSide(name, isP1, result){
+          var win  = result === (isP1 ? 'p1' : 'p2');
+          var lose = (result === 'p1' || result === 'p2') && !win;
+          var dl   = result === 'doubleLoss';
+          var s = document.createElement('span');
+          s.className = 'side' + (isP1 ? '' : ' right') + (dl ? ' dl' : win ? ' win' : lose ? ' lose' : '');
+          var nm = document.createElement('span'); nm.className='nm'; nm.textContent = name;
+          var mk = document.createElement('span'); mk.className='mark'; mk.textContent = dl ? '✗' : (win ? '✓' : '');
+          s.appendChild(nm); s.appendChild(mk);
+          return s;
+        }
+        function buildPairings(){
+          var list = document.getElementById('pair-list');
+          if(!list) return;
+          while(list.firstChild) list.removeChild(list.firstChild);
+          var rows = S.pairings || [];
+          for(var i=0;i<rows.length;i++){
+            var r = rows[i];
+            var dl = r.result === 'doubleLoss';
+            var pm = document.createElement('div');
+            pm.className = 'pm' + (dl ? ' dl' : (r.result != null ? ' done' : ''));
+            var tno = document.createElement('span'); tno.className='tno'; tno.textContent = r.t;
+            pm.appendChild(tno);
+            pm.appendChild(buildSide(r.p1, true, r.result));
+            var vs = document.createElement('span'); vs.className='vs'; vs.textContent = r.p2 == null ? '' : 'VS';
+            pm.appendChild(vs);
+            if(r.p2 == null){
+              var right = document.createElement('span'); right.className='side right';
+              var bye = document.createElement('span'); bye.className='bye'; bye.textContent='BYE';
+              right.appendChild(bye);
+              pm.appendChild(right);
+            } else {
+              pm.appendChild(buildSide(r.p2, false, r.result));
+            }
+            list.appendChild(pm);
+          }
+          fitNames();
+        }
+        /* Cada nombre parte del tamaño grande; si no cabe en su mitad, solo ese
+           nombre reduce su fuente lo justo (piso 55%) en vez de truncarse. */
+        function fitNames(){
+          var nms = document.querySelectorAll('.pm .nm');
+          for(var i=0;i<nms.length;i++){
+            var el = nms[i];
+            el.style.fontSize = '';
+            var base = parseFloat(getComputedStyle(el).fontSize), size = base;
+            while(el.scrollWidth > el.clientWidth && size > base * 0.55){
+              size -= 2;
+              el.style.fontSize = size + 'px';
+            }
+          }
+        }
+        function updateMeta(){
+          var pt = document.getElementById('pair-title');
+          if(pt) pt.textContent = 'Pairings · ' + String(S.title || '').split(' de ')[0];
+          var rc = document.getElementById('rep-count');
+          if(rc){
+            while(rc.firstChild) rc.removeChild(rc.firstChild);
+            var rows = S.pairings || [], rep = 0;
+            for(var i=0;i<rows.length;i++) if(rows[i].result != null) rep++;
+            if(rows.length){
+              var b = document.createElement('b'); b.textContent = rep + '/' + rows.length;
+              rc.appendChild(b);
+              rc.appendChild(document.createTextNode(' mesas reportadas'));
+            }
+          }
+        }
+        function render(){
+          var champ = champMode(), pairs = pairMode();
+          document.body.className = champ ? 'champ' : (pairs ? '' : 'solo');
+          if(champ) return; // la corona no necesita el tick del reloj
+          var active = !!S.endsAt || S.pausedMs!=null;
+          var ms = remaining();
+          var over = ms<=0 && active;
+          var bt = document.getElementById('big-time');
+          if(bt){ bt.textContent = fmt(ms); bt.classList.toggle('over', over); }
+          var br = document.getElementById('big-round'); if(br) br.textContent = S.title || 'SwissYGO';
+          var bs = document.getElementById('big-sub');  if(bs) bs.textContent = over ? '¡TIEMPO!' : '';
+        }
+        /* Auto-scroll: si la lista desborda, baja lento, pausa en cada extremo,
+           sube y repite. La posición vive fuera del rebuild para no saltar al
+           reportarse una mesa; si la lista se acorta se re-clampa sola. */
+        var _dir = 1, _pos = 0, _pausedUntil = 0, _last = null;
+        var SCROLL_PX_S = 40, SCROLL_PAUSE_MS = 2200;
+        function scrollTick(ts){
+          var box = document.getElementById('pair-scroll');
+          if(box){
+            if(_last == null) _last = ts;
+            var dt = (ts - _last) / 1000; _last = ts;
+            var max = box.scrollHeight - box.clientHeight;
+            if(pairMode() && max > 4 && ts >= _pausedUntil){
+              _pos = Math.max(0, Math.min(max, _pos + _dir * SCROLL_PX_S * dt));
+              if(_pos <= 0 || _pos >= max){ _dir = -_dir; _pausedUntil = ts + SCROLL_PAUSE_MS; }
+              box.scrollTop = _pos;
+            } else if(max <= 4){
+              _pos = 0; box.scrollTop = 0;
+            }
+          }
+          requestAnimationFrame(scrollTick);
+        }
+        window.applyState = function(s){
+          if(s) S = s;
+          render(); // fija la clase del body ANTES de construir: fitNames necesita el panel visible para medir
+          if(champMode()){
+            // Reconstruir solo si los standings cambiaron (llega un push por segundo).
+            var sig = JSON.stringify(S.standings);
+            if(sig !== window.__champSig){ window.__champSig = sig; buildChamp(); }
+          } else {
+            window.__champSig = null;
+          }
+          var psig = pairMode() ? JSON.stringify(S.pairings) : null;
+          if(psig !== window.__pairSig){
+            window.__pairSig = psig;
+            if(pairMode()) buildPairings();
+            updateMeta();
+          }
+        };
+        window.addEventListener('resize', fitNames);
+        setInterval(render, 250);
+        document.addEventListener('visibilitychange', render);
+        requestAnimationFrame(scrollTick);
+        render();
+      })();
+    <\/script>
+  </body></html>`);
+    w.document.close();
+    _timerWin = w;
+    _applyTimerWinTheme();   // resuelve al global extendido de arriba
+    _pushTimerWin();
+    renderTimer();
+  }
+
+  // app.js ató #timer-popout por referencia a su openTimerWindow; captura + stop
+  // para que el click abra la proyección nueva (misma ventana nombrada).
+  document.addEventListener('click', function (e) {
+    const btn = e.target && e.target.closest ? e.target.closest('#timer-popout') : null;
+    if (!btn) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openProjectionWindow();
+  }, true);
+  window.openTimerWindow = openProjectionWindow; // por si algo más lo invoca por nombre
+
   // ---- boot --------------------------------------------------------------
   wrapSave();
   wireTournamentFields();   // name/date inputs in the Registro section
