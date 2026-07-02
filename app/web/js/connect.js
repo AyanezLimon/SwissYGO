@@ -979,6 +979,12 @@
      _pushTimerWin sí se llama por nombre, por lo que reasignar el global
      basta para tomar el feed de datos. */
 
+  // Preferencia del TO: proyectar pairings (default) o solo el timer. El botón
+  // #timer-pairings de la barra del timer la alterna; persiste en localStorage.
+  const LS_PROJ_PAIRINGS = 'ygo_proj_pairings';
+  const projPairingsOn = () => { try { return localStorage.getItem(LS_PROJ_PAIRINGS) !== '0'; } catch { return true; } };
+  const setProjPairings = (v) => { try { localStorage.setItem(LS_PROJ_PAIRINGS, v ? '1' : '0'); } catch {} };
+
   function projectionPayload() {
     const t = _timer();
     const payload = {
@@ -1004,7 +1010,7 @@
             result: m.result || null  // 'p1' | 'p2' | 'doubleLoss' | null
           });
         }
-        if (rows.length) payload.pairings = rows;
+        if (rows.length && projPairingsOn()) payload.pairings = rows;
       }
     }
     return payload;
@@ -1045,9 +1051,11 @@
     *{margin:0;padding:0;box-sizing:border-box;}
     html,body{height:100%;width:100%;}
     body{background:var(--pp-bg);color:var(--pp-ink);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;display:flex;overflow:hidden;transition:background .2s,color .2s;}
-    /* Pairings (izquierda): lista única, una mesa por fila. */
-    #pair-pane{width:66%;display:flex;flex-direction:column;padding:2.8vh 1.8vw 2vh;min-width:0;border-right:1px solid var(--pp-line);}
-    #pair-title{font-size:min(3.8vh,2.2vw);font-weight:800;color:var(--pp-soft);letter-spacing:4px;text-transform:uppercase;margin-bottom:1.8vh;}
+    /* Pairings (izquierda): lista única, una mesa por fila. El ancho está
+       animado: al pasar a modo solo-timer el panel se estruja hacia la
+       izquierda como acordeón (ver body.solo más abajo). */
+    #pair-pane{width:66%;display:flex;flex-direction:column;padding:2.8vh 1.8vw 2vh;min-width:0;border-right:1px solid var(--pp-line);overflow:hidden;transition:width .6s ease,padding .6s ease;}
+    #pair-title{font-size:min(3.8vh,2.2vw);font-weight:800;color:var(--pp-soft);letter-spacing:4px;text-transform:uppercase;margin-bottom:1.8vh;white-space:nowrap;}
     #pair-scroll{flex:1;overflow:hidden;min-height:0;}
     #pair-list{display:flex;flex-direction:column;gap:1.4vh;}
     .pm{flex:none;height:12.5vh;display:flex;align-items:center;gap:1vw;background:var(--pp-panel);border:1px solid var(--pp-line);border-radius:1.4vh;padding:0 1.2vw;min-width:0;}
@@ -1065,14 +1073,15 @@
     .pm .bye{font-size:min(3.4vh,1.9vw);font-weight:800;letter-spacing:2px;color:var(--pp-accent);background:var(--pp-field);border:1px solid var(--pp-line);border-radius:1vh;padding:.8vh .8vw;flex:none;}
     /* Reloj (derecha). */
     #clock-pane{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.4vh;padding:0 1.5vw;}
-    #big-round{font-size:min(6.5vh,4vw);font-weight:700;color:var(--pp-accent);letter-spacing:1px;text-align:center;}
-    #big-time{font-size:min(19vh,10vw);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+    #big-round{font-size:min(6.5vh,4vw);font-weight:700;color:var(--pp-accent);letter-spacing:1px;text-align:center;transition:font-size .6s ease;}
+    #big-time{font-size:min(19vh,10vw);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;transition:font-size .6s ease;}
     #big-time.over{color:var(--pp-over);}
-    #big-sub{font-size:min(4.5vh,3vw);color:var(--pp-over);font-weight:800;height:1.15em;letter-spacing:3px;}
+    #big-sub{font-size:min(4.5vh,3vw);color:var(--pp-over);font-weight:800;height:1.15em;letter-spacing:3px;transition:font-size .6s ease;}
     #rep-count{font-size:min(3.4vh,2vw);color:var(--pp-soft);font-weight:600;min-height:1.2em;}
     #rep-count b{color:var(--pp-accent);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
-    /* Sin pairings: timer centrado a pantalla completa (comportamiento previo). */
-    body.solo #pair-pane{display:none;}
+    /* Sin pairings: el panel colapsa (acordeón) y queda el timer centrado a
+       pantalla completa (comportamiento previo). El reloj crece suavizado. */
+    body.solo #pair-pane{width:0;padding-left:0;padding-right:0;border-right:none;}
     body.solo #big-round{font-size:min(9vh,9vw);}
     body.solo #big-time{font-size:min(50vh,34vw);}
     body.solo #big-sub{font-size:min(6vh,7vw);}
@@ -1093,7 +1102,10 @@
     #fs-btn{position:fixed;bottom:18px;right:18px;background:transparent;color:var(--pp-ink);opacity:.6;border:1px solid var(--pp-line);border-radius:8px;padding:9px 13px;font-size:14px;cursor:pointer;font-family:inherit;}
     #fs-btn:hover{opacity:1;}
     :fullscreen #fs-btn{opacity:.15;}
-  </style></head><body class="solo">
+    /* boot: sin transiciones hasta el primer applyState — la ventana abre ya
+       en su layout final; solo los cambios de modo posteriores se animan. */
+    body.boot #pair-pane,body.boot #big-round,body.boot #big-time,body.boot #big-sub{transition:none;}
+  </style></head><body class="solo boot">
     <div id="pair-pane">
       <div id="pair-title">Pairings</div>
       <div id="pair-scroll"><div id="pair-list"></div></div>
@@ -1221,7 +1233,9 @@
         }
         function render(){
           var champ = champMode(), pairs = pairMode();
-          document.body.className = champ ? 'champ' : (pairs ? '' : 'solo');
+          // classList (no className): preserva la clase 'boot' del arranque.
+          document.body.classList.toggle('champ', champ);
+          document.body.classList.toggle('solo', !champ && !pairs);
           if(champ) return; // la corona no necesita el tick del reloj
           var active = !!S.endsAt || S.pausedMs!=null;
           var ms = remaining();
@@ -1268,8 +1282,16 @@
             if(pairMode()) buildPairings();
             updateMeta();
           }
+          // Doble rAF: el primer layout ya se pintó sin transiciones.
+          if(document.body.classList.contains('boot')){
+            requestAnimationFrame(function(){ requestAnimationFrame(function(){ document.body.classList.remove('boot'); }); });
+          }
         };
         window.addEventListener('resize', fitNames);
+        // Al terminar el acordeón (solo→pairings) el panel recupera su ancho
+        // real: re-ajustar los nombres, que se midieron durante la transición.
+        var pane = document.getElementById('pair-pane');
+        if(pane) pane.addEventListener('transitionend', function(e){ if(e.propertyName === 'width') fitNames(); });
         setInterval(render, 250);
         document.addEventListener('visibilitychange', render);
         requestAnimationFrame(scrollTick);
@@ -1294,6 +1316,25 @@
     openProjectionWindow();
   }, true);
   window.openTimerWindow = openProjectionWindow; // por si algo más lo invoca por nombre
+
+  // Toggle "Pairings": alterna la proyección entre pairings y solo-timer. El
+  // cambio se empuja al instante (sin esperar el tick de 1 s) y la proyección
+  // lo anima como acordeón (el panel se estruja hacia la izquierda).
+  const tpBtn = document.getElementById('timer-pairings');
+  function renderPairingsToggle() {
+    if (!tpBtn) return;
+    const on = projPairingsOn();
+    tpBtn.classList.toggle('tp-on', on);
+    tpBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  if (tpBtn) {
+    tpBtn.addEventListener('click', () => {
+      setProjPairings(!projPairingsOn());
+      renderPairingsToggle();
+      _pushTimerWin();
+    });
+    renderPairingsToggle();
+  }
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
