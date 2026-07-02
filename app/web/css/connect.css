@@ -447,3 +447,8 @@ select.ds-season { cursor: pointer; }
 .mh-row .out.win { color: var(--green); }
 .mh-row .out.loss { color: var(--crimson); }
 .mh-row .out.neutral { color: var(--ink-soft); }
+
+/* ---- Timer bar · toggle "Pairings" de la proyección (#129) ------------ */
+/* Encendido = acento (la proyección muestra los pareos); apagado = fantasma
+   (proyección de solo timer). El estado vive en localStorage. */
+#timer-pairings.tp-on { color: var(--gold); border-color: var(--gold); }
