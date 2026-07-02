@@ -19,6 +19,9 @@ input[type=date]:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(1
 input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
 [data-theme="light"] input[type=date]::-webkit-calendar-picker-indicator { filter: none; }
 
+/* Locked-once-published fields (#tournament-name/-date): visibly inert, not just inert. */
+input[type=text]:disabled, input[type=date]:disabled { opacity: .55; cursor: not-allowed; }
+
 /* Gate fields: stack, full width (inputs are inline-width by default). */
 .gate-field { margin-bottom: 12px; }
 .gate-field label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 5px; }
