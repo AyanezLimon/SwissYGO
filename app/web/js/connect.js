@@ -472,7 +472,7 @@
     const nameEl = document.getElementById('tournament-name');
     const dateEl = document.getElementById('tournament-date');
     const rankedEl = document.getElementById('tournament-ranked');
-    const locked = isCloud(); // published: title/date/ranked/Elo-seed are read-only from here on
+    const locked = isCloud(); // published: title/date/ranked/Elo-seed/comment are read-only from here on
     if (nameEl && document.activeElement !== nameEl) {
       nameEl.value = state.name || '';
       nameEl.placeholder = 'Torneo - ' + ddmmyyyy(todayISO());
@@ -498,6 +498,12 @@
     const rankedNow = !isCasual() && state.ranked !== false;
     if (eloWrap) eloWrap.hidden = !rankedNow;
     if (eloEl) { eloEl.checked = state.eloSeed === true; eloEl.disabled = locked; }
+    // Comentario / Premiación (#tournament-note, bound in verbatim app.js): one-time
+    // config info same as título/fecha — disabling it blocks app.js's own 'input'
+    // listener too (disabled elements don't fire input events), so no capture-phase
+    // interception is needed here, unlike #start-tournament/#reset-all.
+    const noteEl = document.getElementById('tournament-note');
+    if (noteEl) { noteEl.disabled = locked; noteEl.title = locked ? 'El comentario no se puede editar una vez publicado.' : ''; }
   }
 
   // Publish reads the already-filled Registro fields — no extra form. Empty name →
