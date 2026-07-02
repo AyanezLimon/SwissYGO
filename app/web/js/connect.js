@@ -61,6 +61,7 @@
     // just re-pin id/code, and take ranked from its authoritative column.
     state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
     state.ranked = t.ranked !== false;
+    if (!state.name && t.name) state.name = t.name; // see loadTournament's comment
     // Persist the adopted state to localStorage WITHOUT pushing it back to the server:
     // the cloud copy is the source we just read, so a PUT would be a redundant write
     // (extra request + confusing in logs). Use app.js's unwrapped save (localStorage
@@ -351,6 +352,10 @@
       // the TO had deleted (the reported "deletion not reflected after reload" bug).
       state.cloud = Object.assign({}, state.cloud, { id: t.id, code: t.join_code });
       state.ranked = t.ranked !== false;       // authoritative ranked flag (column, not state_json)
+      // state.name can be '' (TO left it blank at publish) while the tournaments.name
+      // column always holds the generated fallback ("Torneo - DD/MM/YYYY") — without this,
+      // the Nombre field shows only its placeholder instead of the tournament's real title.
+      if (!state.name && t.name) state.name = t.name;
       stopRegPoll();
       save();                                  // persist locally + push (wrapped)
       if (window.render) render();
@@ -442,26 +447,22 @@
     const rankedEl = document.getElementById('tournament-ranked');
     if (nameEl && dateEl && !tfWired) {
       tfWired = true;
-      nameEl.addEventListener('input', () => { state.name = nameEl.value.trim(); save(); });
-      dateEl.addEventListener('change', () => { state.eventDate = dateEl.value || todayISO(); save(); });
-      // "Cuenta para el ranking": editable only before the event starts. While
-      // cloud-linked + in setup, persist the change to the server immediately (it
-      // lives in the tournaments.ranked column, not state_json).
+      nameEl.addEventListener('input', () => { if (isCloud()) return; state.name = nameEl.value.trim(); save(); }); // locked once published
+      dateEl.addEventListener('change', () => { if (isCloud()) return; state.eventDate = dateEl.value || todayISO(); save(); });
+      // "Cuenta para el ranking": editable only up to publish (once a tournament has a
+      // join code, its title/ranked/Elo-seed config is set — changing it mid-registration
+      // would be confusing for players who already saw/joined under the old config).
       if (rankedEl) rankedEl.addEventListener('change', async () => {
-        if (state.started) { rankedEl.checked = state.ranked !== false; return; } // locked once started
+        if (isCloud()) { rankedEl.checked = state.ranked !== false; return; } // locked once published
         state.ranked = rankedEl.checked;
         save();
-        if (isCloud()) {
-          try { await API.req('/tournaments/' + state.cloud.id, { method: 'PUT', body: { state, name: (state.name && state.name.trim()) || undefined, ranked: state.ranked } }); }
-          catch (e) { if (window.showToast) showToast('No se pudo cambiar el modo: ' + e.message, true); }
-        }
         syncTournamentFields();   // ranked off → hide the Elo-seed option
       });
       // Elo-seed (#39): seeds the 1st round by Elo (ranked only). Lives in state_json
-      // (no column), so a plain save() syncs it. Locked once the event starts.
+      // (no column), so a plain save() syncs it. Locked once published.
       const eloEl = document.getElementById('tournament-elo-seed');
       if (eloEl) eloEl.addEventListener('change', () => {
-        if (state.started) { eloEl.checked = state.eloSeed === true; return; }
+        if (isCloud()) { eloEl.checked = state.eloSeed === true; return; }
         state.eloSeed = eloEl.checked; save();
       });
     }
@@ -471,21 +472,24 @@
     const nameEl = document.getElementById('tournament-name');
     const dateEl = document.getElementById('tournament-date');
     const rankedEl = document.getElementById('tournament-ranked');
+    const locked = isCloud(); // published: title/date/ranked/Elo-seed are read-only from here on
     if (nameEl && document.activeElement !== nameEl) {
       nameEl.value = state.name || '';
       nameEl.placeholder = 'Torneo - ' + ddmmyyyy(todayISO());
     }
+    if (nameEl) { nameEl.disabled = locked; nameEl.title = locked ? 'El nombre no se puede editar una vez publicado.' : ''; }
     if (dateEl && document.activeElement !== dateEl) dateEl.value = state.eventDate || todayISO();
+    if (dateEl) { dateEl.disabled = locked; dateEl.title = locked ? 'La fecha no se puede editar una vez publicado.' : ''; }
     if (rankedEl) {
       const casual = isCasual();                        // casual organizers can't run ranked events
       rankedEl.checked = casual ? false : (state.ranked !== false); // default ranked
-      rankedEl.disabled = casual || !!state.started;    // can't reclassify after it starts (or ever, if casual)
+      rankedEl.disabled = casual || locked;    // can't reclassify once published (or ever, if casual)
       const lbl = document.getElementById('ranked-label');
       if (lbl) {
-        lbl.style.opacity = (casual || state.started) ? '0.55' : '';
+        lbl.style.opacity = (casual || locked) ? '0.55' : '';
         lbl.title = casual
           ? 'Tu cuenta de organizador casual solo crea torneos que no afectan el Elo.'
-          : 'Si lo desactivas, las partidas no afectan el Elo (modo casual). Solo se puede cambiar antes de iniciar.';
+          : 'Si lo desactivas, las partidas no afectan el Elo (modo casual). Solo se puede cambiar antes de publicar.';
       }
     }
     // Elo-seed option: only meaningful on ranked events (#39).
@@ -493,7 +497,7 @@
     const eloEl = document.getElementById('tournament-elo-seed');
     const rankedNow = !isCasual() && state.ranked !== false;
     if (eloWrap) eloWrap.hidden = !rankedNow;
-    if (eloEl) { eloEl.checked = state.eloSeed === true; eloEl.disabled = !!state.started; }
+    if (eloEl) { eloEl.checked = state.eloSeed === true; eloEl.disabled = locked; }
   }
 
   // Publish reads the already-filled Registro fields — no extra form. Empty name →
@@ -510,12 +514,13 @@
     try {
       const r = await API.req('/tournaments', { method: 'POST', body: { name, ranked } });
       state.cloud = { id: r.id, code: r.join_code };
-      state.name = typed;              // live name (empty → /u/ falls back to stored name)
+      state.name = typed || name;      // show the generated fallback too, not just a placeholder
       state.eventDate = date;          // planned event date, travels in state_json
       state.ranked = r.ranked !== false; // authoritative from the server
       save();                          // local + first cloud push (wrapped)
       startRegPoll();
       renderAccount();
+      syncTournamentFields();          // lock title/date/ranked/Elo-seed now that it's published
       showCodeModal(r.join_code);
     } catch (e) {
       if (window.showToast) showToast('No se pudo publicar: ' + e.message, true);
@@ -895,7 +900,7 @@
     try { await absorbRegistrations(); } catch { /* fall through: start with what we have */ }
     draining = false; btn.disabled = false;
     if (window.startTournament) startTournament();
-    syncTournamentFields(); // lock the "ranked" toggle now that the event has started
+    syncTournamentFields(); // refresh the setup summary (fields were already locked at publish)
   }, true);
 
   // When the TO removes a self-registered player ("Eliminar"), tombstone that
