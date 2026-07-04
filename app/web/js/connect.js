@@ -1347,6 +1347,83 @@
     renderPairingsToggle();
   }
 
+  /* ---- Corregir resultado de una ronda pasada (#135) -----------------------
+     app.js solo permite editar la ronda actual (editable = isCurrent). Cuando un
+     resultado viejo quedó mal (p. ej. la doble derrota masiva del Torneo Virtual),
+     la única salida era editar el state_json por API. Aquí se agrega, SOLO en la
+     vista de rondas pasadas (histórico) de un torneo en curso, un "✎ Corregir"
+     por mesa que reusa reportResult() — que ya acepta cualquier match — con un
+     modal de confirmación que deja claro que las rondas posteriores NO se
+     re-parean (política estándar: el resultado se corrige, los pairings
+     publicados se quedan). Los standings se recalculan solos en el render. */
+
+  let _fixOpenId = null; // mesa con el editor de corrección abierto (uno a la vez)
+
+  function _fixViewedPastRound() {
+    if (typeof state === 'undefined' || !state.started || state.finished) return null;
+    const round = viewedRoundObj();
+    if (!round || round.roundNumber === state.currentRound) return null;
+    return round;
+  }
+
+  function injectPastRoundFix() {
+    const list = document.getElementById('matches-list');
+    if (!list) return;
+    const round = _fixViewedPastRound();
+    if (!round) { _fixOpenId = null; return; }
+    if (_fixOpenId && !round.matches.some(m => m.id === _fixOpenId)) _fixOpenId = null;
+    // El hint de app.js ("sólo lectura… vuelve a la ronda actual") ya no es
+    // exacto: ahora sí se puede corregir un resultado puntual desde aquí.
+    const hint = document.getElementById('round-hint');
+    if (hint) hint.textContent = 'Estás viendo una ronda anterior. Puedes ✎ corregir el resultado de una mesa; las rondas posteriores no se re-parean.';
+    round.matches.forEach((m, i) => {
+      const card = list.children[i];
+      if (!card || m.isBye || m.isLateLoss) return; // BYE/late-entry: resultado fijo
+      const row = document.createElement('div');
+      row.className = 'fixrow';
+      if (m.id === _fixOpenId) {
+        const mark = r => (m.result === r ? '✓ ' : '');
+        row.innerHTML =
+          `<span class="fixhint">Nuevo resultado:</span>` +
+          `<button class="btn btn-sm" data-action="fix-pick" data-id="${m.id}" data-result="p1">${mark('p1')}${esc(playerNameById(m.p1Id))}</button>` +
+          `<button class="btn btn-sm" data-action="fix-pick" data-id="${m.id}" data-result="p2">${mark('p2')}${esc(playerNameById(m.p2Id))}</button>` +
+          `<button class="btn btn-sm btn-ghost" data-action="fix-pick" data-id="${m.id}" data-result="doubleLoss">${mark('doubleLoss')}Doble derrota</button>` +
+          `<button class="btn btn-sm btn-ghost" data-action="fix-cancel">Cancelar</button>`;
+      } else {
+        row.innerHTML = `<button class="btn btn-sm btn-ghost fix-open" data-action="fix-open" data-id="${m.id}" title="Corregir el resultado de esta mesa (las rondas posteriores no se re-parean)">✎ Corregir</button>`;
+      }
+      card.appendChild(row);
+    });
+  }
+
+  if (typeof renderRondas === 'function') {
+    const _renderRondas = renderRondas;
+    window.renderRondas = function () { const r = _renderRondas.apply(this, arguments); injectPastRoundFix(); return r; };
+  }
+
+  document.body.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action^="fix-"]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === 'fix-open') { _fixOpenId = btn.dataset.id; renderRondas(); return; }
+    if (action === 'fix-cancel') { _fixOpenId = null; renderRondas(); return; }
+    if (action !== 'fix-pick') return;
+    const round = _fixViewedPastRound();
+    const m = round && round.matches.find(x => x.id === btn.dataset.id);
+    if (!m) return;
+    const result = btn.dataset.result;
+    if (m.result === result) { _fixOpenId = null; renderRondas(); return; } // sin cambio
+    const label = result === 'doubleLoss' ? 'doble derrota'
+      : 'victoria de ' + playerNameById(result === 'p1' ? m.p1Id : m.p2Id);
+    openConfirm(
+      `Ronda ${round.roundNumber}: se corregirá el resultado a ${label}. ` +
+      'Las rondas siguientes ya se parearon con el resultado anterior y NO se re-parean; ' +
+      'los standings sí se recalculan con la corrección.',
+      () => { _fixOpenId = null; reportResult(m.id, result); },
+      { title: 'Corregir resultado', confirmText: 'Corregir' }
+    );
+  });
+
   // ---- boot --------------------------------------------------------------
   wrapSave();
   wireTournamentFields();   // name/date inputs in the Registro section
