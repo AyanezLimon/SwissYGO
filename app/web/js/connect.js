@@ -1372,6 +1372,10 @@
     const round = _fixViewedPastRound();
     if (!round) { _fixOpenId = null; return; }
     if (_fixOpenId && !round.matches.some(m => m.id === _fixOpenId)) _fixOpenId = null;
+    // El mapeo carta↔match es por índice (renderRondas pinta un .match por
+    // entrada de round.matches). Si la estructura dejara de coincidir, anexar
+    // por índice pondría la fila bajo la mesa equivocada: mejor no inyectar.
+    if (list.children.length !== round.matches.length) return;
     // El hint de app.js ("sólo lectura… vuelve a la ronda actual") ya no es
     // exacto: ahora sí se puede corregir un resultado puntual desde aquí.
     const hint = document.getElementById('round-hint');
