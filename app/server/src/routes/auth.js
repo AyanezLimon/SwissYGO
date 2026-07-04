@@ -4,12 +4,14 @@
 import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword, requireAuth } from '../auth.js';
 import { sendEmail } from '../lib/email.js';
+import { makeAudit } from '../lib/audit.js';
 
 const RESET_TTL_MIN = 15;   // a reset code is valid for this many minutes
 const RESET_MAX_TRIES = 5;  // wrong-code attempts before the code is burned
 
 export default async function authRoutes(app) {
   const db = app.db;
+  const audit = makeAudit(db); // #136: trail de mutaciones (nunca rompe el request)
 
   app.post('/api/auth/register', async (req, reply) => {
     const { username, password } = req.body || {};
@@ -28,6 +30,7 @@ export default async function authRoutes(app) {
       .prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
       .run(username, email, hash); // role defaults to 'player'
     const user = { id: info.lastInsertRowid, username, role: 'player' };
+    audit({ type: 'user', id: user.id, name: username }, 'auth.register', null, email ? { email } : null);
     const token = await reply.jwtSign(user);
     return reply.code(201).send({ token, user });
   });
@@ -36,9 +39,13 @@ export default async function authRoutes(app) {
     const { username, password } = req.body || {};
     const row = db.prepare('SELECT * FROM users WHERE username = ?').get(username || '');
     if (!row || !(await verifyPassword(password || '', row.password_hash))) {
+      audit({ type: 'anon' }, 'auth.login_failed', null, { username: String(username || '').slice(0, 40) });
       return reply.code(401).send({ error: 'Credenciales inválidas.' });
     }
-    if (row.disabled) return reply.code(403).send({ error: 'Esta cuenta está deshabilitada.' });
+    if (row.disabled) {
+      audit({ type: 'anon' }, 'auth.login_disabled', null, { username: row.username });
+      return reply.code(403).send({ error: 'Esta cuenta está deshabilitada.' });
+    }
     const user = { id: row.id, username: row.username, role: row.role };
     const token = await reply.jwtSign(user);
     return { token, user };
@@ -67,6 +74,7 @@ export default async function authRoutes(app) {
               + `<p>Vence en ${RESET_TTL_MIN} minutos. Si no lo solicitaste, ignora este correo.</p>`,
           });
         } catch (e) { req.log.error(e, 'reset email failed'); }
+        audit({ type: 'user', id: u.id, name: u.username }, 'auth.forgot');
       }
     }
     return { ok: true };
@@ -93,6 +101,7 @@ export default async function authRoutes(app) {
     const hash = await hashPassword(password);
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, u.id);
     db.prepare('UPDATE password_resets SET used = 1 WHERE id = ?').run(row.id);
+    audit({ type: 'user', id: u.id }, 'auth.reset');
     return { ok: true };
   });
 
