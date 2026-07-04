@@ -464,7 +464,8 @@ select.ds-season { cursor: pointer; }
 .fixrow .fix-open:hover { color: var(--gold); border-color: var(--gold); }
 
 /* ---- Rondas · reclamos de jugadores sin confirmar (#134) --------------- */
-/* Aviso al pie de la mesa: cyan = informativo (mesa sin resultado);
-   crimson = el resultado registrado difiere del reclamo pendiente. */
+/* Aviso al pie de la mesa: cyan = informativo (mesa sin resultado) — ojo,
+   --gold ES el cyan de acento #82d8eb, la variable quedó mal nombrada en
+   styles.css; crimson = el resultado registrado difiere del reclamo. */
 .claim-note { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--gold); }
 .claim-note.conflict { color: var(--crimson); }
