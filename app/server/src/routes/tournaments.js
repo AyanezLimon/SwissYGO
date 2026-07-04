@@ -449,10 +449,15 @@ export default async function tournamentRoutes(app) {
   });
 
   // TO console: confirmed reports to absorb into state_json (then DELETE applied ones).
+  // ?all=1 (#134): also include UNCONFIRMED claims (read-only) — the console uses them
+  // to warn before a double loss / round close overwrites a pending unilateral claim.
   app.get('/api/tournaments/:id/reports', { preHandler: requireOrganizer }, async (req, reply) => {
     const row = findOr404(Number(req.params.id), reply);
     if (!row) return;
     if (!canManage(req, row)) return reply.code(403).send({ error: 'No puedes administrar este torneo.' });
+    if (req.query?.all) {
+      return db.prepare('SELECT id, round_number, match_key, result, reporter_id, confirmed FROM result_reports WHERE tournament_id = ? ORDER BY created_at').all(row.id);
+    }
     return db.prepare('SELECT id, round_number, match_key, result FROM result_reports WHERE tournament_id = ? AND confirmed = 1 ORDER BY confirmed_at').all(row.id);
   });
 

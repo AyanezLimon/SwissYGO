@@ -462,3 +462,9 @@ select.ds-season { cursor: pointer; }
 .fixrow .fixhint { font-size: 12px; color: var(--ink-faint); margin-right: 2px; }
 .fixrow .fix-open { color: var(--ink-soft); }
 .fixrow .fix-open:hover { color: var(--gold); border-color: var(--gold); }
+
+/* ---- Rondas · reclamos de jugadores sin confirmar (#134) --------------- */
+/* Aviso al pie de la mesa: cyan = informativo (mesa sin resultado);
+   crimson = el resultado registrado difiere del reclamo pendiente. */
+.claim-note { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--gold); }
+.claim-note.conflict { color: var(--crimson); }

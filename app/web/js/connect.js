@@ -642,8 +642,13 @@
   // the matching matches here — mirroring app.js reportResult — then delete them.
   async function absorbReports() {
     try {
-      const reports = await API.req('/tournaments/' + state.cloud.id + '/reports');
-      if (!reports || !reports.length) return;
+      const all = await API.req('/tournaments/' + state.cloud.id + '/reports?all=1');
+      // API vieja (aún sin ?all=1): las filas no traen `confirmed` — trátalas
+      // todas como confirmadas y no asumas pendientes (skew de deploy web/API).
+      const hasFlag = Array.isArray(all) && all.some((r) => 'confirmed' in r);
+      _setPendingClaims(hasFlag ? all.filter((r) => !r.confirmed) : []);
+      const reports = hasFlag ? all.filter((r) => r.confirmed) : (all || []);
+      if (!reports.length) return;
       let applied = 0;
       const resolved = []; // report ids whose result is now in `state` (apply or already there)
       for (const rep of reports) {
@@ -1427,6 +1432,110 @@
       { title: 'Corregir resultado', confirmText: 'Corregir' }
     );
   });
+
+  /* ---- Reclamos sin confirmar: visibilidad + guards (#134) -----------------
+     Un self-report unilateral (un jugador marcó el resultado y el rival aún no
+     confirma) vive en result_reports con confirmed=0 y era invisible para el
+     TO — así se pisó un reclamo real con la doble derrota masiva del Torneo
+     Virtual. El poll de absorbReports ahora pide ?all=1 y cachea los
+     pendientes aquí; con eso:
+     - cada mesa de la ronda actual muestra "⚠ X reclama … — sin confirmar";
+     - "Doble derrota" sobre una mesa con reclamo de victoria pide confirmación;
+     - "Cerrar Ronda y Avanzar" avisa si algún resultado registrado difiere de
+       un reclamo pendiente.
+     Siempre confirmable: el TO sigue mandando (fricción informativa, no bloqueo). */
+
+  let _pendingClaims = [];
+  let _pendingSig = '';
+
+  function _setPendingClaims(list) {
+    const next = list || [];
+    const sig = JSON.stringify(next);
+    if (sig === _pendingSig) return;
+    _pendingSig = sig;
+    _pendingClaims = next;
+    // Refresca los avisos por mesa (barato; solo cuando el set cambió).
+    if (typeof renderRondas === 'function' && document.getElementById('matches-list')) renderRondas();
+  }
+
+  const _claimMatchKey = (m) => [m.p1Id, m.p2Id].slice().sort().join('|');
+  function claimForMatch(m) {
+    if (!m || !m.p2Id || m.isBye || m.isLateLoss || typeof state === 'undefined') return null;
+    const key = _claimMatchKey(m);
+    return _pendingClaims.find((c) => c.round_number === state.currentRound && c.match_key === key) || null;
+  }
+  function claimLabel(c, m) {
+    if (c.result === 'doubleLoss') {
+      const n = playerNameById(c.reporter_id);
+      return (n === '—' ? 'Un jugador' : n) + ' reporta doble derrota';
+    }
+    return playerNameById(c.result === 'p1' ? m.p1Id : m.p2Id) + ' reclama victoria';
+  }
+  const _resultLabel = (m) => m.result === 'doubleLoss' ? 'doble derrota'
+    : 'victoria de ' + playerNameById(m.result === 'p1' ? m.p1Id : m.p2Id);
+
+  // Aviso por mesa (solo ronda actual): reclamo pendiente sin resultado, o
+  // reclamo que difiere de lo registrado (conflicto, en rojo).
+  function injectClaimNotes() {
+    if (typeof state === 'undefined' || !state.started || state.finished || !_pendingClaims.length) return;
+    const round = viewedRoundObj();
+    if (!round || round.roundNumber !== state.currentRound) return;
+    const list = document.getElementById('matches-list');
+    if (!list || list.children.length !== round.matches.length) return; // mapeo por índice (ver #135)
+    round.matches.forEach((m, i) => {
+      const c = claimForMatch(m);
+      if (!c) return;
+      if (m.isReported && m.result === c.result) return; // ya registrado igual: nada que avisar
+      const conflict = m.isReported && m.result !== c.result;
+      const note = document.createElement('div');
+      note.className = 'claim-note' + (conflict ? ' conflict' : '');
+      note.textContent = '⚠ ' + claimLabel(c, m) + ' — sin confirmar por el rival' +
+        (conflict ? ' (difiere del resultado registrado)' : '');
+      list.children[i].appendChild(note);
+    });
+  }
+  if (typeof window.renderRondas === 'function') {
+    const _prevRenderRondas = window.renderRondas; // encadena sobre el wrapper de #135
+    window.renderRondas = function () { const r = _prevRenderRondas.apply(this, arguments); injectClaimNotes(); return r; };
+  }
+
+  // Guard 1: "Doble derrota" sobre una mesa donde alguien reclama victoria.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('[data-action="dl"]');
+    if (!btn || typeof currentRoundObj !== 'function') return;
+    const round = currentRoundObj();
+    const m = round && round.matches.find((x) => x.id === btn.dataset.id);
+    const c = m && claimForMatch(m);
+    if (!c || c.result === 'doubleLoss') return; // sin reclamo, o reclaman lo mismo → flujo normal
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openConfirm(
+      claimLabel(c, m) + ' en esta mesa y su rival aún no confirma. ¿Marcar doble derrota de todas formas?',
+      () => reportResult(m.id, 'doubleLoss'),
+      { title: 'Reclamo sin confirmar', confirmText: 'Doble derrota' }
+    );
+  }, true);
+
+  // Guard 2: "Cerrar Ronda y Avanzar" con resultados que difieren de reclamos pendientes.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('#advance-round');
+    if (!btn || typeof state === 'undefined' || state.finished) return;
+    const round = currentRoundObj();
+    if (!round || !allReported(round)) return; // app.js mostrará su propio aviso
+    const conflicts = [];
+    round.matches.forEach((m, i) => {
+      const c = claimForMatch(m);
+      if (c && m.result !== c.result) conflicts.push('Mesa ' + (i + 1) + ': ' + claimLabel(c, m) + ' (registrado: ' + _resultLabel(m) + ')');
+    });
+    if (!conflicts.length) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openConfirm(
+      'Hay reclamos de jugadores sin confirmar que difieren del resultado registrado — ' + conflicts.join('; ') + '. ¿Cerrar la ronda de todas formas?',
+      () => advanceRound(),
+      { title: 'Reclamos sin confirmar', confirmText: 'Avanzar igualmente' }
+    );
+  }, true);
 
   // ---- boot --------------------------------------------------------------
   wrapSave();
