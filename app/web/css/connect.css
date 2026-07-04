@@ -455,3 +455,10 @@ select.ds-season { cursor: pointer; }
 /* Encendido = acento (la proyección muestra los pareos); apagado = fantasma
    (proyección de solo timer). El estado vive en localStorage. */
 #timer-pairings.tp-on { color: var(--gold); border-color: var(--gold); }
+
+/* ---- Rondas · corrección de resultado en rondas pasadas (#135) --------- */
+/* Fila inyectada al pie de cada mesa en la vista histórico (torneo en curso). */
+.fixrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.fixrow .fixhint { font-size: 12px; color: var(--ink-faint); margin-right: 2px; }
+.fixrow .fix-open { color: var(--ink-soft); }
+.fixrow .fix-open:hover { color: var(--gold); border-color: var(--gold); }
