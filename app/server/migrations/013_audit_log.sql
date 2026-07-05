@@ -16,7 +16,9 @@ CREATE TABLE audit_log (
   detail_json   TEXT                       -- resumen compacto (diff, ids, etc.)
 );
 CREATE INDEX idx_audit_ts ON audit_log (ts);
-CREATE INDEX idx_audit_tournament ON audit_log (tournament_id);
+-- compuesto (tournament_id, id): la consulta del admin filtra por torneo y
+-- ordena por id DESC — así el índice sirve el ORDER BY sin sort aparte.
+CREATE INDEX idx_audit_tournament ON audit_log (tournament_id, id);
 
 -- Ring de snapshots: los últimos N state_json por torneo, solo cuando el PUT
 -- trae un cambio NOTABLE (diff no vacío) — material real de diff/rollback sin

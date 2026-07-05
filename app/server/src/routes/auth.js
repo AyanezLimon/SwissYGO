@@ -30,7 +30,7 @@ export default async function authRoutes(app) {
       .prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
       .run(username, email, hash); // role defaults to 'player'
     const user = { id: info.lastInsertRowid, username, role: 'player' };
-    audit({ type: 'user', id: user.id, name: username }, 'auth.register', null, email ? { email } : null);
+    audit({ type: 'user', id: user.id, name: username }, 'auth.register', null, email ? { hasEmail: true } : null); // sin PII: el email vive en users, no en el log
     const token = await reply.jwtSign(user);
     return reply.code(201).send({ token, user });
   });

@@ -72,6 +72,17 @@ export default async function tournamentRoutes(app) {
     if (!pid) { const gt = req.headers['x-guest-token']; if (gt) { const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt); if (r) pid = r.player_id; } }
     return pid;
   }
+  // Actor de auditoría coherente con CÓMO participantId resolvió el slot: solo es
+  // "user" si este pid ES la inscripción de esa cuenta (una request puede traer
+  // JWT y x-guest-token a la vez); en cualquier otro caso es el guest del token
+  // (id = player_id). Mantiene actor_id alineado con actor_type.
+  function participantActor(req, t, pid) {
+    if (req.user && req.user.id != null) {
+      const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id);
+      if (r && r.player_id === pid) return { type: 'user', id: req.user.id, name: req.user.username };
+    }
+    return { type: 'guest', id: pid };
+  }
   // The player's current-round, reportable (non-bye, two-player) match in `state`.
   function currentMatchFor(state, playerId) {
     const round = (state.rounds || []).find((r) => r.roundNumber === state.currentRound);
@@ -153,6 +164,7 @@ export default async function tournamentRoutes(app) {
     if (typeof req.body?.ranked === 'boolean' && status === 'setup') {
       const r = req.userRole === 'casual' ? 0 : (req.body.ranked ? 1 : 0); // casual can never set ranked
       db.prepare('UPDATE tournaments SET ranked = ? WHERE id = ?').run(r, row.id);
+      if (r !== (row.ranked ? 1 : 0)) audit(actorFromReq(req), 'tournament.ranked', row.id, { ranked: !!r });
     }
     // #136: audita solo los PUT con cambios NOTABLES (el diff filtra el ruido de
     // timer/notas) y guarda el snapshot en el ring — material de diff/rollback.
@@ -175,6 +187,7 @@ export default async function tournamentRoutes(app) {
     db.prepare("UPDATE tournaments SET state_json = ?, status = 'finished', finished_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(state), row.id);
     audit(actorFromReq(req), 'tournament.finish', row.id);
+    recordState(row.id, JSON.stringify(state)); // mismo ring que put_state: cerrar es un cambio notable
     return { ok: true };
   });
 
@@ -411,7 +424,7 @@ export default async function tournamentRoutes(app) {
     const pid = await participantId(req, t);
     if (!pid) return reply.code(404).send({ error: 'No estás inscrito en este torneo.' });
     db.prepare('DELETE FROM registrations WHERE tournament_id = ? AND player_id = ?').run(t.id, pid);
-    audit({ type: req.user ? 'user' : 'guest', id: req.user ? req.user.id : pid, name: req.user && req.user.username }, 'registration.withdraw', t.id, { player_id: pid });
+    audit(participantActor(req, t, pid), 'registration.withdraw', t.id, { player_id: pid });
     return { ok: true };
   });
 
@@ -442,7 +455,7 @@ export default async function tournamentRoutes(app) {
                 ON CONFLICT(tournament_id, round_number, match_key)
                 DO UPDATE SET reporter_id=excluded.reporter_id, result=excluded.result, confirmed=0, confirmer_id=NULL, confirmed_at=NULL, created_at=datetime('now')`)
       .run(t.id, cm.roundNumber, cm.key, pid, result);
-    audit({ type: req.user ? 'user' : 'guest', id: pid, name: req.user && req.user.username }, 'report.claim', t.id, { round: cm.roundNumber, match_key: cm.key, result });
+    audit(participantActor(req, t, pid), 'report.claim', t.id, { round: cm.roundNumber, match_key: cm.key, result });
     return { ok: true, result, awaitingConfirmation: true };
   });
 
@@ -460,11 +473,11 @@ export default async function tournamentRoutes(app) {
     if (rep.reporter_id === pid) return reply.code(409).send({ error: 'Quien reporta no confirma; espera a tu rival.' });
     if (req.body?.accept === false) {
       db.prepare('DELETE FROM result_reports WHERE id = ?').run(rep.id);
-      audit({ type: req.user ? 'user' : 'guest', id: pid, name: req.user && req.user.username }, 'report.reject', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
+      audit(participantActor(req, t, pid), 'report.reject', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
       return { ok: true, confirmed: false, rejected: true };
     }
     db.prepare("UPDATE result_reports SET confirmed=1, confirmer_id=?, confirmed_at=datetime('now') WHERE id = ?").run(pid, rep.id);
-    audit({ type: req.user ? 'user' : 'guest', id: pid, name: req.user && req.user.username }, 'report.confirm', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
+    audit(participantActor(req, t, pid), 'report.confirm', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
     return { ok: true, confirmed: true };
   });
 

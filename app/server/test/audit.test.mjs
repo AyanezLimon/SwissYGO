@@ -93,6 +93,17 @@ test('makeAudit inserta contra el esquema real y jamás lanza', () => {
   assert.doesNotThrow(() => broken({ type: 'user' }, 'x'));
 });
 
+test('makeAudit: el pruning periódico borra filas fuera de retención', () => {
+  const db = freshDb();
+  const audit = makeAudit(db);
+  audit({ type: 'user', id: 1 }, 'old.row'); // id 1
+  db.prepare("UPDATE audit_log SET ts = datetime('now', '-120 days') WHERE id = 1").run();
+  // el prune corre cuando lastInsertRowid % 100 === 0 → llegar al id 100
+  for (let i = 2; i <= 100; i++) audit({ type: 'user', id: 1 }, 'filler');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'old.row'").get().n, 0, 'la fila de 120 días se podó');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n, 99, 'las filas recientes quedan');
+});
+
 test('makeStateHistory: ring de N, salta duplicados', () => {
   const db = freshDb();
   const record = makeStateHistory(db, 3);
