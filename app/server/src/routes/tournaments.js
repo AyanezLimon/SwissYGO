@@ -9,6 +9,7 @@ import { computeLeaderboard, MIN_GAMES as LB_MIN_GAMES } from '../lib/leaderboar
 import { parseDeckString } from '../lib/decks-api.js';
 import { checkDeckLegality } from '../lib/deck-legality.js';
 import { aggregateDeckStats } from '../lib/deck-stats.js';
+import { makeAudit, makeStateHistory, diffStates, actorFromReq } from '../lib/audit.js';
 
 /**
  * Generates a 5-character tournament join code.
@@ -36,6 +37,8 @@ function emptyStateJson() {
  */
 export default async function tournamentRoutes(app) {
   const db = app.db;
+  const audit = makeAudit(db);            // #136: trail de mutaciones (nunca rompe el request)
+  const recordState = makeStateHistory(db);
 
   // Elo K-factor (rating volatility), admin-tunable via the settings table (#91).
   // Bigger K = larger swings. Changing it re-rates the season on the next recompute
@@ -69,6 +72,17 @@ export default async function tournamentRoutes(app) {
     if (!pid) { const gt = req.headers['x-guest-token']; if (gt) { const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND guest_token = ?').get(t.id, gt); if (r) pid = r.player_id; } }
     return pid;
   }
+  // Actor de auditoría coherente con CÓMO participantId resolvió el slot: solo es
+  // "user" si este pid ES la inscripción de esa cuenta (una request puede traer
+  // JWT y x-guest-token a la vez); en cualquier otro caso es el guest del token
+  // (id = player_id). Mantiene actor_id alineado con actor_type.
+  function participantActor(req, t, pid) {
+    if (req.user && req.user.id != null) {
+      const r = db.prepare('SELECT player_id FROM registrations WHERE tournament_id = ? AND user_id = ?').get(t.id, req.user.id);
+      if (r && r.player_id === pid) return { type: 'user', id: req.user.id, name: req.user.username };
+    }
+    return { type: 'guest', id: pid };
+  }
   // The player's current-round, reportable (non-bye, two-player) match in `state`.
   function currentMatchFor(state, playerId) {
     const round = (state.rounds || []).find((r) => r.roundNumber === state.currentRound);
@@ -88,6 +102,7 @@ export default async function tournamentRoutes(app) {
     const info = db
       .prepare('INSERT INTO tournaments (to_user_id, name, join_code, status, state_json, ranked) VALUES (?, ?, ?, ?, ?, ?)')
       .run(req.user.id, name, code, 'setup', emptyStateJson(), ranked);
+    audit(actorFromReq(req), 'tournament.create', info.lastInsertRowid, { name, code, ranked: !!ranked });
     return reply.code(201).send({ id: info.lastInsertRowid, name, join_code: code, status: 'setup', ranked: !!ranked });
   });
 
@@ -149,7 +164,17 @@ export default async function tournamentRoutes(app) {
     if (typeof req.body?.ranked === 'boolean' && status === 'setup') {
       const r = req.userRole === 'casual' ? 0 : (req.body.ranked ? 1 : 0); // casual can never set ranked
       db.prepare('UPDATE tournaments SET ranked = ? WHERE id = ?').run(r, row.id);
+      if (r !== (row.ranked ? 1 : 0)) audit(actorFromReq(req), 'tournament.ranked', row.id, { ranked: !!r });
     }
+    // #136: audita solo los PUT con cambios NOTABLES (el diff filtra el ruido de
+    // timer/notas) y guarda el snapshot en el ring — material de diff/rollback.
+    let prevState = {}; try { prevState = JSON.parse(row.state_json); } catch {}
+    const diff = diffStates(prevState, state);
+    if (diff) {
+      audit(actorFromReq(req), 'tournament.put_state', row.id, diff);
+      recordState(row.id, JSON.stringify(state));
+    }
+    if (name && name !== row.name) audit(actorFromReq(req), 'tournament.rename', row.id, { from: row.name, to: name });
     return { ok: true, status };
   });
 
@@ -161,6 +186,8 @@ export default async function tournamentRoutes(app) {
     state.finished = true;
     db.prepare("UPDATE tournaments SET state_json = ?, status = 'finished', finished_at = datetime('now') WHERE id = ?")
       .run(JSON.stringify(state), row.id);
+    audit(actorFromReq(req), 'tournament.finish', row.id);
+    recordState(row.id, JSON.stringify(state)); // mismo ring que put_state: cerrar es un cambio notable
     return { ok: true };
   });
 
@@ -281,6 +308,7 @@ export default async function tournamentRoutes(app) {
       const playerId = 'u' + userId + '-' + Date.now().toString(36);
       db.prepare('INSERT INTO registrations (tournament_id, user_id, player_id, display_name, deck_id, cards_json) VALUES (?, ?, ?, ?, ?, ?)')
         .run(t.id, userId, playerId, dn, deckId, cardsJson);
+      audit({ type: 'user', id: userId, name: uname }, 'registration.join', t.id, { player_id: playerId, display_name: dn, late: !!lateOpen, ...(deckId ? { deck_id: deckId } : {}) });
       return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, deck_id: deckId, late: lateOpen });
     }
 
@@ -310,6 +338,7 @@ export default async function tournamentRoutes(app) {
     const playerId = 'g-' + guestToken.slice(0, 8) + '-' + Date.now().toString(36);
     db.prepare('INSERT INTO registrations (tournament_id, guest_token, player_id, display_name) VALUES (?, ?, ?, ?)')
       .run(t.id, guestToken, playerId, dn);
+    audit({ type: 'guest', id: playerId, name: dn }, 'registration.join', t.id, { player_id: playerId, display_name: dn, late: !!lateOpen, guest: true });
     return reply.code(201).send({ id: t.id, name: t.name, player_id: playerId, display_name: dn, guest_token: guestToken, late: lateOpen });
   });
 
@@ -395,6 +424,7 @@ export default async function tournamentRoutes(app) {
     const pid = await participantId(req, t);
     if (!pid) return reply.code(404).send({ error: 'No estás inscrito en este torneo.' });
     db.prepare('DELETE FROM registrations WHERE tournament_id = ? AND player_id = ?').run(t.id, pid);
+    audit(participantActor(req, t, pid), 'registration.withdraw', t.id, { player_id: pid });
     return { ok: true };
   });
 
@@ -425,6 +455,7 @@ export default async function tournamentRoutes(app) {
                 ON CONFLICT(tournament_id, round_number, match_key)
                 DO UPDATE SET reporter_id=excluded.reporter_id, result=excluded.result, confirmed=0, confirmer_id=NULL, confirmed_at=NULL, created_at=datetime('now')`)
       .run(t.id, cm.roundNumber, cm.key, pid, result);
+    audit(participantActor(req, t, pid), 'report.claim', t.id, { round: cm.roundNumber, match_key: cm.key, result });
     return { ok: true, result, awaitingConfirmation: true };
   });
 
@@ -442,9 +473,11 @@ export default async function tournamentRoutes(app) {
     if (rep.reporter_id === pid) return reply.code(409).send({ error: 'Quien reporta no confirma; espera a tu rival.' });
     if (req.body?.accept === false) {
       db.prepare('DELETE FROM result_reports WHERE id = ?').run(rep.id);
+      audit(participantActor(req, t, pid), 'report.reject', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
       return { ok: true, confirmed: false, rejected: true };
     }
     db.prepare("UPDATE result_reports SET confirmed=1, confirmer_id=?, confirmed_at=datetime('now') WHERE id = ?").run(pid, rep.id);
+    audit(participantActor(req, t, pid), 'report.confirm', t.id, { round: rep.round_number, match_key: rep.match_key, result: rep.result });
     return { ok: true, confirmed: true };
   });
 

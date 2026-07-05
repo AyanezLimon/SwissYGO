@@ -7,12 +7,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../auth.js';
 import { reassignToAccount, restorePlayer, removePlayer, matchKind } from '../lib/roster.js';
+import { makeAudit } from '../lib/audit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 export default async function adminRoutes(app) {
   const db = app.db;
+  const audit = makeAudit(db);                    // #136
+  const ADMIN = { type: 'admin', name: 'admin' }; // actor local (:8788, sin identidad propia)
 
   const guard = async (req, reply) => {
     if (!ADMIN_PASSWORD) return reply.code(503).send({ error: 'Admin deshabilitado: define ADMIN_PASSWORD.' });
@@ -39,6 +42,7 @@ export default async function adminRoutes(app) {
     if (!sets.length) return reply.code(400).send({ error: 'Nada que actualizar.' });
     vals.push(Number(req.params.id));
     db.prepare('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals);
+    audit(ADMIN, 'admin.user_update', null, { user_id: Number(req.params.id), ...(role !== undefined ? { role } : {}), ...(disabled !== undefined ? { disabled: disabled ? 1 : 0 } : {}) });
     return { ok: true };
   });
 
@@ -46,11 +50,13 @@ export default async function adminRoutes(app) {
     const { password } = req.body || {};
     if (!password || password.length < 6) return reply.code(400).send({ error: 'Contraseña mín. 6.' });
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(password), Number(req.params.id));
+    audit(ADMIN, 'admin.user_password', null, { user_id: Number(req.params.id) });
     return { ok: true };
   });
 
   app.delete('/admin/users/:id', { preHandler: guard }, async (req) => {
     db.prepare('DELETE FROM users WHERE id = ?').run(Number(req.params.id));
+    audit(ADMIN, 'admin.user_delete', null, { user_id: Number(req.params.id) });
     return { ok: true };
   });
 
@@ -75,12 +81,14 @@ export default async function adminRoutes(app) {
     if (!name) return reply.code(400).send({ error: 'Indica un nombre.' });
     const info = db.prepare('UPDATE tournaments SET name = ? WHERE id = ?').run(name, Number(req.params.id));
     if (!info.changes) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+    audit(ADMIN, 'admin.tournament_rename', Number(req.params.id), { name });
     return { ok: true };
   });
 
   app.delete('/admin/tournaments/:id', { preHandler: guard }, async (req, reply) => {
     const info = db.prepare('DELETE FROM tournaments WHERE id = ?').run(Number(req.params.id)); // registrations cascade (FK)
     if (!info.changes) return reply.code(404).send({ error: 'Torneo no encontrado.' });
+    audit(ADMIN, 'admin.tournament_delete', Number(req.params.id));
     return { ok: true };
   });
 
@@ -106,6 +114,7 @@ export default async function adminRoutes(app) {
     const info = db.prepare('DELETE FROM registrations WHERE tournament_id = ? AND player_id = ?')
       .run(Number(req.params.tournamentId), req.params.playerId);
     if (!info.changes) return reply.code(404).send({ error: 'Inscripción no encontrada.' });
+    audit(ADMIN, 'admin.registration_delete', Number(req.params.tournamentId), { player_id: req.params.playerId });
     return { ok: true };
   });
 
@@ -123,6 +132,7 @@ export default async function adminRoutes(app) {
     const k = parseInt(req.body?.elo_k, 10);
     if (!Number.isFinite(k) || k < 1 || k > 100) return reply.code(400).send({ error: 'elo_k debe ser un entero entre 1 y 100.' });
     db.prepare("INSERT INTO settings (key, value) VALUES ('elo_k', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(k));
+    audit(ADMIN, 'admin.settings', null, { elo_k: k });
     return { ok: true, elo_k: k };
   });
 
@@ -182,6 +192,7 @@ export default async function adminRoutes(app) {
         writeState(tid, state);
       })();
     } catch (e) { return reply.code(409).send({ error: e.message }); }
+    audit(ADMIN, 'admin.roster_reassign', tid, { player_id: playerId, user_id: userId, username: user.username });
     return { ok: true };
   });
 
@@ -194,6 +205,7 @@ export default async function adminRoutes(app) {
     if (!reg) return reply.code(404).send({ error: 'No hay inscripción para restaurar ese jugador.' });
     try { restorePlayer(state, reg); writeState(tid, state); }
     catch (e) { return reply.code(409).send({ error: e.message }); }
+    audit(ADMIN, 'admin.roster_restore', tid, { player_id: playerId });
     return { ok: true };
   });
 
@@ -209,6 +221,7 @@ export default async function adminRoutes(app) {
         writeState(tid, state);
       })();
     } catch (e) { return reply.code(409).send({ error: e.message }); }
+    audit(ADMIN, 'admin.roster_remove', tid, { player_id: playerId });
     return { ok: true };
   });
 
@@ -221,6 +234,29 @@ export default async function adminRoutes(app) {
     if ((lt.state.players || []).some((p) => p.id === playerId)) return reply.code(409).send({ error: 'Ese jugador SÍ está en el torneo; usa "Quitar jugador", no limpiar huérfano.' });
     const info = db.prepare('DELETE FROM registrations WHERE tournament_id=? AND player_id=?').run(tid, playerId);
     if (!info.changes) return reply.code(404).send({ error: 'Inscripción no encontrada.' });
+    audit(ADMIN, 'admin.roster_orphan_clean', tid, { player_id: playerId });
     return { ok: true };
+  });
+
+  // ---- Auditoría (#136) — solo lectura ----
+  // Trail de mutaciones (lo llena makeAudit desde todas las rutas). Filtros:
+  // ?tournament_id=N, ?action=prefijo (LIKE 'x%'), ?limit (máx 500).
+  app.get('/admin/audit', { preHandler: guard }, async (req) => {
+    const lim = Math.min(500, Math.max(1, parseInt(req.query?.limit, 10) || 100));
+    const conds = [], vals = [];
+    if (req.query?.tournament_id) { conds.push('tournament_id = ?'); vals.push(Number(req.query.tournament_id)); }
+    if (req.query?.action) { conds.push('action LIKE ?'); vals.push(String(req.query.action) + '%'); }
+    const where = conds.length ? ' WHERE ' + conds.join(' AND ') : '';
+    return db.prepare('SELECT id, ts, actor_type, actor_id, actor_name, action, tournament_id, detail_json FROM audit_log' + where + ' ORDER BY id DESC LIMIT ?').all(...vals, lim);
+  });
+
+  // Ring de snapshots del estado (material de diff/rollback): lista + snapshot.
+  app.get('/admin/tournaments/:id/history', { preHandler: guard }, async (req) =>
+    db.prepare('SELECT id, ts, length(state_json) AS bytes FROM state_history WHERE tournament_id = ? ORDER BY id DESC').all(Number(req.params.id)));
+
+  app.get('/admin/history/:id', { preHandler: guard }, async (req, reply) => {
+    const row = db.prepare('SELECT * FROM state_history WHERE id = ?').get(Number(req.params.id));
+    if (!row) return reply.code(404).send({ error: 'Snapshot no encontrado.' });
+    return { id: row.id, tournament_id: row.tournament_id, ts: row.ts, state: JSON.parse(row.state_json) };
   });
 }

@@ -57,6 +57,7 @@
         <button class="tabbtn" id="tab-regs">Inscripciones</button>
         <button class="tabbtn" id="tab-settings">Ajustes</button>
         <button class="tabbtn" id="tab-roster">Roster</button>
+        <button class="tabbtn" id="tab-audit">Auditoría</button>
       </div>
       <button id="refresh">Recargar</button>
     </div>
@@ -128,6 +129,20 @@
       <table id="ros-otable" style="display:none">
         <thead><tr><th>Inscripción</th><th>Tipo</th><th>Estado</th><th>Acciones</th></tr></thead>
         <tbody id="ros-orows"></tbody>
+      </table>
+    </div>
+
+    <div id="view-audit" hidden>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="au-action" aria-label="Filtrar por acción (prefijo)" placeholder="Acción (prefijo, ej. tournament.)" style="width:220px" />
+        <input id="au-tid" type="number" aria-label="Filtrar por id de torneo" placeholder="Torneo id" style="width:110px" />
+        <button class="btn-gold" id="au-load">Buscar</button>
+        <span id="au-count" style="color:var(--soft);font-size:12.5px"></span>
+      </div>
+      <p style="color:#9aa;font-size:12px;max-width:640px;margin:.4rem 0 0">Solo mutaciones (nunca lecturas). Retención ~90 días. El detalle de un <code>put_state</code> resume qué cambió (rondas, mesas, resultados); los snapshots del estado viven en <code>/admin/tournaments/:id/history</code>.</p>
+      <table>
+        <thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Torneo</th><th>Detalle</th></tr></thead>
+        <tbody id="au-rows"></tbody>
       </table>
     </div>
   </div>
@@ -266,7 +281,31 @@
     catch (e) { $('#ros-msg').textContent = e.message; }
   }
 
-  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings, roster: loadRosterPicker };
+  // ---- Auditoría (#136) ----
+  async function loadAudit() {
+    $('#err').textContent = '';
+    try {
+      const q = new URLSearchParams();
+      if ($('#au-action').value.trim()) q.set('action', $('#au-action').value.trim());
+      if ($('#au-tid').value) q.set('tournament_id', $('#au-tid').value);
+      q.set('limit', '200');
+      const rows = await api('/admin/audit?' + q.toString());
+      $('#au-count').textContent = rows.length + ' evento(s)';
+      $('#au-rows').innerHTML = rows.map(r => {
+        let det = '';
+        try { const d = JSON.parse(r.detail_json || 'null'); if (d) det = Object.entries(d).map(([k, v]) => k + ': ' + (Array.isArray(v) ? v.join(' · ') : v)).join(' — '); } catch {}
+        return `<tr>
+          <td style="color:var(--soft);font-size:12.5px;white-space:nowrap">${esc((r.ts || '').replace('T', ' ').slice(0, 19))}</td>
+          <td>${r.actor_name || r.actor_id ? esc(r.actor_name || r.actor_id) : '—'} <span class="tag ${r.actor_type === 'admin' ? 'off' : r.actor_type === 'user' ? 'to' : 'player'}">${esc(r.actor_type)}</span></td>
+          <td><code style="font-size:12.5px">${esc(r.action)}</code></td>
+          <td>${r.tournament_id ?? '—'}</td>
+          <td style="color:var(--soft);font-size:12.5px;max-width:340px;overflow-wrap:anywhere">${esc(det)}</td>
+        </tr>`;
+      }).join('');
+    } catch (e) { $('#err').textContent = e.message; }
+  }
+
+  const loaders = { users: load, tourneys: loadTournaments, regs: loadRegistrations, settings: loadSettings, roster: loadRosterPicker, audit: loadAudit };
   let view = 'users';
   function showView(v) {
     view = v;
@@ -275,11 +314,13 @@
     $('#tab-regs').classList.toggle('active', v === 'regs');
     $('#tab-settings').classList.toggle('active', v === 'settings');
     $('#tab-roster').classList.toggle('active', v === 'roster');
+    $('#tab-audit').classList.toggle('active', v === 'audit');
     $('#view-users').hidden = v !== 'users';
     $('#view-tourneys').hidden = v !== 'tourneys';
     $('#view-regs').hidden = v !== 'regs';
     $('#view-settings').hidden = v !== 'settings';
     $('#view-roster').hidden = v !== 'roster';
+    $('#view-audit').hidden = v !== 'audit';
     loaders[v]();
   }
 
@@ -295,6 +336,8 @@
   $('#tab-regs').addEventListener('click', () => showView('regs'));
   $('#tab-settings').addEventListener('click', () => showView('settings'));
   $('#tab-roster').addEventListener('click', () => showView('roster'));
+  $('#tab-audit').addEventListener('click', () => showView('audit'));
+  $('#au-load').addEventListener('click', loadAudit);
 
   $('#ros-load').addEventListener('click', loadRoster);
   $('#ros-do-reassign').addEventListener('click', () => {
