@@ -259,4 +259,24 @@ export default async function adminRoutes(app) {
     if (!row) return reply.code(404).send({ error: 'Snapshot no encontrado.' });
     return { id: row.id, tournament_id: row.tournament_id, ts: row.ts, state: JSON.parse(row.state_json) };
   });
+
+  // ---- Monitor de requests (#142) — ring en memoria del API público ----
+  app.get('/admin/requests', { preHandler: guard }, async () => app.reqmon.list());
+
+  // Streaming SSE de las requests nuevas. El cliente NO usa EventSource (no
+  // permite el header X-Admin-Password) sino fetch en streaming; el formato de
+  // eventos es SSE estándar igualmente. Heartbeat cada 25 s para que la
+  // conexión inactiva no se corte; hijack() para manejar el socket a mano.
+  app.get('/admin/requests/stream', { preHandler: guard }, (req, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    reply.raw.write(':ok\n\n');
+    const unsub = app.reqmon.subscribe((e) => reply.raw.write('data: ' + JSON.stringify(e) + '\n\n'));
+    const hb = setInterval(() => reply.raw.write(':hb\n\n'), 25000);
+    req.raw.on('close', () => { clearInterval(hb); unsub(); });
+  });
 }
