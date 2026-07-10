@@ -605,8 +605,18 @@
       }
       renderPairing(j, me);
     } catch (e) {
-      if (e.status === 403) renderJoin('Ya no estás inscrito en ese torneo.');
-      // other errors: keep last view, retry next tick
+      // 404/403 son TERMINALES (torneo eliminado / ya no inscrito): cortar el
+      // poll y cerrar la sesión del torneo — mismo patrón que la rama de "el TO
+      // te retiró" arriba. Si no, la pestaña spamea /me cada 4 s para siempre
+      // (visto en el monitor: bucle de 404 contra un torneo borrado, #144).
+      if (e.status === 404 || e.status === 403) {
+        stopPoll();
+        setJoined(null);
+        navReset();
+        renderJoin(e.status === 404 ? 'Ese torneo ya no existe.' : 'Ya no estás inscrito en ese torneo.');
+        return;
+      }
+      // errores transitorios (red/5xx): conserva la vista y reintenta al siguiente tick
     } finally {
       _pollInFlight = false;
     }
