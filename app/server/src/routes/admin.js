@@ -274,9 +274,24 @@ export default async function adminRoutes(app) {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    reply.raw.write(':ok\n\n');
-    const unsub = app.reqmon.subscribe((e) => reply.raw.write('data: ' + JSON.stringify(e) + '\n\n'));
-    const hb = setInterval(() => reply.raw.write(':hb\n\n'), 25000);
-    req.raw.on('close', () => { clearInterval(hb); unsub(); });
+    // Escrituras blindadas + cleanup idempotente: el admin comparte proceso con
+    // el API público — un socket muerto jamás debe escalar a excepción global.
+    let hb = null, unsub = () => {}, done = false;
+    function cleanup() {
+      if (done) return;
+      done = true;
+      clearInterval(hb);
+      unsub();
+      try { reply.raw.end(); } catch { /* ya cerrado */ }
+    }
+    const write = (s) => {
+      if (done) return;
+      try { reply.raw.write(s); } catch { cleanup(); }
+    };
+    write(':ok\n\n');
+    unsub = app.reqmon.subscribe((e) => write('data: ' + JSON.stringify(e) + '\n\n'));
+    hb = setInterval(() => write(':hb\n\n'), 25000);
+    req.raw.on('close', cleanup);
+    reply.raw.on('error', cleanup);
   });
 }

@@ -340,7 +340,9 @@
   }
   function monPrepend(entries) {
     const q = $('#mon-filter').value.trim().toLowerCase();
-    const html = entries.filter((e) => monMatch(e, q)).map(monRowHtml).join('');
+    // El buffer llega en orden cronológico (viejo→nuevo); la tabla es nuevo-primero,
+    // así que el bloque a prepender se invierte para quedar igual que monRenderAll.
+    const html = entries.slice().reverse().filter((e) => monMatch(e, q)).map(monRowHtml).join('');
     if (html) $('#mon-rows').insertAdjacentHTML('afterbegin', html);
     while ($('#mon-rows').children.length > MON_MAX_ROWS) $('#mon-rows').lastChild.remove();
   }
