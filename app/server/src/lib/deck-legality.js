@@ -4,7 +4,7 @@
  * together, so alternate-art passcodes can't bypass a limit. Default format: TCG. */
 
 const LIMIT = { Forbidden: 0, Limited: 1, 'Semi-Limited': 2 }; // → max copies; anything else = 3
-const YGO_CARDINFO = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?id=';
+const YGO_CARDINFO = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes&id=';
 
 // Resolve passcodes → { [code]: { name, ban } } from YGOProDeck (chunked).
 // FAILS CLOSED: a ranked legality check must never silently pass an unverifiable deck,
@@ -18,21 +18,43 @@ const YGO_CARDINFO = 'https://db.ygoprodeck.com/api/v7/cardinfo.php?id=';
 export async function fetchCardInfo(codes, fetchImpl = fetch) {
   const uniq = [...new Set((codes || []).map(Number).filter(Boolean))];
   const map = {};
-  for (let i = 0; i < uniq.length; i += 100) {
-    const chunk = uniq.slice(i, i + 100);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
-    try {
-      const res = await fetchImpl(YGO_CARDINFO + chunk.join(','), { signal: ctrl.signal });
-      if (!res.ok) throw new Error('cardinfo HTTP ' + res.status);
-      const data = await res.json();
-      for (const c of (data.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
-    } catch (e) {
-      const err = new Error('No se pudo consultar la banlist.');
-      err.code = 'banlist_unavailable';
-      throw err;
-    } finally { clearTimeout(timer); }
+  const query = async (list) => {
+    for (let i = 0; i < list.length; i += 100) {
+      const chunk = list.slice(i, i + 100);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      try {
+        const res = await fetchImpl(YGO_CARDINFO + chunk.join(','), { signal: ctrl.signal });
+        if (!res.ok) throw new Error('cardinfo HTTP ' + res.status);
+        const data = await res.json();
+        for (const c of (data.data || [])) {
+          const meta = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
+          map[c.id] = meta;
+          // Alternate-art/reprint passcodes get normalized to a canonical `id` by the API;
+          // the passcode we actually queried with only survives as `misc_info[].beta_id`.
+          const betaId = c.misc_info && c.misc_info[0] && c.misc_info[0].beta_id;
+          if (betaId) map[betaId] = meta;
+        }
+      } catch (e) {
+        const err = new Error('No se pudo consultar la banlist.');
+        err.code = 'banlist_unavailable';
+        throw err;
+      } finally { clearTimeout(timer); }
+    }
+  };
+  await query(uniq);
+
+  // Some alt-art reprints (e.g. Quarter Century/Rarity Collection prints) get an image
+  // asset on YGOProDeck's CDN but never get their own cardinfo record — confirmed the
+  // record only ever exists one passcode lower, for the original printing (72270340 →
+  // 72270339, 25592143 → 25592142). Retry those specific misses at passcode-1.
+  const stillMissing = uniq.filter((c) => !(c in map));
+  const fallbackIds = [...new Set(stillMissing.map((c) => c - 1).filter((c) => c > 0))];
+  if (fallbackIds.length) {
+    await query(fallbackIds);
+    for (const c of stillMissing) { const meta = map[c - 1]; if (meta) map[c] = meta; }
   }
+
   return map;
 }
 

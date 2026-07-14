@@ -361,17 +361,36 @@
    */
   async function fetchCardMeta(codes) {
     const uniq = [...new Set(codes)]; const map = {};
-    for (let i = 0; i < uniq.length; i += 100) {
-      const chunk = uniq.slice(i, i + 100);
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 10000); // a stall must not freeze the picker
-      let j;
-      try {
-        const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + chunk.join(','), { signal: ctrl.signal });
-        if (!r.ok) throw new Error('No se pudo consultar la banlist.');
-        j = await r.json();
-      } finally { clearTimeout(timer); }
-      for (const c of (j.data || [])) map[c.id] = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
+    const query = async (list) => {
+      for (let i = 0; i < list.length; i += 100) {
+        const chunk = list.slice(i, i + 100);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000); // a stall must not freeze the picker
+        let j;
+        try {
+          const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes&id=' + chunk.join(','), { signal: ctrl.signal });
+          if (!r.ok) throw new Error('No se pudo consultar la banlist.');
+          j = await r.json();
+        } finally { clearTimeout(timer); }
+        for (const c of (j.data || [])) {
+          const info = { name: c.name, ban: (c.banlist_info && c.banlist_info.ban_tcg) || null };
+          map[c.id] = info;
+          // Alt-art/reprint passcodes normalize to a canonical `id`; the queried
+          // passcode only survives as `misc_info[].beta_id`.
+          const betaId = c.misc_info && c.misc_info[0] && c.misc_info[0].beta_id;
+          if (betaId) map[betaId] = info;
+        }
+      }
+    };
+    await query(uniq);
+    // Some alt-art reprints get an image on ygoprodeck's CDN but no cardinfo record —
+    // the record only ever exists one passcode lower (72270340 → 72270339, 25592143 →
+    // 25592142). Retry those specific misses at passcode-1.
+    const stillMissing = uniq.filter((c) => !(c in map));
+    const fallbackIds = [...new Set(stillMissing.map((c) => c - 1).filter((c) => c > 0))];
+    if (fallbackIds.length) {
+      await query(fallbackIds);
+      for (const c of stillMissing) { const info = map[c - 1]; if (info) map[c] = info; }
     }
     return map;
   }
@@ -909,10 +928,28 @@
   async function resolveCardNames(codes) {
     const uniq = [...new Set(codes)]; const map = {};
     if (!uniq.length) return map;
-    try {
-      const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?id=' + uniq.join(','));
-      if (r.ok) { const j = await r.json(); for (const c of (j.data || [])) map[c.id] = c.name; }
-    } catch (e) {}
+    const query = async (list) => {
+      try {
+        const r = await fetch('https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes&id=' + list.join(','));
+        if (r.ok) {
+          const j = await r.json();
+          for (const c of (j.data || [])) {
+            map[c.id] = c.name;
+            const betaId = c.misc_info && c.misc_info[0] && c.misc_info[0].beta_id;
+            if (betaId) map[betaId] = c.name;
+          }
+        }
+      } catch (e) {}
+    };
+    await query(uniq);
+    // Some alt-art reprints have art but no cardinfo record — the record only ever
+    // exists one passcode lower (72270340 → 72270339, 25592143 → 25592142).
+    const stillMissing = uniq.filter((c) => !(c in map));
+    const fallbackIds = [...new Set(stillMissing.map((c) => c - 1).filter((c) => c > 0))];
+    if (fallbackIds.length) {
+      await query(fallbackIds);
+      for (const c of stillMissing) { const nm = map[c - 1]; if (nm) map[c] = nm; }
+    }
     return map;
   }
 
