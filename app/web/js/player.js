@@ -801,7 +801,9 @@
 
     body.querySelectorAll('[data-deck]').forEach((el) => {
       const id = Number(el.dataset.deck);
+      const d = decks.find((x) => x.id === id);
       el.querySelector('[data-act="edit"]').addEventListener('click', () => navOpen(() => renderDeckEdit(id)));
+      el.querySelector('[data-act="export"]').addEventListener('click', () => exportDeckYdk(d));
       el.querySelector('[data-act="del"]').addEventListener('click', () => {
         const acts = el.querySelector('[data-acts]');
         acts.innerHTML = '<button class="btn btn-danger btn-sm" data-yes>Sí, borrar</button><button class="btn btn-sm btn-ghost" data-no>Cancelar</button>';
@@ -826,9 +828,29 @@
       <b class="name">${esc(d.name || 'Deck sin nombre')}</b>
       <div class="row acts" data-acts>
         <button class="btn btn-sm btn-ghost" data-act="edit">✎ Editar</button>
+        <button class="btn btn-sm btn-ghost" data-act="export" title="Exportar decklist" aria-label="Exportar decklist">⬇</button>
         <button class="btn btn-sm btn-danger" data-act="del" title="Borrar" aria-label="Borrar">🗑</button>
       </div>
     </div>`;
+  }
+
+  /**
+   * Exports a deck's decklist as a downloadable .ydk file.
+   * @param {Object} d - The deck to export.
+   * @param {number|string} d.id - The deck identifier.
+   * @param {string} [d.name] - The deck name (used for the filename).
+   */
+  async function exportDeckYdk(d) {
+    let cards;
+    try { const r = await API.req('/decks/' + d.id + '/cards'); cards = r.decks || {}; }
+    catch (e) { showToast(e.message || 'No se pudo exportar el deck.', true); return; }
+    const lines = ['#created by SwissYGO', '#main', ...(cards.main || []), '#extra', ...(cards.extra || []), '!side', ...(cards.side || [])];
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = (d.name || 'deck').trim().replace(/[^\w\-]+/g, '_') + '.ydk';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // Edit panel: cover + name (both editable in place), the deck image, and a
@@ -843,7 +865,7 @@
         <div class="row scr-head">
           <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
           <h2 class="scr-title">Editar deck</h2>
-          <span class="scr-spacer"></span>
+          <button class="btn btn-sm btn-ghost" id="de-export" type="button" title="Exportar decklist" aria-label="Exportar decklist">⬇</button>
         </div>
         <div id="de-body" class="muted de-body">Cargando…</div>
       </div>`;
@@ -852,6 +874,7 @@
     try { const data = await API.req('/decks'); d = (data.decks || []).find((x) => x.id === deckId); }
     catch (e) { const b = $('#de-body'); if (b) b.textContent = 'No se pudo cargar el deck.'; return; }
     if (!d) { showToast('Deck no encontrado.', true); navBack(); return; }
+    $('#de-export').addEventListener('click', () => exportDeckYdk(d));
     const body = $('#de-body'); if (!body) return;
     body.classList.remove('muted');
     body.innerHTML = `
