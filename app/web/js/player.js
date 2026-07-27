@@ -828,7 +828,7 @@
       <b class="name">${esc(d.name || 'Deck sin nombre')}</b>
       <div class="row acts" data-acts>
         <button class="btn btn-sm btn-ghost" data-act="edit">✎ Editar</button>
-        <button class="btn btn-sm btn-ghost" data-act="export" title="Exportar decklist" aria-label="Exportar decklist">⬇</button>
+        <button class="btn btn-sm btn-ghost" data-act="export" title="Exportar decklist" aria-label="Exportar decklist">⬇ Exportar</button>
         <button class="btn btn-sm btn-danger" data-act="del" title="Borrar" aria-label="Borrar">🗑</button>
       </div>
     </div>`;
@@ -865,7 +865,7 @@
         <div class="row scr-head">
           <button class="btn btn-sm btn-ghost" id="back" type="button">← Volver</button>
           <h2 class="scr-title">Editar deck</h2>
-          <button class="btn btn-sm btn-ghost" id="de-export" type="button" title="Exportar decklist" aria-label="Exportar decklist">⬇</button>
+          <button class="btn btn-sm btn-ghost" id="de-export" type="button" title="Exportar decklist" aria-label="Exportar decklist">⬇ Exportar</button>
         </div>
         <div id="de-body" class="muted de-body">Cargando…</div>
       </div>`;
